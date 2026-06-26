@@ -44,6 +44,6 @@ COPY --from=web-build /app/web/out ./web_dist
 RUN mkdir -p /app/data
 
 VOLUME ["/app/data"]
-EXPOSE 80
+EXPOSE 9001
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80", "--access-log"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9001", "--access-log"]

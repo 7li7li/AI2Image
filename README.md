@@ -55,7 +55,7 @@ docker compose -f docker-compose.local.yml up -d --build
 本地开发启动
 ```bash
 cd D:\Desktop\颜AI
-.\.venv\Scripts\python.exe -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn main:app --reload --host 127.0.0.1 --port 9001
 
 cd D:\Desktop\颜AI\web
 npm run dev
@@ -85,7 +85,7 @@ environment:
 
 ```nginx
 location / {
-    proxy_pass http://127.0.0.1:3001;
+    proxy_pass http://127.0.0.1:9001;
     proxy_http_version 1.1;
     proxy_buffering off;
     proxy_request_buffering off;
@@ -102,7 +102,7 @@ location / {
 Windows `cmd.exe` 测试流式文本接口时需要转义 JSON 双引号：
 
 ```cmd
-curl.exe -N "http://127.0.0.1:8000/v1/chat/completions" ^
+curl.exe -N "http://127.0.0.1:9001/v1/chat/completions" ^
   -H "Authorization: Bearer <auth-key>" ^
   -H "Content-Type: application/json" ^
   -d "{\"model\":\"gpt-5-5\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"你好\"}]}"
@@ -310,7 +310,7 @@ Authorization: Bearer <auth-key>
 返回上游模型列表，并补充当前内置默认模型。
 
 ```bash
-curl http://localhost:8000/v1/models \
+curl http://localhost:9001/v1/models \
   -H "Authorization: Bearer <auth-key>"
 ```
 
@@ -334,7 +334,7 @@ curl http://localhost:8000/v1/models \
 OpenAI 兼容图片生成接口，用于文生图。
 
 ```bash
-curl http://localhost:8000/v1/images/generations \
+curl http://localhost:9001/v1/images/generations \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <auth-key>" \
   -d '{
@@ -367,7 +367,7 @@ curl http://localhost:8000/v1/images/generations \
 OpenAI 兼容图片编辑接口，用于上传图片并生成编辑结果。
 
 ```bash
-curl http://localhost:8000/v1/images/edits \
+curl http://localhost:9001/v1/images/edits \
   -H "Authorization: Bearer <auth-key>" \
   -F "model=gpt-image-2" \
   -F "prompt=把这张图改成赛博朋克夜景风格" \
@@ -397,7 +397,7 @@ curl http://localhost:8000/v1/images/edits \
 Chat Completions 兼容接口。文本模型会走 ChatGPT 文本对话链路；图片模型或 `modalities` 包含 `image` 时会走图片工作流。
 
 ```bash
-curl http://localhost:8000/v1/chat/completions \
+curl http://localhost:9001/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <auth-key>" \
   -d '{
@@ -413,7 +413,7 @@ curl http://localhost:8000/v1/chat/completions \
 ```
 
 ```bash
-curl http://localhost:8000/v1/chat/completions \
+curl http://localhost:9001/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <auth-key>" \
   -d '{
@@ -451,7 +451,7 @@ curl http://localhost:8000/v1/chat/completions \
 Responses API 兼容接口。未传 `image_generation` 工具时走文本/视觉输出；传入图片生成工具时走图片工作流。
 
 ```bash
-curl http://localhost:8000/v1/responses \
+curl http://localhost:9001/v1/responses \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <auth-key>" \
   -d '{
@@ -462,7 +462,7 @@ curl http://localhost:8000/v1/responses \
 ```
 
 ```bash
-curl http://localhost:8000/v1/responses \
+curl http://localhost:9001/v1/responses \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <auth-key>" \
   -d '{
@@ -486,7 +486,7 @@ curl http://localhost:8000/v1/responses \
 ```
 
 ```bash
-curl http://localhost:8000/v1/responses \
+curl http://localhost:9001/v1/responses \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <auth-key>" \
   -d '{

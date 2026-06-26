@@ -63,6 +63,7 @@ const COMPOSER_GRID_LEFT_WIDTH = 300;
 const COMPOSER_GRID_GAP_WIDTH = 12;
 const COMPOSER_RESULTS_MIN_WIDTH = 520;
 const activeConversationQueueIds = new Set<string>();
+let isImageGenerationQueueRunning = false;
 
 type PreparedReferenceImage = {
   referenceImage: StoredReferenceImage;
@@ -841,7 +842,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   const runConversationQueue = useCallback(
     async (conversationId: string) => {
       const queueId = `${imageConversationOwnerKey}:${conversationId}`;
-      if (activeConversationQueueIds.has(queueId)) {
+      if (isImageGenerationQueueRunning || activeConversationQueueIds.has(queueId)) {
         return;
       }
 
@@ -851,25 +852,26 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
         return;
       }
 
+      isImageGenerationQueueRunning = true;
       activeConversationQueueIds.add(queueId);
-      await updateConversation(conversationId, (current) => {
-        const conversation = current ?? snapshot;
-        return {
-          ...conversation,
-          updatedAt: new Date().toISOString(),
-          turns: conversation.turns.map((turn) =>
-            turn.id === queuedTurn.id
-              ? {
-                  ...turn,
-                  status: "generating",
-                  error: undefined,
-                }
-              : turn,
-          ),
-        };
-      });
-
       try {
+        await updateConversation(conversationId, (current) => {
+          const conversation = current ?? snapshot;
+          return {
+            ...conversation,
+            updatedAt: new Date().toISOString(),
+            turns: conversation.turns.map((turn) =>
+              turn.id === queuedTurn.id
+                ? {
+                    ...turn,
+                    status: "generating",
+                    error: undefined,
+                  }
+                : turn,
+            ),
+          };
+        });
+
         const referenceFiles = queuedTurn.referenceImages.map((image, index) =>
           dataUrlToFile(image.dataUrl, image.name || `${queuedTurn.id}-${index + 1}.png`, image.type),
         );
@@ -901,7 +903,10 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
           return;
         }
 
-        const tasks = pendingImages.map(async (pendingImage) => {
+        let resumedSuccessCount = 0;
+        let resumedFailedCount = 0;
+
+        for (const pendingImage of pendingImages) {
           try {
             const data =
               queuedTurn.mode === "edit"
@@ -944,7 +949,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
               { persist: false },
             );
 
-            return nextImage;
+            resumedSuccessCount += 1;
           } catch (error) {
             const message = error instanceof Error ? error.message : "生成失败";
             const failedImage: StoredImage = {
@@ -973,15 +978,9 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
               { persist: false },
             );
 
-            throw error;
+            resumedFailedCount += 1;
           }
-        });
-
-        const settled = await Promise.allSettled(tasks);
-        const resumedSuccessCount = settled.filter(
-          (item): item is PromiseFulfilledResult<StoredImage> => item.status === "fulfilled",
-        ).length;
-        const resumedFailedCount = settled.length - resumedSuccessCount;
+        }
         const existingSuccessCount = queuedTurn.images.filter((image) => image.status === "success").length;
         const existingFailedCount = queuedTurn.images.filter((image) => image.status === "error").length;
         const successCount = existingSuccessCount + resumedSuccessCount;
@@ -1029,14 +1028,17 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
         toast.error(message);
       } finally {
         activeConversationQueueIds.delete(queueId);
-        for (const conversation of conversationsRef.current) {
+        isImageGenerationQueueRunning = false;
+
+        const nextQueuedConversation = conversationsRef.current.find((conversation) => {
           const nextQueueId = `${imageConversationOwnerKey}:${conversation.id}`;
-          if (
+          return (
             !activeConversationQueueIds.has(nextQueueId) &&
             conversation.turns.some((turn) => turn.status === "queued")
-          ) {
-            void runConversationQueue(conversation.id);
-          }
+          );
+        });
+        if (nextQueuedConversation) {
+          void runConversationQueue(nextQueuedConversation.id);
         }
       }
     },
@@ -1045,13 +1047,13 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   /* eslint-enable react-hooks/preserve-manual-memoization */
 
   useEffect(() => {
-    for (const conversation of conversations) {
-      if (
+    const nextQueuedConversation = conversations.find(
+      (conversation) =>
         !activeConversationQueueIds.has(`${imageConversationOwnerKey}:${conversation.id}`) &&
-        conversation.turns.some((turn) => turn.status === "queued")
-      ) {
-        void runConversationQueue(conversation.id);
-      }
+        conversation.turns.some((turn) => turn.status === "queued"),
+    );
+    if (nextQueuedConversation) {
+      void runConversationQueue(nextQueuedConversation.id);
     }
   }, [conversations, imageConversationOwnerKey, runConversationQueue]);
 

@@ -63,7 +63,7 @@ const emptyStateExampleSources: EmptyStatePromptSource[] = [
     id: "photo-portrait-v1",
     label: "写真随机风格 V1",
     fallbackTitle: "写真随机风格 V1",
-    fallbackPreview: "/prompt-assets/2026/06/02/2d2db3cac0f5412d83e79af24905b4e9.png",
+    fallbackPreview: "/banana-prompt-quicker/images/film_portrait.jpg",
   },
 ];
 

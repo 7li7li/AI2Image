@@ -70,22 +70,6 @@ def create_router() -> APIRouter:
             raise HTTPException(status_code=429, detail={"error": str(exc)}) from exc
         return request_id
 
-    def attach_personal_image_channel(identity: dict[str, object], payload: dict[str, object], model: str | None) -> bool:
-        if identity.get("role") != "user":
-            return False
-        user_id = str(identity.get("id") or "")
-        personal_channel = auth_service.get_user_image_channel_config(
-            user_id,
-            include_api_key=True,
-        )
-        payload["_owner_user_id"] = user_id
-        payload["_personal_image_channel"] = personal_channel
-        return channel_service.has_usable_personal_channel(
-            model,
-            personal_channel,
-            owner_user_id=user_id,
-        )
-
     def finalize_quota(request_id: str | None, count: int) -> None:
         if not request_id:
             return
@@ -127,18 +111,32 @@ def create_router() -> APIRouter:
             raise HTTPException(status_code=502, detail={"error": channel_error})
         raise HTTPException(status_code=503, detail={"error": "no enabled image channel supports this request"})
 
-    def require_personal_channel_success(payload: dict[str, object]) -> None:
-        personal_error = str(payload.get("_personal_channel_error") or "").strip()
-        if personal_error:
-            raise HTTPException(
-                status_code=502,
-                detail={"error": f"personal image channel failed: {personal_error}"},
-            )
+    def log_channel_failure(
+            *,
+            identity: dict[str, object],
+            endpoint: str,
+            model: str,
+            payload: dict[str, object],
+            request_id: str,
+    ) -> None:
+        channel_error = str(payload.get("_channel_error") or "").strip()
+        if not channel_error:
+            return
+        log_service.add(
+            LOG_TYPE_CALL,
+            "image channel call failed",
+            endpoint=endpoint,
+            model=model,
+            status="error",
+            error=channel_error,
+            request_id=request_id,
+            user_id=str(identity.get("id") or ""),
+            user_name=str(identity.get("name") or ""),
+            user_email=str(identity.get("email") or ""),
+        )
 
     def image_quota_cost(identity: dict[str, object], channel: str) -> int:
         if identity.get("role") != "user":
-            return 0
-        if str(channel or "").startswith("个人渠道/"):
             return 0
         return 1
 
@@ -178,8 +176,7 @@ def create_router() -> APIRouter:
         payload = body.model_dump(mode="python")
         payload["base_url"] = resolve_image_base_url(request)
         payload["request_id"] = request_id
-        use_personal_quota_free = attach_personal_image_channel(identity, payload, body.model)
-        quota_request_id = None if use_personal_quota_free else reserve_image_quota(identity, int(body.n or 1), request_id)
+        quota_request_id = reserve_image_quota(identity, int(body.n or 1), request_id)
         try:
             if not body.stream:
                 routed = await run_in_threadpool(channel_service.call_generation, payload)
@@ -206,7 +203,13 @@ def create_router() -> APIRouter:
                     )
                     finalize_quota(quota_request_id, count)
                     return result
-            require_personal_channel_success(payload)
+            log_channel_failure(
+                identity=identity,
+                endpoint="/v1/images/generations",
+                model=body.model,
+                payload=payload,
+                request_id=request_id,
+            )
             require_channel_success(payload)
         except Exception:
             if quota_request_id:
@@ -252,8 +255,7 @@ def create_router() -> APIRouter:
             "base_url": resolve_image_base_url(request),
             "request_id": request_id,
         }
-        use_personal_quota_free = attach_personal_image_channel(identity, payload, model)
-        quota_request_id = None if use_personal_quota_free else reserve_image_quota(identity, int(n or 1), request_id)
+        quota_request_id = reserve_image_quota(identity, int(n or 1), request_id)
         try:
             if not stream:
                 routed = await run_in_threadpool(channel_service.call_edit, payload)
@@ -280,7 +282,13 @@ def create_router() -> APIRouter:
                     )
                     finalize_quota(quota_request_id, count)
                     return result
-            require_personal_channel_success(payload)
+            log_channel_failure(
+                identity=identity,
+                endpoint="/v1/images/edits",
+                model=model,
+                payload=payload,
+                request_id=request_id,
+            )
             require_channel_success(payload)
         except Exception:
             if quota_request_id:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from threading import Event
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -53,16 +53,27 @@ def create_app() -> FastAPI:
         app.mount("/images", StaticFiles(directory=str(config.images_dir)), name="images")
     app.mount("/prompt-assets", StaticFiles(directory=str(config.prompt_assets_dir)), name="prompt-assets")
 
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_web(full_path: str):
+    async def serve_web(full_path: str, head_only: bool = False):
         asset = resolve_web_asset(full_path)
         if asset is not None:
+            if head_only:
+                return Response()
             return FileResponse(asset)
         if full_path.strip("/").startswith("_next/"):
             raise HTTPException(status_code=404, detail="Not Found")
         fallback = resolve_web_asset("")
         if fallback is None:
             raise HTTPException(status_code=404, detail="Not Found")
+        if head_only:
+            return Response()
         return FileResponse(fallback)
+
+    @app.head("/{full_path:path}", include_in_schema=False)
+    async def head_web(full_path: str):
+        return await serve_web(full_path, head_only=True)
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def get_web(full_path: str):
+        return await serve_web(full_path)
 
     return app

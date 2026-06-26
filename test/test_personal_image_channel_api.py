@@ -22,6 +22,7 @@ class FakeAuthService:
             "email": "alice@example.com",
         }
         self.reserved: list[tuple[str, int, str]] = []
+        self.confirmed: list[tuple[str, int | None]] = []
         self.released: list[str] = []
         self.reserve_error: ValueError | None = None
 
@@ -39,27 +40,25 @@ class FakeAuthService:
         return {"request_id": request_id}
 
     def confirm_quota(self, request_id: str, amount: int | None = None):
+        self.confirmed.append((request_id, amount))
         return {"request_id": request_id, "amount": amount}
 
     def get_user_image_channel_config(self, user_id: str, *, include_api_key: bool = False):
-        channel = {
-            "enabled": True,
-            "name": "Mine",
-            "base_url": "https://personal.example",
-            "models": ["gpt-image-2"],
-            "timeout": 30,
-        }
-        if include_api_key:
-            channel["api_key"] = "sk-personal"
-        return channel
+        raise AssertionError("image generation must not read legacy personal channel settings")
 
 
 class FakeChannelService:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
         self.edit_calls: list[dict[str, object]] = []
-        self.generation_result: tuple[dict[str, object], str] | None = None
-        self.edit_result: tuple[dict[str, object], str] | None = None
+        self.generation_result: tuple[dict[str, object], str] | None = (
+            {"created": 1, "data": [{"url": "https://global.example/image.png"}]},
+            "Global",
+        )
+        self.edit_result: tuple[dict[str, object], str] | None = (
+            {"created": 1, "data": [{"url": "https://global.example/edit.png"}]},
+            "Global",
+        )
 
     def has_usable_personal_channel(
         self,
@@ -68,65 +67,29 @@ class FakeChannelService:
         *,
         owner_user_id: str = "",
     ) -> bool:
-        return True
+        raise AssertionError("image generation must not route through personal channels")
 
     def call_generation(self, payload: dict[str, object]):
         self.calls.append(dict(payload))
         if self.generation_result is not None:
             return self.generation_result
-        error = "个人渠道/Mine: 连接被上游重置（curl 35）。请检查个人渠道 Base URL 是否正确、API Key 是否有效、该渠道是否允许当前网络访问；如果系统设置里配置了代理，也请确认代理可用。"
-        payload["_personal_channel_error"] = error
-        payload["_channel_error"] = error
+        payload["_channel_error"] = "Global: upstream timeout"
         return None
 
     def call_edit(self, payload: dict[str, object]):
         self.edit_calls.append(dict(payload))
         if self.edit_result is not None:
             return self.edit_result
-        error = "个人渠道/Mine: 连接被上游重置（curl 35）。请检查个人渠道 Base URL 是否正确、API Key 是否有效、该渠道是否允许当前网络访问；如果系统设置里配置了代理，也请确认代理可用。"
-        payload["_personal_channel_error"] = error
-        payload["_channel_error"] = error
+        payload["_channel_error"] = "Global: upstream timeout"
         return None
 
+
 class PersonalImageChannelApiTests(unittest.TestCase):
-    def test_enabled_personal_channel_failure_does_not_fall_back_to_global_channel(self) -> None:
+    def test_generation_ignores_legacy_personal_channel_config_and_charges_quota(self) -> None:
         app = FastAPI()
         app.include_router(api_ai.create_router())
         auth = FakeAuthService()
         channels = FakeChannelService()
-
-        with (
-            mock.patch.object(api_support, "auth_service", auth),
-            mock.patch.object(api_ai, "auth_service", auth),
-            mock.patch.object(api_ai, "channel_service", channels),
-        ):
-            response = TestClient(app).post(
-                "/v1/images/generations",
-                headers={"Authorization": "Bearer user-token"},
-                json={
-                    "model": "gpt-image-2",
-                    "prompt": "draw",
-                    "n": 1,
-                    "response_format": "url",
-                },
-            )
-
-        self.assertEqual(response.status_code, 502)
-        self.assertIn("personal image channel failed", response.text)
-        self.assertEqual(len(channels.calls), 1)
-        self.assertEqual(auth.reserved, [])
-        self.assertEqual(auth.released, [])
-
-    def test_enabled_personal_channel_with_zero_local_quota_skips_reservation(self) -> None:
-        app = FastAPI()
-        app.include_router(api_ai.create_router())
-        auth = FakeAuthService()
-        auth.reserve_error = ValueError("insufficient image quota")
-        channels = FakeChannelService()
-        channels.generation_result = (
-            {"created": 1, "data": [{"url": "https://personal.example/image.png"}]},
-            "个人渠道/Mine",
-        )
         record_calls: list[dict[str, object]] = []
 
         def fake_record_image_result(identity: dict[str, object], result: dict[str, object], **kwargs: object):
@@ -151,23 +114,63 @@ class PersonalImageChannelApiTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["data"][0]["url"], "https://personal.example/image.png")
-        self.assertEqual(auth.reserved, [])
-        self.assertEqual(auth.released, [])
+        self.assertEqual(response.json()["data"][0]["url"], "https://global.example/image.png")
         self.assertEqual(len(channels.calls), 1)
-        self.assertEqual(record_calls[0]["channel"], "个人渠道/Mine")
-        self.assertEqual(record_calls[0]["quota_cost"], 0)
+        self.assertNotIn("_personal_image_channel", channels.calls[0])
+        self.assertNotIn("_owner_user_id", channels.calls[0])
+        self.assertEqual(len(auth.reserved), 1)
+        self.assertEqual(auth.reserved[0][0], "user-a")
+        self.assertEqual(auth.reserved[0][1], 1)
+        self.assertEqual(auth.confirmed, [(auth.reserved[0][2], 1)])
+        self.assertEqual(auth.released, [])
+        self.assertEqual(record_calls[0]["channel"], "Global")
+        self.assertEqual(record_calls[0]["quota_cost"], 1)
 
-    def test_enabled_personal_edit_channel_with_zero_local_quota_skips_reservation(self) -> None:
+    def test_generation_failure_releases_reserved_quota(self) -> None:
         app = FastAPI()
         app.include_router(api_ai.create_router())
         auth = FakeAuthService()
-        auth.reserve_error = ValueError("insufficient image quota")
         channels = FakeChannelService()
-        channels.edit_result = (
-            {"created": 1, "data": [{"url": "https://personal.example/edit.png"}]},
-            "个人渠道/Mine",
-        )
+        channels.generation_result = None
+        log_calls: list[dict[str, object]] = []
+
+        def fake_log_add(type_name: str, summary: str = "", detail: dict[str, object] | None = None, **data: object):
+            log_calls.append({"type": type_name, "summary": summary, **(detail or data)})
+
+        with (
+            mock.patch.object(api_support, "auth_service", auth),
+            mock.patch.object(api_ai, "auth_service", auth),
+            mock.patch.object(api_ai, "channel_service", channels),
+            mock.patch.object(api_ai.log_service, "add", fake_log_add),
+        ):
+            response = TestClient(app).post(
+                "/v1/images/generations",
+                headers={"Authorization": "Bearer user-token"},
+                json={
+                    "model": "gpt-image-2",
+                    "prompt": "draw",
+                    "n": 1,
+                    "response_format": "url",
+                },
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("Global: upstream timeout", response.text)
+        self.assertEqual(len(auth.reserved), 1)
+        self.assertEqual(auth.confirmed, [])
+        self.assertEqual(auth.released, [auth.reserved[0][2]])
+        self.assertEqual(len(log_calls), 1)
+        self.assertEqual(log_calls[0]["endpoint"], "/v1/images/generations")
+        self.assertEqual(log_calls[0]["model"], "gpt-image-2")
+        self.assertEqual(log_calls[0]["status"], "error")
+        self.assertEqual(log_calls[0]["error"], "Global: upstream timeout")
+        self.assertEqual(log_calls[0]["user_id"], "user-a")
+
+    def test_edit_ignores_legacy_personal_channel_config_and_charges_quota(self) -> None:
+        app = FastAPI()
+        app.include_router(api_ai.create_router())
+        auth = FakeAuthService()
+        channels = FakeChannelService()
         record_calls: list[dict[str, object]] = []
 
         def fake_record_image_result(identity: dict[str, object], result: dict[str, object], **kwargs: object):
@@ -193,12 +196,15 @@ class PersonalImageChannelApiTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["data"][0]["url"], "https://personal.example/edit.png")
-        self.assertEqual(auth.reserved, [])
-        self.assertEqual(auth.released, [])
+        self.assertEqual(response.json()["data"][0]["url"], "https://global.example/edit.png")
         self.assertEqual(len(channels.edit_calls), 1)
-        self.assertEqual(record_calls[0]["channel"], "个人渠道/Mine")
-        self.assertEqual(record_calls[0]["quota_cost"], 0)
+        self.assertNotIn("_personal_image_channel", channels.edit_calls[0])
+        self.assertNotIn("_owner_user_id", channels.edit_calls[0])
+        self.assertEqual(len(auth.reserved), 1)
+        self.assertEqual(auth.confirmed, [(auth.reserved[0][2], 1)])
+        self.assertEqual(auth.released, [])
+        self.assertEqual(record_calls[0]["channel"], "Global")
+        self.assertEqual(record_calls[0]["quota_cost"], 1)
 
 
 if __name__ == "__main__":
