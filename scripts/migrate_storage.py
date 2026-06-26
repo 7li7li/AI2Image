@@ -47,7 +47,6 @@ EXTRA_DATASET_SPECS: tuple[DatasetSpec, ...] = (
 MIGRATION_DATASET_SPECS: tuple[DatasetSpec, ...] = DATASET_SPECS + EXTRA_DATASET_SPECS
 
 DATASET_ACCESSORS = {
-    "accounts": ("load_accounts", "save_accounts"),
     "auth_keys": ("load_auth_keys", "save_auth_keys"),
     "users": ("load_users", "save_users"),
     "sessions": ("load_sessions", "save_sessions"),
@@ -269,12 +268,9 @@ def _save_all_datasets(storage, data: dict[str, list[dict]]) -> None:
 
 def _parse_import_payload(payload: object) -> dict[str, list[dict]]:
     if isinstance(payload, list):
-        return {
-            spec.name: payload if spec.name == "accounts" else []
-            for spec in MIGRATION_DATASET_SPECS
-        }
+        raise ValueError("Invalid JSON format, expected full export object")
     if not isinstance(payload, dict):
-        raise ValueError("Invalid JSON format, expected full export object or legacy accounts array")
+        raise ValueError("Invalid JSON format, expected full export object")
 
     raw_datasets = payload.get("datasets")
     if raw_datasets is None:

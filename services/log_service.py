@@ -1,21 +1,13 @@
 from __future__ import annotations
 
 import json
-import itertools
-import time
 import uuid
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException
-from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse, StreamingResponse
-
 from services.config import DATA_DIR
 from services.observability import get_current_request_id
-from utils.helper import anthropic_sse_stream, sse_json_stream
-from utils.timezone import china_now_text, china_timestamp_text
+from utils.timezone import china_now_text
 
 LOG_TYPE_CALL = "call"
 LOG_TYPE_ACCOUNT = "account"
@@ -65,6 +57,7 @@ class LogService:
     def _system_log_repository(self):
         try:
             from services.config import config
+
             provider = config.get_repository_provider()
             return provider.system_logs if provider is not None else None
         except Exception:
@@ -217,6 +210,7 @@ class AuditService:
     def _audit_log_repository(self):
         try:
             from services.config import config
+
             provider = config.get_repository_provider()
             return provider.audit_logs if provider is not None else None
         except Exception:
@@ -300,156 +294,3 @@ class AuditService:
 
 
 audit_service = AuditService()
-
-
-def _collect_urls(value: object) -> list[str]:
-    urls: list[str] = []
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if key == "url" and isinstance(item, str):
-                urls.append(item)
-            elif key == "urls" and isinstance(item, list):
-                urls.extend(str(url) for url in item if isinstance(url, str))
-            else:
-                urls.extend(_collect_urls(item))
-    elif isinstance(value, list):
-        for item in value:
-            urls.extend(_collect_urls(item))
-    return urls
-
-
-def _image_error_response(exc: Exception) -> JSONResponse:
-    message = str(exc)
-    if "no available image quota" in message.lower():
-        return JSONResponse(
-            status_code=429,
-            content={
-                "error": {
-                    "message": "no available image quota",
-                    "type": "insufficient_quota",
-                    "param": None,
-                    "code": "insufficient_quota",
-                }
-            },
-        )
-    if hasattr(exc, "to_openai_error") and hasattr(exc, "status_code"):
-        return JSONResponse(status_code=int(exc.status_code), content=exc.to_openai_error())
-    return JSONResponse(
-        status_code=502,
-        content={
-            "error": {
-                "message": message,
-                "type": "server_error",
-                "param": None,
-                "code": "upstream_error",
-            }
-        },
-    )
-
-
-def _next_item(items):
-    try:
-        return True, next(items)
-    except StopIteration:
-        return False, None
-
-
-SSE_RESPONSE_HEADERS = {
-    "Cache-Control": "no-cache, no-transform",
-    "Connection": "keep-alive",
-    "X-Accel-Buffering": "no",
-}
-
-
-@dataclass
-class LoggedCall:
-    identity: dict[str, object]
-    endpoint: str
-    model: str
-    summary: str
-    request_id: str = field(default_factory=get_current_request_id)
-    started: float = field(default_factory=time.time)
-
-    async def run(self, handler, *args, sse: str = "openai"):
-        from services.protocol.conversation import ImageGenerationError
-
-        try:
-            result = await run_in_threadpool(handler, *args)
-        except ImageGenerationError as exc:
-            self.log("调用失败", status="failed", error=str(exc))
-            return _image_error_response(exc)
-        except HTTPException as exc:
-            self.log("调用失败", status="failed", error=str(exc.detail))
-            raise
-        except Exception as exc:
-            self.log("调用失败", status="failed", error=str(exc))
-            raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
-
-        if isinstance(result, dict):
-            self.log("调用完成", result)
-            return result
-
-        sender = anthropic_sse_stream if sse == "anthropic" else sse_json_stream
-        try:
-            has_first, first = await run_in_threadpool(_next_item, result)
-        except ImageGenerationError as exc:
-            self.log("调用失败", status="failed", error=str(exc))
-            return _image_error_response(exc)
-        except HTTPException as exc:
-            self.log("调用失败", status="failed", error=str(exc.detail))
-            raise
-        except Exception as exc:
-            self.log("调用失败", status="failed", error=str(exc))
-            raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
-        if not has_first:
-            self.log("流式调用结束")
-            return StreamingResponse(sender(()), media_type="text/event-stream", headers=SSE_RESPONSE_HEADERS)
-        return StreamingResponse(
-            sender(self.stream(itertools.chain([first], result))),
-            media_type="text/event-stream",
-            headers=SSE_RESPONSE_HEADERS,
-        )
-
-    def stream(self, items):
-        urls: list[str] = []
-        failed = False
-        try:
-            for item in items:
-                urls.extend(_collect_urls(item))
-                yield item
-        except Exception as exc:
-            failed = True
-            self.log("流式调用失败", status="failed", error=str(exc), urls=urls)
-            raise
-        finally:
-            if not failed:
-                self.log("流式调用结束", urls=urls)
-
-    def log(self, suffix: str, result: object = None, status: str = "success", error: str = "",
-            urls: list[str] | None = None) -> None:
-        detail = {
-            "request_id": self.request_id,
-            "key_id": self.identity.get("id"),
-            "key_name": self.identity.get("name"),
-            "role": self.identity.get("role"),
-            "endpoint": self.endpoint,
-            "model": self.model,
-            "started_at": china_timestamp_text(self.started),
-            "ended_at": china_now_text(),
-            "duration_ms": int((time.time() - self.started) * 1000),
-            "status": status,
-        }
-        if self.identity.get("role") == "user":
-            detail.update(
-                {
-                    "user_id": self.identity.get("id"),
-                    "user_name": self.identity.get("name"),
-                    "user_email": self.identity.get("email"),
-                }
-            )
-        if error:
-            detail["error"] = error
-        collected_urls = [*(urls or []), *_collect_urls(result)]
-        if collected_urls:
-            detail["urls"] = list(dict.fromkeys(collected_urls))
-        log_service.add(LOG_TYPE_CALL, f"{self.summary}{suffix}", detail, request_id=self.request_id)

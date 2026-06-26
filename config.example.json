@@ -1,10 +1,9 @@
 {
   "auth-key": "change_me_to_a_long_random_secret",
-  "refresh_account_interval_minute": 60,
+  "site_title": "Image Studio",
+  "site_icon": "/favicon.ico",
+  "site_background": "",
   "image_retention_days": 15,
-  "internal_pool_enabled": true,
-  "auto_remove_rate_limited_accounts": false,
-  "auto_remove_invalid_accounts": true,
   "log_levels": [
     "info",
     "warning",
@@ -12,27 +11,6 @@
   ],
   "proxy": "",
   "base_url": "",
-  "allow_user_registration": true,
-  "new_user_initial_quota": 0,
-  "email_verification_enabled": false,
-  "email_domain_whitelist_enabled": false,
-  "email_alias_restriction_enabled": false,
-  "email_domain_whitelist": [
-    "gmail.com",
-    "qq.com"
-  ],
-  "smtp_host": "",
-  "smtp_port": 587,
-  "smtp_username": "",
-  "smtp_password": "",
-  "smtp_from_email": "",
-  "smtp_use_ssl": false,
-  "smtp_use_starttls": true,
-  "smtp_force_auth_login": false,
-  "linuxdo_oauth_enabled": false,
-  "linuxdo_client_id": "",
-  "linuxdo_client_secret": "",
-  "linuxdo_minimum_trust_level": 0,
   "image_model_mappings": {
     "gpt-image-2": "gpt-5-5",
     "codex-gpt-image-2": "codex-gpt-image-2"

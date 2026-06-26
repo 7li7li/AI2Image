@@ -5,7 +5,6 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from services.repositories.sqlalchemy import (
-    AccountRow as AccountModel,
     AuditLogRow as AuditLogModel,
     AuthKeyRow as AuthKeyModel,
     Base,
@@ -104,7 +103,6 @@ def _ensure_postgres_database(maintenance_url: URL, database_name: str) -> None:
 
 
 __all__ = [
-    "AccountModel",
     "AuditLogModel",
     "AuthKeyModel",
     "Base",

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import json
@@ -21,14 +21,13 @@ class DatasetSpec:
 
 
 DATASET_SPECS: tuple[DatasetSpec, ...] = (
-    DatasetSpec("accounts", "accounts.json", "access_token", "账号池", unique_keys=("user_id",)),
-    DatasetSpec("auth_keys", "auth_keys.json", "id", "API 鉴权密钥", list_key="items"),
-    DatasetSpec("users", "users.json", "id", "用户"),
-    DatasetSpec("sessions", "sessions.json", "id", "登录会话", unique_keys=("token_hash",)),
-    DatasetSpec("redeem_codes", "redeem_codes.json", "id", "兑换码", unique_keys=("code",)),
-    DatasetSpec("channels", "channels.json", "id", "外部图片渠道"),
-    DatasetSpec("prompt_library", "prompt_library.json", "id", "提示词库"),
-    DatasetSpec("image_records", "image_records.json", "id", "图片记录"),
+    DatasetSpec("auth_keys", "auth_keys.json", "id", "API keys", list_key="items"),
+    DatasetSpec("users", "users.json", "id", "Users"),
+    DatasetSpec("sessions", "sessions.json", "id", "Login sessions", unique_keys=("token_hash",)),
+    DatasetSpec("redeem_codes", "redeem_codes.json", "id", "Redeem codes", unique_keys=("code",)),
+    DatasetSpec("channels", "channels.json", "id", "Image channels"),
+    DatasetSpec("prompt_library", "prompt_library.json", "id", "Prompt library"),
+    DatasetSpec("image_records", "image_records.json", "id", "Image records"),
 )
 
 

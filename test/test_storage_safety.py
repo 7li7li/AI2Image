@@ -19,11 +19,11 @@ class StorageSafetyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             self._write_json(
-                root / "accounts.json",
+                root / "channels.json",
                 [
-                    {"access_token": "token-a", "user_id": "user-a"},
-                    {"access_token": "token-a", "user_id": "user-b"},
-                    {"email": "missing-token@example.com"},
+                    {"id": "channel-a", "base_url": "https://a.example"},
+                    {"id": "channel-a", "base_url": "https://b.example"},
+                    {"base_url": "https://missing-id.example"},
                 ],
             )
             self._write_json(root / "auth_keys.json", {"items": [{"id": "key-a"}]})
@@ -33,9 +33,9 @@ class StorageSafetyTest(unittest.TestCase):
             datasets = {item["name"]: item for item in report["datasets"]}
 
             self.assertEqual(set(datasets), {spec.name for spec in DATASET_SPECS})
-            self.assertEqual(datasets["accounts"]["count"], 3)
-            self.assertEqual(datasets["accounts"]["missing_primary_key_count"], 1)
-            self.assertEqual(datasets["accounts"]["duplicate_primary_key_group_count"], 1)
+            self.assertEqual(datasets["channels"]["count"], 3)
+            self.assertEqual(datasets["channels"]["missing_primary_key_count"], 1)
+            self.assertEqual(datasets["channels"]["duplicate_primary_key_group_count"], 1)
             self.assertEqual(datasets["auth_keys"]["count"], 1)
             self.assertIn("line 1", datasets["users"]["json_error"])
             self.assertEqual(report["summary"]["invalid_json_files"], 1)
@@ -46,7 +46,7 @@ class StorageSafetyTest(unittest.TestCase):
             root = Path(tmp_dir)
             backup_dir = root / "backup"
             restore_dir = root / "restore"
-            self._write_json(root / "accounts.json", [{"access_token": "token-a"}])
+            self._write_json(root / "channels.json", [{"id": "channel-a"}])
             self._write_json(root / "users.json", [{"id": "user-a"}])
             self._write_json(root / "auth_keys.json", {"items": [{"id": "key-a"}]})
 
@@ -61,21 +61,21 @@ class StorageSafetyTest(unittest.TestCase):
             result = restore_backup(backup_dir, restore_dir)
             self.assertEqual(
                 set(result["copied_files"]),
-                {"accounts.json", "auth_keys.json", "users.json"},
+                {"auth_keys.json", "channels.json", "users.json"},
             )
             self.assertEqual(
-                json.loads((restore_dir / "accounts.json").read_text(encoding="utf-8")),
-                [{"access_token": "token-a"}],
+                json.loads((restore_dir / "channels.json").read_text(encoding="utf-8")),
+                [{"id": "channel-a"}],
             )
 
     def test_backup_verification_detects_checksum_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             backup_dir = root / "backup"
-            self._write_json(root / "accounts.json", [{"access_token": "token-a"}])
+            self._write_json(root / "channels.json", [{"id": "channel-a"}])
 
             create_backup(root, backup_dir)
-            self._write_json(backup_dir / "accounts.json", [{"access_token": "changed"}])
+            self._write_json(backup_dir / "channels.json", [{"id": "changed"}])
 
             verification = verify_backup(backup_dir)
             self.assertEqual(verification["status"], "failed")

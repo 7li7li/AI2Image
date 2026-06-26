@@ -1,19 +1,18 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 import { KeyRound, LoaderCircle, Mail, Sparkles } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import webConfig from "@/constants/common-env";
-import { fetchRegisterOptions, login, type RegisterOptions } from "@/lib/api";
+import { login } from "@/lib/api";
+import { useSiteSettingsStore } from "@/lib/site-settings";
 import { useRedirectIfAuthenticated } from "@/lib/use-auth-guard";
-import { getDefaultRouteForRole, setStoredAuthSession } from "@/store/auth";
 import { cn } from "@/lib/utils";
+import { getDefaultRouteForRole, setStoredAuthSession } from "@/store/auth";
 
 type LoginMode = "user" | "admin";
 
@@ -23,29 +22,14 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authKey, setAuthKey] = useState("");
-  const [registerOptions, setRegisterOptions] = useState<RegisterOptions | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { isCheckingAuth } = useRedirectIfAuthenticated();
-
-  useEffect(() => {
-    void fetchRegisterOptions()
-      .then(setRegisterOptions)
-      .catch(() => setRegisterOptions(null));
-  }, []);
-
-  const startLinuxDoOAuth = () => {
-    const startPath = registerOptions?.linuxdo_start_url || "/auth/linuxdo/start";
-    const apiBase = webConfig.apiUrl.replace(/\/$/, "");
-    window.location.href = `${apiBase}${startPath}`;
-  };
+  const siteTitle = useSiteSettingsStore((state) => state.settings.site_title);
 
   const handleLogin = async () => {
     setIsSubmitting(true);
     try {
-      const data =
-        mode === "admin"
-          ? await login(authKey.trim())
-          : await login({ email: email.trim(), password });
+      const data = mode === "admin" ? await login(authKey.trim()) : await login({ email: email.trim(), password });
       const sessionKey = mode === "admin" ? authKey.trim() : data.token || "";
       if (!sessionKey) {
         throw new Error("登录未返回有效会话");
@@ -83,8 +67,8 @@ export default function LoginPage() {
               <Sparkles className="size-5" />
             </div>
             <div className="space-y-2">
-              <h1 className="text-3xl font-semibold tracking-tight text-stone-950">颜AI</h1>
-              <p className="text-sm leading-6 text-stone-500">登录后开始创作和管理你的 AI 美图。</p>
+              <h1 className="text-3xl font-semibold tracking-tight text-stone-950">{siteTitle}</h1>
+              <p className="text-sm leading-6 text-stone-500">登录后开始创作和管理你的 AI 图片。</p>
             </div>
           </div>
 
@@ -155,24 +139,8 @@ export default function LoginPage() {
             登录
           </Button>
 
-          {mode === "user" && registerOptions?.linuxdo_oauth_enabled ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="h-12 w-full rounded-lg border-rose-100 bg-white text-stone-800 hover:bg-rose-50"
-              onClick={startLinuxDoOAuth}
-            >
-              使用 Linux DO 登录 / 注册
-            </Button>
-          ) : null}
-
           {mode === "user" ? (
-            <div className="text-center text-sm text-stone-500">
-              还没有账号？
-              <Link href="/signup" className="ml-1 font-medium text-rose-600 hover:text-rose-700">
-                注册个人账号
-              </Link>
-            </div>
+            <div className="text-center text-sm text-stone-500">个人账号请由管理员在用户管理中创建。</div>
           ) : null}
         </CardContent>
       </Card>

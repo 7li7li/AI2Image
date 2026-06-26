@@ -5,7 +5,6 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.support import require_admin, require_identity, resolve_image_base_url
-from services.account_service import account_service
 from services.auth_service import auth_service
 from services.config import config
 from services.image_service import delete_images, list_images
@@ -59,41 +58,14 @@ class ImagesWebDAVSyncRequest(BaseModel):
 def create_router(app_version: str) -> APIRouter:
     router = APIRouter()
 
-    def account_pool_health() -> dict[str, int]:
-        accounts = account_service.list_accounts()
-        total = len(accounts)
-        available = 0
-        for account in accounts:
-            status = str(account.get("status") or "")
-            if status in {"禁用", "限流", "异常"}:
-                continue
-            try:
-                inflight = int(account.get("inflightCount") or account.get("inflight_count") or 0)
-            except (TypeError, ValueError):
-                inflight = 0
-            try:
-                max_concurrency = int(account.get("maxConcurrency") or account.get("max_concurrency") or 1)
-            except (TypeError, ValueError):
-                max_concurrency = 1
-            image_quota_unknown = bool(account.get("imageQuotaUnknown") or account.get("image_quota_unknown"))
-            try:
-                quota = int(account.get("quota") or 0)
-            except (TypeError, ValueError):
-                quota = 0
-            if (image_quota_unknown or quota > 0) and inflight < max(1, max_concurrency):
-                available += 1
-        return {"total": total, "available": available}
-
     def health_payload() -> dict[str, object]:
         storage = config.get_storage_backend()
         storage_health = storage.health_check()
-        pool = account_pool_health()
-        status = "healthy" if storage_health.get("status") == "healthy" and pool["available"] >= 0 else "unhealthy"
+        status = "healthy" if storage_health.get("status") == "healthy" else "unhealthy"
         return {
             "status": status,
             "version": app_version,
             "storage": storage_health,
-            "account_pool": pool,
         }
 
     @router.post("/auth/login")
@@ -136,6 +108,10 @@ def create_router(app_version: str) -> APIRouter:
     async def api_health_check(authorization: str | None = Header(default=None)):
         require_admin(authorization)
         return health_payload()
+
+    @router.get("/api/public/settings")
+    async def get_public_settings():
+        return {"settings": config.public_settings()}
 
     @router.get("/api/settings")
     async def get_settings(authorization: str | None = Header(default=None)):

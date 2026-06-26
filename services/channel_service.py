@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import random
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from threading import RLock
 from typing import Any
 
@@ -16,9 +18,7 @@ from services.proxy_service import proxy_settings
 from services.repositories.base import RepositoryProvider
 from services.repositories.storage_adapter import RepositoryStorageAdapter
 from services.storage.base import StorageBackend
-from utils.model_catalog import DEFAULT_INTERNAL_MODELS
-
-INTERNAL_POOL_ENABLED_KEY = "internal_pool_enabled"
+from utils.timezone import china_now_text
 PERSONAL_CHANNEL_ID_PREFIX = "personal_image_channel"
 
 
@@ -28,6 +28,38 @@ def _now_iso() -> str:
 
 def _clean(value: object) -> str:
     return str(value or "").strip()
+
+
+def _save_image_bytes(image_data: bytes, base_url: str | None = None) -> str:
+    config.cleanup_old_images()
+    file_hash = hashlib.md5(image_data).hexdigest()
+    filename = f"{file_hash}_{uuid.uuid4().hex}.png"
+    relative_dir = Path(*china_now_text()[:10].split("-"))
+    file_path = config.images_dir / relative_dir / filename
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_bytes(image_data)
+    return f"{(base_url or config.base_url)}/images/{relative_dir.as_posix()}/{filename}"
+
+
+def _format_image_result(
+        items: list[dict[str, Any]],
+        prompt: str,
+        response_format: str,
+        base_url: str | None = None,
+        created: int | None = None,
+) -> dict[str, Any]:
+    data: list[dict[str, Any]] = []
+    for item in items:
+        b64_json = _clean(item.get("b64_json"))
+        if not b64_json:
+            continue
+        revised_prompt = _clean(item.get("revised_prompt") or prompt) or prompt
+        saved_url = _save_image_bytes(base64.b64decode(b64_json), base_url)
+        if response_format == "b64_json":
+            data.append({"b64_json": b64_json, "url": saved_url, "revised_prompt": revised_prompt})
+        else:
+            data.append({"url": saved_url, "revised_prompt": revised_prompt})
+    return {"created": created or int(time.time()), "data": data}
 
 
 def _bool(value: object, default: bool = True) -> bool:
@@ -231,9 +263,6 @@ class ChannelService:
             "updated_at": channel.get("updated_at"),
         }
 
-    def is_internal_pool_enabled(self) -> bool:
-        return _bool(self.config_store.get().get(INTERNAL_POOL_ENABLED_KEY), True)
-
     def _image_model_mappings(self) -> dict[str, str]:
         defaults = {
             "gpt-image-2": "gpt-5-5",
@@ -274,22 +303,6 @@ class ChannelService:
             if candidate in channel_models:
                 return candidate
         return ""
-
-    def _internal_channel(self) -> dict[str, object]:
-        return {
-            "id": "internal_pool",
-            "name": "内置账号池",
-            "type": "internal_pool",
-            "base_url": "",
-            "models": list(DEFAULT_INTERNAL_MODELS),
-            "weight": 1,
-            "priority": -1000,
-            "timeout": 0,
-            "enabled": self.is_internal_pool_enabled(),
-            "has_api_key": False,
-            "created_at": None,
-            "updated_at": None,
-        }
 
     def _normalize_personal_channel(
             self,
@@ -398,19 +411,15 @@ class ChannelService:
             return f"个人渠道/{name or 'personal'}"
         return name or "external_channel"
 
-    def list_channels(self, include_internal: bool = True) -> list[dict[str, object]]:
+    def list_channels(self, include_internal: bool = False) -> list[dict[str, object]]:
         with self._lock:
             channels = self._current_channels()
             items = [self._public(channel) for channel in channels]
         items.sort(key=lambda item: (int(item.get("priority") or 0), int(item.get("weight") or 0)), reverse=True)
-        if include_internal:
-            return [self._internal_channel(), *items]
         return items
 
-    def get_channel(self, channel_id: str, *, include_internal: bool = True) -> dict[str, object] | None:
+    def get_channel(self, channel_id: str, *, include_internal: bool = False) -> dict[str, object] | None:
         normalized_id = _clean(channel_id)
-        if include_internal and normalized_id == "internal_pool":
-            return self._internal_channel()
         with self._lock:
             for channel in self._current_channels():
                 if channel.get("id") == normalized_id:
@@ -437,11 +446,6 @@ class ChannelService:
 
     def update_channel(self, channel_id: str, updates: dict[str, object]) -> dict[str, object] | None:
         normalized_id = _clean(channel_id)
-        if normalized_id == "internal_pool":
-            if "enabled" in updates:
-                self.config_store.update({INTERNAL_POOL_ENABLED_KEY: _bool(updates.get("enabled"), True)})
-            self._invalidate_cache()
-            return self._internal_channel()
         with self._lock:
             channels = self._current_channels()
             for index, channel in enumerate(channels):
@@ -508,22 +512,6 @@ class ChannelService:
             models.append(model)
         return models
 
-    def _fetch_internal_channel_models(self, *, allow_default_fallback: bool) -> list[str]:
-        try:
-            from services.protocol.openai_v1_models import list_models
-
-            models = self.extract_model_ids(list_models())
-        except Exception:
-            if not allow_default_fallback:
-                raise
-            models = []
-        if allow_default_fallback:
-            merged = self.extract_model_ids([*models, *DEFAULT_INTERNAL_MODELS])
-            return merged or list(DEFAULT_INTERNAL_MODELS)
-        if not models:
-            raise RuntimeError("internal model response contains no models")
-        return models
-
     def _find_external_channel(self, channel_id: str) -> dict[str, object] | None:
         with self._lock:
             return next((dict(item) for item in self._current_channels() if item.get("id") == channel_id), None)
@@ -554,8 +542,6 @@ class ChannelService:
 
     def fetch_channel_models(self, channel_id: str) -> list[str] | None:
         normalized_id = _clean(channel_id)
-        if normalized_id == "internal_pool":
-            return self._fetch_internal_channel_models(allow_default_fallback=True)
         channel = self._find_external_channel(normalized_id)
         if channel is None:
             return None
@@ -565,14 +551,11 @@ class ChannelService:
         normalized_id = _clean(channel_id)
         requested_models = _requested_models(models)
         started_at = time.monotonic()
-        channel = self._internal_channel() if normalized_id == "internal_pool" else self._find_external_channel(normalized_id)
+        channel = self._find_external_channel(normalized_id)
         if channel is None:
             return None
         try:
-            if normalized_id == "internal_pool":
-                models = self._fetch_internal_channel_models(allow_default_fallback=False)
-            else:
-                models = self._fetch_external_channel_models(channel)
+            models = self._fetch_external_channel_models(channel)
             model_set = set(models)
             tested_models = requested_models or models
             missing_models = [
@@ -583,7 +566,7 @@ class ChannelService:
             ok = not missing_models
             return {
                 "ok": ok,
-                "channel": self._internal_channel() if normalized_id == "internal_pool" else self._public(channel),
+                "channel": self._public(channel),
                 "models": models,
                 "model_count": len(models),
                 "tested_models": tested_models,
@@ -594,7 +577,7 @@ class ChannelService:
         except Exception as exc:
             return {
                 "ok": False,
-                "channel": self._internal_channel() if normalized_id == "internal_pool" else self._public(channel),
+                "channel": self._public(channel),
                 "models": [],
                 "model_count": 0,
                 "tested_models": requested_models,
@@ -678,8 +661,6 @@ class ChannelService:
         models = self.fetch_channel_models(normalized_id)
         if models is None:
             return None
-        if normalized_id == "internal_pool":
-            return {"channel": self._internal_channel(), "models": models}
         item = self.update_channel(normalized_id, {"models": models})
         if item is None:
             return None
@@ -865,9 +846,7 @@ class ChannelService:
         b64_items = [item for item in data if isinstance(item, dict) and item.get("b64_json")]
         url_items = [item for item in data if isinstance(item, dict) and item.get("url") and not item.get("b64_json")]
         if b64_items:
-            from services.protocol.conversation import format_image_result
-
-            result = format_image_result(
+            result = _format_image_result(
                 b64_items,
                 _clean(original_payload.get("prompt")),
                 _clean(original_payload.get("response_format")) or "b64_json",
@@ -879,18 +858,17 @@ class ChannelService:
         normalized = {"created": int(payload.get("created") or datetime.now().timestamp()), "data": url_items}
         if not normalized["data"]:
             # Some compatible servers return a raw base64 string in `data`.
-            from services.protocol.conversation import format_image_result
-
             for item in data:
                 if isinstance(item, str):
+                    saved = _format_image_result(
+                        [{"b64_json": item}],
+                        _clean(original_payload.get("prompt")),
+                        "b64_json",
+                        _clean(original_payload.get("base_url")) or None,
+                    )["data"][0]
                     normalized["data"].append({
                         "b64_json": item,
-                        "url": format_image_result(
-                            [{"b64_json": item}],
-                            _clean(original_payload.get("prompt")),
-                            "b64_json",
-                            _clean(original_payload.get("base_url")) or None,
-                        )["data"][0]["url"],
+                        "url": saved["url"],
                     })
         return normalized
 

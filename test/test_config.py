@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 import tempfile
 import time
@@ -29,39 +29,6 @@ class ConfigLoadingTests(unittest.TestCase):
         if cls._created_root_config and ROOT_CONFIG_FILE.exists():
             ROOT_CONFIG_FILE.unlink()
 
-    def test_load_settings_ignores_directory_config_path(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            base_dir = Path(tmp_dir)
-            data_dir = base_dir / "data"
-            config_dir = base_dir / "config.json"
-            os_auth_key = "env-auth"
-
-            config_dir.mkdir()
-
-            module = self.config_module
-            old_base_dir = module.BASE_DIR
-            old_data_dir = module.DATA_DIR
-            old_config_file = module.CONFIG_FILE
-            old_env_auth_key = module.os.environ.get("CHATGPT2API_AUTH_KEY")
-            try:
-                module.BASE_DIR = base_dir
-                module.DATA_DIR = data_dir
-                module.CONFIG_FILE = config_dir
-                module.os.environ["CHATGPT2API_AUTH_KEY"] = os_auth_key
-
-                settings = module._load_settings()
-
-                self.assertEqual(settings.auth_key, os_auth_key)
-                self.assertEqual(settings.refresh_account_interval_minute, 5)
-            finally:
-                module.BASE_DIR = old_base_dir
-                module.DATA_DIR = old_data_dir
-                module.CONFIG_FILE = old_config_file
-                if old_env_auth_key is None:
-                    module.os.environ.pop("CHATGPT2API_AUTH_KEY", None)
-                else:
-                    module.os.environ["CHATGPT2API_AUTH_KEY"] = old_env_auth_key
-
     def test_image_model_mappings_default_and_override(self) -> None:
         module = self.config_module
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -78,7 +45,7 @@ class ConfigLoadingTests(unittest.TestCase):
             self.assertEqual(store.image_model_mappings["custom-image"], "gpt-5-3-mini")
             self.assertEqual(store.get()["image_model_mappings"]["codex-gpt-image-2"], "codex-gpt-image-2")
 
-    def test_sensitive_registration_settings_are_not_returned_and_blank_updates_preserve_them(self) -> None:
+    def test_removed_registration_settings_are_not_returned(self) -> None:
         module = self.config_module
         with tempfile.TemporaryDirectory() as tmp_dir:
             config_path = Path(tmp_dir) / "config.json"
@@ -87,7 +54,8 @@ class ConfigLoadingTests(unittest.TestCase):
                     {
                         "auth-key": "test-auth",
                         "smtp_password": "smtp-secret",
-                        "linuxdo_client_secret": "linuxdo-secret",
+                        "allow_user_registration": True,
+                        "internal_pool_enabled": True,
                     }
                 ),
                 encoding="utf-8",
@@ -96,14 +64,9 @@ class ConfigLoadingTests(unittest.TestCase):
 
             public = store.get()
             self.assertNotIn("smtp_password", public)
-            self.assertNotIn("linuxdo_client_secret", public)
-            self.assertTrue(public["smtp_password_set"])
-            self.assertTrue(public["linuxdo_client_secret_set"])
-
-            store.update({"smtp_password": "", "linuxdo_client_secret": ""})
-
-            self.assertEqual(store.smtp_password, "smtp-secret")
-            self.assertEqual(store.linuxdo_client_secret, "linuxdo-secret")
+            self.assertNotIn("smtp_password_set", public)
+            self.assertNotIn("allow_user_registration", public)
+            self.assertNotIn("internal_pool_enabled", public)
 
     def test_cleanup_old_images_keeps_recent_recorded_files_and_removes_old_orphans(self) -> None:
         module = self.config_module

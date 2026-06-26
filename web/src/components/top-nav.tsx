@@ -1,16 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   BadgeDollarSign,
-  Boxes,
   FileText,
   Gift,
   Image,
   Images,
-  KeyRound,
   LogOut,
   PenLine,
   Settings,
@@ -22,6 +20,7 @@ import {
 } from "lucide-react";
 
 import webConfig from "@/constants/common-env";
+import { useSiteSettingsStore } from "@/lib/site-settings";
 import { cn } from "@/lib/utils";
 import { clearStoredAuthSession, getStoredAuthSession, type StoredAuthSession } from "@/store/auth";
 
@@ -34,8 +33,6 @@ type NavItem = {
 const adminNavItems = [
   { href: "/image", label: "画图", icon: Sparkles },
   { href: "/users", label: "用户管理", icon: Users },
-  { href: "/accounts", label: "账号池管理", icon: Boxes },
-  { href: "/register", label: "注册机", icon: KeyRound },
   { href: "/prompt-manager", label: "提示词管理", icon: PenLine },
   { href: "/image-manager", label: "图片管理", icon: Images },
   { href: "/channels", label: "渠道管理", icon: Waypoints },
@@ -56,12 +53,14 @@ export function TopNav() {
   const pathname = usePathname();
   const router = useRouter();
   const [session, setSession] = useState<StoredAuthSession | null | undefined>(undefined);
+  const siteTitle = useSiteSettingsStore((state) => state.settings.site_title);
+  const brandMark = siteTitle.trim().slice(0, 1) || "颜";
 
   useEffect(() => {
     let active = true;
 
     const load = async () => {
-      if (pathname === "/login" || pathname === "/signup") {
+      if (pathname === "/login") {
         if (active) setSession(null);
         return;
       }
@@ -80,7 +79,7 @@ export function TopNav() {
     router.replace("/login");
   };
 
-  if (pathname === "/login" || pathname === "/signup" || session === undefined || !session) {
+  if (pathname === "/login" || session === undefined || !session) {
     return null;
   }
 
@@ -92,10 +91,10 @@ export function TopNav() {
       <div className="flex min-h-16 items-center justify-between gap-3 px-3 sm:px-5">
         <Link href="/image" className="group flex shrink-0 items-center gap-2.5 whitespace-nowrap">
           <span className="yan-mark-gradient grid size-10 place-items-center rounded-lg text-sm font-black text-white shadow-[0_14px_30px_rgba(243,111,159,0.22)] transition group-hover:brightness-105">
-            颜
+            {brandMark}
           </span>
           <span className="hidden leading-tight sm:block">
-            <span className="block text-[17px] font-bold tracking-tight text-stone-950">颜AI</span>
+            <span className="block text-[17px] font-bold tracking-tight text-stone-950">{siteTitle}</span>
             <span className="block text-xs font-medium text-stone-500">Image Studio</span>
           </span>
         </Link>

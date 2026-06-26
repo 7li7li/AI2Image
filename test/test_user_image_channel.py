@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import tempfile
 import unittest
@@ -11,7 +11,7 @@ from services.storage.json_storage import JSONStorageBackend
 class UserImageChannelTests(unittest.TestCase):
     def test_blank_api_key_preserves_existing_personal_channel_secret(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             service = AuthService(storage)
             user, _ = service.create_user(
                 email="user@example.com",
@@ -58,3 +58,4 @@ class UserImageChannelTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -16,14 +16,13 @@ class FullStorageMigrationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             db_path = root / "target.db"
-            self._write_json(root / "accounts.json", [{"access_token": "token-a", "status": "正常", "quota": 2}])
             self._write_json(root / "auth_keys.json", {"items": [{"id": "key-a", "key_hash": "hash-a", "role": "admin", "enabled": True}]})
             self._write_json(root / "users.json", [{"id": "user-a", "email": "a@example.com", "role": "user", "status": "active"}])
             self._write_json(root / "sessions.json", [{"id": "session-a", "token_hash": "hash-session", "user_id": "user-a"}])
             self._write_json(root / "redeem_codes.json", [{"id": "redeem-a", "code": "YAI-AAAA", "status": "enabled"}])
             self._write_json(root / "channels.json", [{"id": "channel-a", "enabled": True, "priority": 1, "weight": 1}])
             self._write_json(root / "prompt_library.json", [{"id": "prompt-a", "title": "A", "prompt": "Do it", "quick_access": True}])
-            self._write_json(root / "image_records.json", [{"id": "image-a", "owner_user_id": "user-a", "channel": "internal_pool"}])
+            self._write_json(root / "image_records.json", [{"id": "image-a", "owner_user_id": "user-a", "channel": "channel-a"}])
             self._write_jsonl(
                 root / "logs.jsonl",
                 [
@@ -62,7 +61,6 @@ class FullStorageMigrationTest(unittest.TestCase):
                 migrate_storage.migrate_data("json", "sqlite")
 
             storage = DatabaseStorageBackend(f"sqlite:///{db_path.as_posix()}")
-            self.assertEqual(len(storage.load_accounts()), 1)
             self.assertEqual(len(storage.load_auth_keys()), 1)
             self.assertEqual(len(storage.load_users()), 1)
             self.assertEqual(len(storage.load_sessions()), 1)
@@ -81,7 +79,7 @@ class FullStorageMigrationTest(unittest.TestCase):
         payload = {
             "version": 1,
             "datasets": {
-                "accounts": [{"access_token": "token-a"}],
+                "accounts": [{"access_token": "ignored-legacy-token"}],
                 "auth_keys": [{"id": "key-a"}],
                 "system_logs": [{"id": "log-a"}],
                 "system_settings": [{"key": "image_retention_days", "value": 30}],
@@ -89,16 +87,14 @@ class FullStorageMigrationTest(unittest.TestCase):
         }
 
         parsed = migrate_storage._parse_import_payload(payload)
-        self.assertEqual(parsed["accounts"], [{"access_token": "token-a"}])
+        self.assertNotIn("accounts", parsed)
         self.assertEqual(parsed["auth_keys"], [{"id": "key-a"}])
         self.assertEqual(parsed["users"], [])
         self.assertEqual(parsed["system_logs"], [{"id": "log-a"}])
         self.assertEqual(parsed["system_settings"], [{"key": "image_retention_days", "value": 30}])
 
-        legacy = migrate_storage._parse_import_payload([{"access_token": "token-only"}])
-        self.assertEqual(legacy["accounts"], [{"access_token": "token-only"}])
-        self.assertEqual(legacy["image_records"], [])
-        self.assertEqual(legacy["system_logs"], [])
+        with self.assertRaises(ValueError):
+            migrate_storage._parse_import_payload([{"access_token": "legacy-array"}])
 
     @staticmethod
     def _write_json(path: Path, value: object) -> None:

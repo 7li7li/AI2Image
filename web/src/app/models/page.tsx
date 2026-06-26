@@ -77,7 +77,6 @@ function draftToPayload(model: string, draft: DraftPricing): ModelPricingPayload
 }
 
 function channelLabel(channel: ModelChannelSummary) {
-  if (channel.id === "internal_pool") return "内置账号池";
   return channel.name || channel.id;
 }
 

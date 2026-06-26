@@ -1,4 +1,4 @@
-"""Global outbound proxy helpers for upstream ChatGPT and CPA requests."""
+"""Global outbound proxy helpers for upstream image channel requests."""
 
 from __future__ import annotations
 
@@ -60,4 +60,3 @@ def test_proxy(url: str, *, timeout: float = 15.0) -> dict:
         session.close()
 
 proxy_settings = ProxySettingsStore()
-

@@ -18,7 +18,6 @@ import { useAuthGuard } from "@/lib/use-auth-guard";
 
 const LogType = {
   Call: "call",
-  Account: "account",
   Audit: "audit",
 } as const;
 
@@ -30,7 +29,6 @@ const LogStatus = {
 
 const typeLabels: Record<string, string> = {
   [LogType.Call]: "调用日志",
-  [LogType.Account]: "账号管理日志",
   [LogType.Audit]: "审计日志",
 };
 
@@ -138,7 +136,6 @@ function LogsContent() {
             <SelectTrigger className="h-10 w-[150px] rounded-xl border-stone-200 bg-white"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value={LogType.Call}>调用日志</SelectItem>
-              <SelectItem value={LogType.Account}>账号管理日志</SelectItem>
               <SelectItem value={LogType.Audit}>审计日志</SelectItem>
             </SelectContent>
           </Select>
@@ -160,7 +157,7 @@ function LogsContent() {
           />
           <DateRangeFilter startDate={startDate} endDate={endDate} onChange={(start, end) => { setStartDate(start); setEndDate(end); }} />
           <Button variant="outline" onClick={clearFilters} className="h-10 rounded-xl border-stone-200 bg-white px-4 text-stone-700">
-            清除筛选条件
+            清除筛选
           </Button>
           <Button onClick={() => void loadLogs()} disabled={isLoading} className="h-10 rounded-xl bg-stone-950 px-4 text-white hover:bg-stone-800">
             {isLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Search className="size-4" />}

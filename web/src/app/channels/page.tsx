@@ -134,7 +134,7 @@ const toNumber = (value: string, fallback: number) => {
 };
 
 const channelTypeLabel = (channel: Channel) =>
-  channel.type === "internal_pool" ? "内置账号池" : "OpenAI 图片兼容";
+  channel.type === "openai_image" ? "OpenAI 图片兼容" : channel.type;
 
 const uniqueModels = (models: string[] | undefined) => {
   const seen = new Set<string>();
@@ -326,19 +326,16 @@ function ChannelsContent() {
     if (!editingChannel) return;
     setSavingChannelId(editingChannel.id);
     try {
-      const isInternal = editingChannel.id === "internal_pool";
-      const payload = isInternal
-        ? { enabled: editForm.enabled }
-        : {
-            name: editForm.name.trim(),
-            base_url: editForm.base_url.trim(),
-            ...(editForm.api_key.trim() ? { api_key: editForm.api_key.trim() } : {}),
-            models: editForm.models,
-            weight: toNumber(editForm.weight, 1),
-            priority: toNumber(editForm.priority, 0),
-            timeout: toNumber(editForm.timeout, 60),
-            enabled: editForm.enabled,
-          };
+      const payload = {
+        name: editForm.name.trim(),
+        base_url: editForm.base_url.trim(),
+        ...(editForm.api_key.trim() ? { api_key: editForm.api_key.trim() } : {}),
+        models: editForm.models,
+        weight: toNumber(editForm.weight, 1),
+        priority: toNumber(editForm.priority, 0),
+        timeout: toNumber(editForm.timeout, 60),
+        enabled: editForm.enabled,
+      };
       const data = await updateChannel(editingChannel.id, payload);
       setItems(data.items);
       setEditingChannel(null);
@@ -350,7 +347,6 @@ function ChannelsContent() {
     }
   };
 
-  const isEditingInternal = editingChannel?.id === "internal_pool";
   const candidateTestModels = uniqueModels(modelTestChannel?.models);
   const selectedTestModelSet = new Set(selectedTestModels);
 
@@ -452,8 +448,8 @@ function ChannelsContent() {
                     <div className="font-medium text-stone-900">{channel.name}</div>
                     <div className="text-xs text-stone-400">{channelTypeLabel(channel)}</div>
                   </div>
-                  <div className="truncate text-stone-600" title={channel.base_url || "内置账号池"}>
-                    {channel.base_url || "内置账号池"}
+                  <div className="truncate text-stone-600" title={channel.base_url || "未配置"}>
+                    {channel.base_url || "未配置"}
                   </div>
                   <div className="truncate text-stone-500" title={channel.models?.join(", ")}>
                     {channel.models?.join(", ")}
@@ -498,19 +494,17 @@ function ChannelsContent() {
                         {savingChannelId === channel.id ? <LoaderCircle className="size-4 animate-spin" /> : null}
                         {channel.enabled ? "禁用" : "启用"}
                       </Button>
-                      {channel.id !== "internal_pool" ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8 text-rose-500"
-                          title="删除"
-                          aria-label="删除渠道"
-                          disabled={savingChannelId === channel.id}
-                          onClick={() => void handleDelete(channel)}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      ) : null}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-rose-500"
+                        title="删除"
+                        aria-label="删除渠道"
+                        disabled={savingChannelId === channel.id}
+                        onClick={() => void handleDelete(channel)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
                     </div>
                     {testResult ? (
                       <div
@@ -611,9 +605,9 @@ function ChannelsContent() {
       <Dialog open={Boolean(editingChannel)} onOpenChange={(open) => (!open ? setEditingChannel(null) : null)}>
         <DialogContent showCloseButton={false} className="flex max-h-[88vh] w-[min(94vw,760px)] max-w-none flex-col overflow-hidden rounded-lg p-0">
           <DialogHeader className="border-b border-rose-100 px-5 pt-5 pb-4 sm:px-6">
-            <DialogTitle>{isEditingInternal ? "配置内置账号池" : "编辑渠道配置"}</DialogTitle>
+            <DialogTitle>编辑渠道配置</DialogTitle>
             <DialogDescription className="leading-6 text-stone-500">
-              {isEditingInternal ? "内置账号池仅控制是否允许回落调用本地账号。" : "修改渠道名称、地址、模型范围和路由参数。"}
+              修改渠道名称、地址、模型范围和路由参数。
             </DialogDescription>
           </DialogHeader>
 
@@ -626,37 +620,30 @@ function ChannelsContent() {
               <span className="font-medium text-stone-800">启用该渠道</span>
             </label>
 
-            {isEditingInternal ? (
-              <div className="space-y-2 rounded-lg border border-rose-100 bg-white/70 p-4 text-sm">
-                <div className="font-semibold text-stone-800">内置模型</div>
-                <div className="leading-6 text-stone-500">{editForm.models}</div>
-              </div>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-2">
-                {CHANNEL_FIELDS.map((field) => (
-                  <div key={field.key} className={field.key === "models" ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}>
-                    <FieldCaption field={field} />
-                    {field.key === "models" ? (
-                      <Textarea
-                        value={editForm.models}
-                        onChange={(event) => updateEditField("models", event.target.value)}
-                        placeholder={field.placeholder}
-                        className="min-h-24 rounded-xl border-rose-100 bg-white"
-                      />
-                    ) : (
-                      <Input
-                        type={field.type || "text"}
-                        value={editForm[field.key]}
-                        onChange={(event) => updateEditField(field.key, event.target.value)}
-                        placeholder={field.placeholder}
-                        autoComplete={field.key === "api_key" ? "new-password" : undefined}
-                        className="h-10 rounded-xl border-rose-100 bg-white"
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {CHANNEL_FIELDS.map((field) => (
+                <div key={field.key} className={field.key === "models" ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}>
+                  <FieldCaption field={field} />
+                  {field.key === "models" ? (
+                    <Textarea
+                      value={editForm.models}
+                      onChange={(event) => updateEditField("models", event.target.value)}
+                      placeholder={field.placeholder}
+                      className="min-h-24 rounded-xl border-rose-100 bg-white"
+                    />
+                  ) : (
+                    <Input
+                      type={field.type || "text"}
+                      value={editForm[field.key]}
+                      onChange={(event) => updateEditField(field.key, event.target.value)}
+                      placeholder={field.placeholder}
+                      autoComplete={field.key === "api_key" ? "new-password" : undefined}
+                      className="h-10 rounded-xl border-rose-100 bg-white"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           <DialogFooter className="border-t border-rose-100 px-5 py-4 sm:px-6">

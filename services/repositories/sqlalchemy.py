@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import json
@@ -30,7 +30,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from services.repositories.base import (
-    AccountRepository,
     AuditLogRepository,
     AuthKeyRepository,
     ChannelRepository,
@@ -55,22 +54,6 @@ SCHEMA_VERSION = "004_observability"
 
 def _json_column_type():
     return JSON().with_variant(JSONB(none_as_null=True), "postgresql")
-
-
-class AccountRow(Base):
-    __tablename__ = "accounts"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    position = Column(Integer, nullable=False, default=0, index=True)
-    access_token_hash = Column(String(64), nullable=False, unique=True, index=True)
-    status = Column(String(64), index=True)
-    quota = Column(Integer)
-    leased_until = Column(String(80), index=True)
-    lease_owner = Column(String(255), index=True)
-    inflight_count = Column(Integer, nullable=False, default=0, index=True)
-    max_concurrency = Column(Integer, nullable=False, default=1, index=True)
-    updated_at = Column(String(80), index=True)
-    data = Column(_json_column_type(), nullable=False)
 
 
 class AuthKeyRow(Base):
@@ -353,103 +336,7 @@ def _parse_iso(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _lease_owners(item: dict[str, Any]) -> list[str]:
-    owners = item.get("lease_owners")
-    if not isinstance(owners, list):
-        return []
-    result: list[str] = []
-    seen: set[str] = set()
-    for owner in owners:
-        value = _clean(owner)
-        if value and value not in seen:
-            seen.add(value)
-            result.append(value)
-    return result
-
-
-def _reset_expired_account_lease(item: dict[str, Any], now: datetime) -> dict[str, Any]:
-    leased_until = _parse_iso(item.get("leased_until"))
-    if leased_until is not None and leased_until > now:
-        return item
-    if _non_negative_int(item.get("inflight_count")) <= 0 and not _clean(item.get("lease_owner")):
-        return item
-    next_item = dict(item)
-    next_item["inflight_count"] = 0
-    next_item["lease_owner"] = None
-    next_item["leased_until"] = None
-    next_item["lease_owners"] = []
-    return next_item
-
-
-def _is_image_account_available(item: dict[str, Any]) -> bool:
-    status = _clean(item.get("status"))
-    if status in {"禁用", "限流", "异常"}:
-        return False
-    if bool(item.get("image_quota_unknown")):
-        return True
-    return _non_negative_int(item.get("quota")) > 0
-
-
-def _account_success_rate(item: dict[str, Any]) -> float:
-    success = _non_negative_int(item.get("success"))
-    fail = _non_negative_int(item.get("fail"))
-    total = success + fail
-    if total <= 0:
-        return 0.5
-    return success / total
-
-
-def _account_type_rank(item: dict[str, Any]) -> int:
-    return {
-        "Pro": 5,
-        "Team": 4,
-        "ProLite": 3,
-        "Plus": 2,
-        "Free": 1,
-    }.get(_clean(item.get("type")), 0)
-
-
-def _timestamp_for_sort(value: Any) -> float:
-    parsed = _parse_iso(value)
-    if parsed is None:
-        return 0
-    return parsed.timestamp()
-
-
-def _account_selection_key(item: dict[str, Any]) -> tuple[float, float, float, float, int]:
-    weight = _positive_int(item.get("weight"), 1)
-    max_concurrency = _positive_int(item.get("max_concurrency"), 1)
-    inflight_count = _non_negative_int(item.get("inflight_count"))
-    available_slots = max(0, max_concurrency - inflight_count)
-    last_used = item.get("last_used_at") or item.get("updated_at")
-    return (
-        -float(weight),
-        -float(available_slots),
-        _timestamp_for_sort(last_used),
-        -float(_account_success_rate(item)),
-        -_account_type_rank(item),
-    )
-
-
 DEFINITIONS: dict[str, RepositoryDefinition] = {
-    "accounts": RepositoryDefinition(
-        dataset_name="accounts",
-        model=AccountRow,
-        primary_key="access_token",
-        key_column="access_token_hash",
-        key_transform=_hash,
-        unique_keys=("user_id",),
-        column_extractors={
-            "access_token_hash": lambda item: _hash(_clean(item.get("access_token"))),
-            "status": lambda item: _clean(item.get("status")) or None,
-            "quota": lambda item: _int(item.get("quota")),
-            "leased_until": lambda item: _clean(item.get("leased_until")) or None,
-            "lease_owner": lambda item: _clean(item.get("lease_owner")) or None,
-            "inflight_count": lambda item: _non_negative_int(item.get("inflight_count")),
-            "max_concurrency": lambda item: _positive_int(item.get("max_concurrency")),
-            "updated_at": lambda item: _clean(item.get("updated_at") or item.get("last_used_at")) or None,
-        },
-    ),
     "auth_keys": RepositoryDefinition(
         dataset_name="auth_keys",
         model=AuthKeyRow,
@@ -676,189 +563,6 @@ class SQLAlchemyDatasetRepository(DatasetRepository):
                 preview += f"; ... {len(problems) - 10} more"
             raise RepositoryValidationError(f"{self.dataset_name}: validation failed: {preview}")
         return normalized
-
-
-class SQLAlchemyAccountRepository(SQLAlchemyDatasetRepository, AccountRepository):
-    def __init__(self, session_factory: sessionmaker[Session], definition: RepositoryDefinition):
-        super().__init__(session_factory, definition)
-        self._lease_lock = Lock()
-
-    def get_by_access_token(self, access_token: str) -> dict[str, Any] | None:
-        db_key = self._database_key_from_text(access_token)
-        if not db_key:
-            return None
-        with self._session_factory() as session:
-            row = session.execute(
-                select(AccountRow).where(AccountRow.access_token_hash == db_key)
-            ).scalar_one_or_none()
-            return self._row_item(row) if row is not None else None
-
-    def acquire_image_lease(self, lease_owner: str, lease_ttl_seconds: int) -> dict[str, Any] | None:
-        normalized_owner = _clean(lease_owner)
-        if not normalized_owner:
-            raise ValueError("lease owner is required")
-        ttl = max(1, int(lease_ttl_seconds or 1))
-        with self._lease_lock:
-            with self._session_factory() as session:
-                with session.begin():
-                    now = _now_utc()
-                    rows = list(session.execute(self._lease_candidate_statement(session)).scalars())
-                    candidates: list[tuple[tuple[float, float, float, float, int], int, int]] = []
-                    for row in rows:
-                        item = _reset_expired_account_lease(self._row_item(row), now)
-                        if not _is_image_account_available(item):
-                            continue
-                        max_concurrency = _positive_int(item.get("max_concurrency"), 1)
-                        owners = _lease_owners(item)
-                        inflight_count = max(_non_negative_int(item.get("inflight_count")), len(owners))
-                        if inflight_count >= max_concurrency:
-                            continue
-                        normalized_item = dict(item)
-                        normalized_item["inflight_count"] = inflight_count
-                        normalized_item["max_concurrency"] = max_concurrency
-                        candidates.append((_account_selection_key(normalized_item), int(row.position or 0), int(row.id or 0)))
-
-                    for _, _, row_id in sorted(candidates, key=lambda candidate: (candidate[0], candidate[1], candidate[2])):
-                        row = self._locked_row_by_id(session, row_id)
-                        if row is None:
-                            continue
-                        item = _reset_expired_account_lease(self._row_item(row), now)
-                        if not _is_image_account_available(item):
-                            self._apply_item_to_row(row, item)
-                            continue
-                        max_concurrency = _positive_int(item.get("max_concurrency"), 1)
-                        owners = _lease_owners(item)
-                        inflight_count = max(_non_negative_int(item.get("inflight_count")), len(owners))
-                        if inflight_count >= max_concurrency:
-                            self._apply_item_to_row(row, {**item, "inflight_count": inflight_count, "max_concurrency": max_concurrency})
-                            continue
-                        if normalized_owner not in owners:
-                            owners.append(normalized_owner)
-                        lease_until = now + timedelta(seconds=ttl)
-                        item["lease_owners"] = owners
-                        item["inflight_count"] = len(owners)
-                        item["lease_owner"] = owners[0] if owners else None
-                        item["leased_until"] = _iso(lease_until)
-                        item["max_concurrency"] = max_concurrency
-                        item["updated_at"] = _iso(now)
-                        self._apply_item_to_row(row, item)
-                        return dict(item)
-
-                    return None
-
-    def release_image_lease(
-        self,
-        access_token: str,
-        lease_owner: str,
-        *,
-        success: bool | None = None,
-    ) -> dict[str, Any] | None:
-        normalized_owner = _clean(lease_owner)
-        with self._lease_lock:
-            with self._session_factory() as session:
-                with session.begin():
-                    row = self._locked_row_by_access_token(session, access_token)
-                    if row is None:
-                        return None
-                    now = _now_utc()
-                    item = self._apply_image_result(self._row_item(row), success, now=now)
-                    item = self._release_owner(item, normalized_owner, now=now)
-                    self._apply_item_to_row(row, item)
-                    return dict(item)
-
-    def record_image_result(self, access_token: str, success: bool) -> dict[str, Any] | None:
-        with self._lease_lock:
-            with self._session_factory() as session:
-                with session.begin():
-                    row = self._locked_row_by_access_token(session, access_token)
-                    if row is None:
-                        return None
-                    item = self._apply_image_result(self._row_item(row), success, now=_now_utc())
-                    self._apply_item_to_row(row, item)
-                    return dict(item)
-
-    def _lease_candidate_statement(self, session: Session):
-        statement = (
-            select(AccountRow)
-            .where(or_(AccountRow.status.is_(None), AccountRow.status.not_in(["禁用", "限流", "异常"])))
-            .order_by(AccountRow.position.asc(), AccountRow.id.asc())
-        )
-        return statement
-
-    def _locked_row_by_id(self, session: Session, row_id: int) -> AccountRow | None:
-        if row_id <= 0:
-            return None
-        statement = select(AccountRow).where(AccountRow.id == row_id).execution_options(populate_existing=True)
-        if session.get_bind().dialect.name == "postgresql":
-            statement = statement.with_for_update(skip_locked=True)
-        return session.execute(statement).scalar_one_or_none()
-
-    def _locked_row_by_access_token(self, session: Session, access_token: str) -> AccountRow | None:
-        db_key = self._database_key_from_text(access_token)
-        if not db_key:
-            return None
-        statement = select(AccountRow).where(AccountRow.access_token_hash == db_key)
-        if session.get_bind().dialect.name == "postgresql":
-            statement = statement.with_for_update()
-        return session.execute(statement).scalar_one_or_none()
-
-    def _row_item(self, row: AccountRow) -> dict[str, Any]:
-        item = _data_copy(row.data)
-        item.setdefault("status", row.status or "正常")
-        item.setdefault("quota", int(row.quota or 0))
-        item.setdefault("lease_owner", row.lease_owner)
-        item.setdefault("leased_until", row.leased_until)
-        item.setdefault("inflight_count", _non_negative_int(row.inflight_count))
-        item.setdefault("max_concurrency", _positive_int(row.max_concurrency))
-        item.setdefault("updated_at", row.updated_at)
-        return item
-
-    def _release_owner(self, item: dict[str, Any], lease_owner: str, *, now: datetime) -> dict[str, Any]:
-        next_item = _reset_expired_account_lease(dict(item), now)
-        owners = _lease_owners(next_item)
-        previous_inflight = max(_non_negative_int(next_item.get("inflight_count")), len(owners))
-        removed_owner = False
-        if lease_owner and lease_owner in owners:
-            owners.remove(lease_owner)
-            removed_owner = True
-        elif not owners and _non_negative_int(next_item.get("inflight_count")) > 0:
-            next_item["inflight_count"] = max(0, _non_negative_int(next_item.get("inflight_count")) - 1)
-        next_item["lease_owners"] = owners
-        if owners:
-            next_item["inflight_count"] = len(owners)
-        elif removed_owner:
-            next_item["inflight_count"] = max(0, previous_inflight - 1)
-        else:
-            next_item["inflight_count"] = _non_negative_int(next_item.get("inflight_count"))
-        if next_item["inflight_count"] <= 0:
-            next_item["inflight_count"] = 0
-            next_item["lease_owner"] = None
-            next_item["leased_until"] = None
-            next_item["lease_owners"] = []
-        else:
-            next_item["lease_owner"] = owners[0] if owners else next_item.get("lease_owner")
-        next_item["updated_at"] = _iso(now)
-        return next_item
-
-    def _apply_image_result(self, item: dict[str, Any], success: bool | None, *, now: datetime) -> dict[str, Any]:
-        next_item = dict(item)
-        if success is None:
-            return next_item
-        next_item["last_used_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
-        image_quota_unknown = bool(next_item.get("image_quota_unknown"))
-        if success:
-            next_item["success"] = _non_negative_int(next_item.get("success")) + 1
-            if not image_quota_unknown:
-                next_item["quota"] = max(0, _non_negative_int(next_item.get("quota")) - 1)
-            if not image_quota_unknown and _non_negative_int(next_item.get("quota")) == 0:
-                next_item["status"] = "限流"
-                next_item["restore_at"] = next_item.get("restore_at") or None
-            elif next_item.get("status") == "限流":
-                next_item["status"] = "正常"
-        else:
-            next_item["fail"] = _non_negative_int(next_item.get("fail")) + 1
-        next_item["updated_at"] = _iso(now)
-        return next_item
 
 
 class SQLAlchemyAuthKeyRepository(SQLAlchemyDatasetRepository, AuthKeyRepository):
@@ -1867,7 +1571,6 @@ class SQLAlchemyRepositoryProvider(RepositoryProvider):
         Base.metadata.create_all(self.engine)
         self._ensure_legacy_tables_have_columns()
         self.Session = sessionmaker(bind=self.engine, expire_on_commit=False, future=True)
-        self._accounts = SQLAlchemyAccountRepository(self.Session, DEFINITIONS["accounts"])
         self._auth_keys = SQLAlchemyAuthKeyRepository(self.Session, DEFINITIONS["auth_keys"])
         self._users = SQLAlchemyUserRepository(self.Session, DEFINITIONS["users"])
         self._sessions = SQLAlchemySessionRepository(self.Session, DEFINITIONS["sessions"])
@@ -1880,10 +1583,6 @@ class SQLAlchemyRepositoryProvider(RepositoryProvider):
         self._system_logs = SQLAlchemySystemLogRepository(self.Session)
         self._audit_logs = SQLAlchemyAuditLogRepository(self.Session)
         self._stamp_schema_version()
-
-    @property
-    def accounts(self) -> AccountRepository:
-        return self._accounts
 
     @property
     def auth_keys(self) -> AuthKeyRepository:
@@ -1931,7 +1630,6 @@ class SQLAlchemyRepositoryProvider(RepositoryProvider):
 
     def repositories(self) -> tuple[Any, ...]:
         return (
-            self.accounts,
             self.auth_keys,
             self.users,
             self.sessions,
@@ -1963,7 +1661,6 @@ class SQLAlchemyRepositoryProvider(RepositoryProvider):
                 "schema_version": SCHEMA_VERSION,
                 "migration_version": SCHEMA_VERSION,
                 "schema_migrations": migrations,
-                "available_image_accounts_count": self._available_image_accounts_count(),
                 **counts,
             }
         except Exception as exc:
@@ -1978,25 +1675,12 @@ class SQLAlchemyRepositoryProvider(RepositoryProvider):
         return {
             "type": "database",
             "db_type": self._db_type(),
-            "description": f"数据库存储 ({self._db_type()})",
+            "description": f"鏁版嵁搴撳瓨鍌?({self._db_type()})",
             "database_url": self._mask_password(self.database_url),
             "repository": "sqlalchemy",
             "schema_version": SCHEMA_VERSION,
             "migration_version": SCHEMA_VERSION,
         }
-
-    def _available_image_accounts_count(self) -> int:
-        now = _now_utc()
-        count = 0
-        for item in self.accounts.list():
-            if not isinstance(item, dict):
-                continue
-            account = _reset_expired_account_lease(dict(item), now)
-            if not _is_image_account_available(account):
-                continue
-            if _non_negative_int(account.get("inflight_count")) < _positive_int(account.get("max_concurrency"), 1):
-                count += 1
-        return count
 
     def _stamp_schema_version(self) -> None:
         with self.Session() as session:
@@ -2061,17 +1745,6 @@ class SQLAlchemyRepositoryProvider(RepositoryProvider):
 
 def _column_specs() -> dict[str, dict[str, str]]:
     return {
-        "accounts": {
-            "position": "INTEGER",
-            "access_token_hash": "VARCHAR(64)",
-            "status": "VARCHAR(64)",
-            "quota": "INTEGER",
-            "leased_until": "VARCHAR(80)",
-            "lease_owner": "VARCHAR(255)",
-            "inflight_count": "INTEGER DEFAULT 0",
-            "max_concurrency": "INTEGER DEFAULT 1",
-            "updated_at": "VARCHAR(80)",
-        },
         "auth_keys": {
             "position": "INTEGER",
             "key_id": "VARCHAR(255)",

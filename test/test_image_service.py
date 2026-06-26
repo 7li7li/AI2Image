@@ -7,8 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from services import channel_service
 from services import image_service
-from services.protocol import conversation
 from services.repositories.base import ImageRecordRepository
 
 
@@ -419,11 +419,11 @@ class ImageServiceTests(unittest.TestCase):
             )
 
             with (
-                mock.patch.object(conversation, "config", fake_config),
-                mock.patch.object(conversation, "china_now_text", return_value="2026-05-29 08:00:00"),
+                mock.patch.object(channel_service, "config", fake_config),
+                mock.patch.object(channel_service, "china_now_text", return_value="2026-05-29 08:00:00"),
             ):
-                first = conversation.save_image_bytes(b"same-image")
-                second = conversation.save_image_bytes(b"same-image")
+                first = channel_service._save_image_bytes(b"same-image")
+                second = channel_service._save_image_bytes(b"same-image")
 
             self.assertNotEqual(first, second)
             self.assertEqual(len(list((images_dir / "2026" / "05" / "29").glob("*.png"))), 2)

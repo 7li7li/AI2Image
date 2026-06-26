@@ -12,12 +12,6 @@ class RepositoryStorageAdapter(StorageBackend):
     def __init__(self, repositories: RepositoryProvider):
         self.repositories = repositories
 
-    def load_accounts(self) -> list[dict[str, Any]]:
-        return self.repositories.accounts.list()
-
-    def save_accounts(self, accounts: list[dict[str, Any]]) -> None:
-        self.repositories.accounts.replace_all(accounts)
-
     def load_auth_keys(self) -> list[dict[str, Any]]:
         return self.repositories.auth_keys.list()
 

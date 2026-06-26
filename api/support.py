@@ -5,7 +5,6 @@ from threading import Event, Thread
 
 from fastapi import HTTPException, Request
 
-from services.account_service import account_service
 from services.auth_service import auth_service
 from services.config import config
 
@@ -55,47 +54,6 @@ def raise_image_quota_error(exc: Exception) -> None:
     if "no available image quota" in message.lower():
         raise HTTPException(status_code=429, detail={"error": "no available image quota"}) from exc
     raise HTTPException(status_code=502, detail={"error": message}) from exc
-
-
-def sanitize_cpa_pool(pool: dict | None) -> dict | None:
-    if not isinstance(pool, dict):
-        return None
-    return {key: value for key, value in pool.items() if key != "secret_key"}
-
-
-def sanitize_cpa_pools(pools: list[dict]) -> list[dict]:
-    return [sanitized for pool in pools if (sanitized := sanitize_cpa_pool(pool)) is not None]
-
-
-def sanitize_sub2api_server(server: dict | None) -> dict | None:
-    if not isinstance(server, dict):
-        return None
-    sanitized = {key: value for key, value in server.items() if key not in {"password", "api_key"}}
-    sanitized["has_api_key"] = bool(str(server.get("api_key") or "").strip())
-    return sanitized
-
-
-def sanitize_sub2api_servers(servers: list[dict]) -> list[dict]:
-    return [sanitized for server in servers if (sanitized := sanitize_sub2api_server(server)) is not None]
-
-
-def start_account_refresh_watcher(stop_event: Event) -> Thread:
-    interval_seconds = config.refresh_account_interval_minute * 60
-
-    def worker() -> None:
-        while not stop_event.is_set():
-            try:
-                tokens = account_service.list_tokens()
-                if tokens:
-                    print(f"[account-refresh-watcher] checking {len(tokens)} accounts")
-                    account_service.refresh_accounts(tokens)
-            except Exception as exc:
-                print(f"[account-refresh-watcher] fail {exc}")
-            stop_event.wait(interval_seconds)
-
-    thread = Thread(target=worker, name="account-refresh-watcher", daemon=True)
-    thread.start()
-    return thread
 
 
 def start_quota_reservation_watcher(stop_event: Event) -> Thread:

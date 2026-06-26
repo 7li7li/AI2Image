@@ -120,13 +120,13 @@ class Phase6ConfigRepositoryTest(unittest.TestCase):
             url = f"sqlite:///{db_path.as_posix()}"
             storage = DatabaseStorageBackend(url)
             storage.repository_provider.system_config.set_setting("image_retention_days", 45)
-            storage.repository_provider.system_config.set_setting("allow_user_registration", False)
+            storage.repository_provider.system_config.set_setting("log_levels", ["error"])
             storage.close()
 
             reopened = DatabaseStorageBackend(url)
             settings = reopened.repository_provider.system_config.list_settings()
             self.assertEqual(settings["image_retention_days"], 45)
-            self.assertEqual(settings["allow_user_registration"], False)
+            self.assertEqual(settings["log_levels"], ["error"])
             reopened.close()
 
 

@@ -1,109 +1,23 @@
 import { httpRequest } from "@/lib/request";
 
-export type AccountType = "Free" | "Plus" | "ProLite" | "Pro" | "Team";
-export type AccountStatus = "正常" | "限流" | "异常" | "禁用";
 export type ImageModel = "gpt-image-2" | "codex-gpt-image-2";
 export type AuthRole = "admin" | "user";
 
-export type CredentialPreview = {
-  present: boolean;
-  preview: string;
-  length: number;
-};
-
-export type Account = {
-  id: string;
-  access_token: string;
-  type: AccountType;
-  status: AccountStatus;
-  quota: number;
-  imageQuotaUnknown?: boolean;
-  email?: string | null;
-  user_id?: string | null;
-  limits_progress?: Array<{
-    feature_name?: string;
-    remaining?: number;
-    reset_after?: string;
-  }>;
-  default_model_slug?: string | null;
-  restoreAt?: string | null;
-  oauthCredentials?: {
-    refreshToken: CredentialPreview;
-    idToken: CredentialPreview;
-    password: CredentialPreview;
-    createdAt?: string | null;
-    expiresAt?: string | null;
-    chatgptAccountId?: string | null;
-    chatgptUserId?: string | null;
-  };
-  success: number;
-  fail: number;
-  lastUsedAt: string | null;
-  inflightCount?: number;
-  maxConcurrency?: number;
-  leaseOwner?: string | null;
-  leasedUntil?: string | null;
-};
-
-type AccountListResponse = {
-  items: Account[];
-};
-
-type AccountMutationResponse = {
-  items: Account[];
-  added?: number;
-  skipped?: number;
-  removed?: number;
-  refreshed?: number;
-  errors?: Array<{ access_token: string; error: string }>;
-};
-
-type AccountExportResponse = {
-  items: Array<Record<string, unknown>>;
-  count: number;
-};
-
-type AccountRefreshResponse = {
-  items: Account[];
-  refreshed: number;
-  errors: Array<{ access_token: string; error: string }>;
-};
-
-type AccountUpdateResponse = {
-  item: Account;
-  items: Account[];
-};
-
 export type SettingsConfig = {
   proxy: string;
+  site_title?: string;
+  site_icon?: string;
+  site_background?: string;
   base_url?: string;
-  allow_user_registration?: boolean;
-  new_user_initial_quota?: number | string;
-  email_verification_enabled?: boolean;
-  email_domain_whitelist_enabled?: boolean;
-  email_alias_restriction_enabled?: boolean;
-  email_domain_whitelist?: string[];
-  smtp_host?: string;
-  smtp_port?: number | string;
-  smtp_username?: string;
-  smtp_password?: string;
-  smtp_password_set?: boolean;
-  smtp_from_email?: string;
-  smtp_use_ssl?: boolean;
-  smtp_use_starttls?: boolean;
-  smtp_force_auth_login?: boolean;
-  linuxdo_oauth_enabled?: boolean;
-  linuxdo_client_id?: string;
-  linuxdo_client_secret?: string;
-  linuxdo_client_secret_set?: boolean;
-  linuxdo_minimum_trust_level?: number | string;
-  image_model_mappings?: Record<string, string>;
-  refresh_account_interval_minute?: number | string;
   image_retention_days?: number | string;
-  auto_remove_invalid_accounts?: boolean;
-  auto_remove_rate_limited_accounts?: boolean;
   log_levels?: string[];
   [key: string]: unknown;
+};
+
+export type PublicSiteSettings = {
+  site_title: string;
+  site_icon: string;
+  site_background: string;
 };
 
 export type ManagedImage = {
@@ -243,7 +157,7 @@ type PromptLibraryResponse = {
 
 export type SystemLog = {
   time: string;
-  type: "call" | "account" | "audit" | string;
+  type: "call" | "audit" | string;
   summary?: string;
   detail?: Record<string, unknown>;
   [key: string]: unknown;
@@ -311,70 +225,11 @@ export type UserImageChannelModelTestPayload = UserImageChannelPayload & {
   test_models?: string[];
 };
 
-export type RegisterOptions = {
-  allow_user_registration: boolean;
-  email_verification_enabled: boolean;
-  email_domain_whitelist_enabled: boolean;
-  email_alias_restriction_enabled: boolean;
-  email_domain_whitelist: string[];
-  linuxdo_oauth_enabled: boolean;
-  linuxdo_minimum_trust_level: number;
-  linuxdo_start_url: string;
-  linuxdo_callback_url: string;
-};
-
 export type AdminUser = CurrentUser & {
   email: string;
   status: "active" | "disabled";
   quota: number;
   quota_used: number;
-};
-
-export type UserKey = {
-  id: string;
-  name: string;
-  role: "user";
-  enabled: boolean;
-  created_at: string | null;
-  last_used_at: string | null;
-};
-
-export type RegisterConfig = {
-  enabled: boolean;
-  mail: {
-    request_timeout: number;
-    wait_timeout: number;
-    wait_interval: number;
-    providers: Array<Record<string, unknown>>;
-  };
-  proxy: string;
-  total: number;
-  threads: number;
-  mode: "total" | "quota" | "available";
-  target_quota: number;
-  target_available: number;
-  check_interval: number;
-  stats: {
-    job_id?: string;
-    success: number;
-    fail: number;
-    done: number;
-    running: number;
-    threads: number;
-    elapsed_seconds?: number;
-    avg_seconds?: number;
-    success_rate?: number;
-    current_quota?: number;
-    current_available?: number;
-    started_at?: string;
-    updated_at?: string;
-    finished_at?: string;
-  };
-  logs?: Array<{
-    time: string;
-    text: string;
-    level: string;
-  }>;
 };
 
 export async function login(input: string | { email: string; password: string }) {
@@ -393,28 +248,6 @@ export async function login(input: string | { email: string; password: string })
   return httpRequest<LoginResponse>("/auth/login", {
     method: "POST",
     body: input,
-    redirectOnUnauthorized: false,
-  });
-}
-
-export async function fetchRegisterOptions() {
-  return httpRequest<RegisterOptions>("/auth/register/options", {
-    redirectOnUnauthorized: false,
-  });
-}
-
-export async function sendRegisterVerificationCode(email: string) {
-  return httpRequest<{ ok: boolean; required: boolean }>("/auth/register/email-code", {
-    method: "POST",
-    body: { email },
-    redirectOnUnauthorized: false,
-  });
-}
-
-export async function registerPersonalUser(payload: { email: string; password: string; name?: string; verification_code?: string }) {
-  return httpRequest<{ ok: boolean; user: CurrentUser; token: string }>("/auth/register", {
-    method: "POST",
-    body: payload,
     redirectOnUnauthorized: false,
   });
 }
@@ -452,56 +285,6 @@ export async function redeemMyCode(code: string) {
   return httpRequest<{ user: CurrentUser; redeem_code: RedeemCode }>("/api/me/redeem", {
     method: "POST",
     body: { code },
-  });
-}
-
-export async function fetchAccounts() {
-  return httpRequest<AccountListResponse>("/api/accounts");
-}
-
-export async function createAccounts(tokens: string[]) {
-  return httpRequest<AccountMutationResponse>("/api/accounts", {
-    method: "POST",
-    body: { tokens },
-  });
-}
-
-export async function deleteAccounts(tokens: string[]) {
-  return httpRequest<AccountMutationResponse>("/api/accounts", {
-    method: "DELETE",
-    body: { tokens },
-  });
-}
-
-export async function exportAccounts(tokens: string[]) {
-  return httpRequest<AccountExportResponse>("/api/accounts/export", {
-    method: "POST",
-    body: { tokens },
-  });
-}
-
-export async function refreshAccounts(accessTokens: string[]) {
-  return httpRequest<AccountRefreshResponse>("/api/accounts/refresh", {
-    method: "POST",
-    body: { access_tokens: accessTokens },
-  });
-}
-
-export async function updateAccount(
-  accessToken: string,
-  updates: {
-    type?: AccountType;
-    status?: AccountStatus;
-    quota?: number;
-    max_concurrency?: number;
-  },
-) {
-  return httpRequest<AccountUpdateResponse>("/api/accounts/update", {
-    method: "POST",
-    body: {
-      access_token: accessToken,
-      ...updates,
-    },
   });
 }
 
@@ -549,6 +332,12 @@ export async function editImage(files: File | File[], prompt: string, model?: Im
 
 export async function fetchSettingsConfig() {
   return httpRequest<{ config: SettingsConfig }>("/api/settings");
+}
+
+export async function fetchPublicSettings() {
+  return httpRequest<{ settings: PublicSiteSettings }>("/api/public/settings", {
+    redirectOnUnauthorized: false,
+  });
 }
 
 export async function updateSettingsConfig(settings: SettingsConfig) {
@@ -802,30 +591,6 @@ export async function fetchSystemLogs(filters: {
   return httpRequest<LogListResponse>(`/api/logs${params.toString() ? `?${params.toString()}` : ""}`);
 }
 
-export async function fetchUserKeys() {
-  return httpRequest<{ items: UserKey[] }>("/api/auth/users");
-}
-
-export async function createUserKey(name: string) {
-  return httpRequest<{ item: UserKey; key: string; items: UserKey[] }>("/api/auth/users", {
-    method: "POST",
-    body: { name },
-  });
-}
-
-export async function updateUserKey(keyId: string, updates: { enabled?: boolean; name?: string }) {
-  return httpRequest<{ item: UserKey; items: UserKey[] }>(`/api/auth/users/${keyId}`, {
-    method: "POST",
-    body: updates,
-  });
-}
-
-export async function deleteUserKey(keyId: string) {
-  return httpRequest<{ items: UserKey[] }>(`/api/auth/users/${keyId}`, {
-    method: "DELETE",
-  });
-}
-
 export async function fetchAdminUsers(filters: { query?: string; status?: string; role?: string } = {}) {
   const params = new URLSearchParams();
   if (filters.query) params.set("query", filters.query);
@@ -943,7 +708,7 @@ export async function deleteRedeemCodes(codeIds: string[]) {
 export type Channel = {
   id: string;
   name: string;
-  type: "internal_pool" | "openai_image";
+  type: "openai_image";
   base_url: string;
   models: string[];
   weight: number;
@@ -982,7 +747,7 @@ export type ModelPricing = {
 export type ModelChannelSummary = {
   id: string;
   name: string;
-  type: "internal_pool" | "openai_image" | string;
+  type: "openai_image" | string;
   enabled: boolean;
   base_url?: string;
   models?: string[];
@@ -1078,203 +843,6 @@ export async function testChannelModels(channelId: string, models: string[] = []
     method: "POST",
     body: { models },
   });
-}
-
-export async function fetchRegisterConfig() {
-  return httpRequest<{ register: RegisterConfig }>("/api/register");
-}
-
-export async function updateRegisterConfig(updates: Partial<RegisterConfig>) {
-  return httpRequest<{ register: RegisterConfig }>("/api/register", {
-    method: "POST",
-    body: updates,
-  });
-}
-
-export async function startRegister() {
-  return httpRequest<{ register: RegisterConfig }>("/api/register/start", { method: "POST" });
-}
-
-export async function stopRegister() {
-  return httpRequest<{ register: RegisterConfig }>("/api/register/stop", { method: "POST" });
-}
-
-export async function resetRegister() {
-  return httpRequest<{ register: RegisterConfig }>("/api/register/reset", { method: "POST" });
-}
-
-// ── CPA (CLIProxyAPI) ──────────────────────────────────────────────
-
-export type CPAPool = {
-  id: string;
-  name: string;
-  base_url: string;
-  import_job?: CPAImportJob | null;
-};
-
-export type CPARemoteFile = {
-  name: string;
-  email: string;
-};
-
-export type CPAImportJob = {
-  job_id: string;
-  status: "pending" | "running" | "completed" | "failed";
-  direction?: "remote_to_local" | "local_to_remote";
-  created_at: string;
-  updated_at: string;
-  total: number;
-  completed: number;
-  added: number;
-  skipped: number;
-  refreshed: number;
-  failed: number;
-  errors: Array<{ name: string; error: string }>;
-};
-
-export async function fetchCPAPools() {
-  return httpRequest<{ pools: CPAPool[] }>("/api/cpa/pools");
-}
-
-export async function createCPAPool(pool: { name: string; base_url: string; secret_key: string }) {
-  return httpRequest<{ pool: CPAPool; pools: CPAPool[] }>("/api/cpa/pools", {
-    method: "POST",
-    body: pool,
-  });
-}
-
-export async function updateCPAPool(
-  poolId: string,
-  updates: { name?: string; base_url?: string; secret_key?: string },
-) {
-  return httpRequest<{ pool: CPAPool; pools: CPAPool[] }>(`/api/cpa/pools/${poolId}`, {
-    method: "POST",
-    body: updates,
-  });
-}
-
-export async function deleteCPAPool(poolId: string) {
-  return httpRequest<{ pools: CPAPool[] }>(`/api/cpa/pools/${poolId}`, {
-    method: "DELETE",
-  });
-}
-
-export async function fetchCPAPoolFiles(poolId: string) {
-  return httpRequest<{ pool_id: string; files: CPARemoteFile[] }>(`/api/cpa/pools/${poolId}/files`);
-}
-
-export async function startCPAImport(poolId: string, names: string[]) {
-  return httpRequest<{ import_job: CPAImportJob | null }>(`/api/cpa/pools/${poolId}/import`, {
-    method: "POST",
-    body: { names },
-  });
-}
-
-export async function fetchCPAPoolImportJob(poolId: string) {
-  return httpRequest<{ import_job: CPAImportJob | null }>(`/api/cpa/pools/${poolId}/import`);
-}
-
-// ── Sub2API ────────────────────────────────────────────────────────
-
-export type Sub2APIServer = {
-  id: string;
-  name: string;
-  base_url: string;
-  email: string;
-  has_api_key: boolean;
-  group_id: string;
-  import_job?: CPAImportJob | null;
-};
-
-export type Sub2APIRemoteAccount = {
-  id: string;
-  name: string;
-  email: string;
-  plan_type: string;
-  status: string;
-  expires_at: string;
-  has_refresh_token: boolean;
-};
-
-export type Sub2APIRemoteGroup = {
-  id: string;
-  name: string;
-  description: string;
-  platform: string;
-  status: string;
-  account_count: number;
-  active_account_count: number;
-};
-
-export async function fetchSub2APIServers() {
-  return httpRequest<{ servers: Sub2APIServer[] }>("/api/sub2api/servers");
-}
-
-export async function createSub2APIServer(server: {
-  name: string;
-  base_url: string;
-  email: string;
-  password: string;
-  api_key: string;
-  group_id: string;
-}) {
-  return httpRequest<{ server: Sub2APIServer; servers: Sub2APIServer[] }>("/api/sub2api/servers", {
-    method: "POST",
-    body: server,
-  });
-}
-
-export async function updateSub2APIServer(
-  serverId: string,
-  updates: {
-    name?: string;
-    base_url?: string;
-    email?: string;
-    password?: string;
-    api_key?: string;
-    group_id?: string;
-  },
-) {
-  return httpRequest<{ server: Sub2APIServer; servers: Sub2APIServer[] }>(`/api/sub2api/servers/${serverId}`, {
-    method: "POST",
-    body: updates,
-  });
-}
-
-export async function fetchSub2APIServerGroups(serverId: string) {
-  return httpRequest<{ server_id: string; groups: Sub2APIRemoteGroup[] }>(
-    `/api/sub2api/servers/${serverId}/groups`,
-  );
-}
-
-export async function deleteSub2APIServer(serverId: string) {
-  return httpRequest<{ servers: Sub2APIServer[] }>(`/api/sub2api/servers/${serverId}`, {
-    method: "DELETE",
-  });
-}
-
-export async function fetchSub2APIServerAccounts(serverId: string) {
-  return httpRequest<{ server_id: string; accounts: Sub2APIRemoteAccount[] }>(
-    `/api/sub2api/servers/${serverId}/accounts`,
-  );
-}
-
-export async function startSub2APIImport(serverId: string, accountIds: string[]) {
-  return httpRequest<{ import_job: CPAImportJob | null }>(`/api/sub2api/servers/${serverId}/import`, {
-    method: "POST",
-    body: { account_ids: accountIds },
-  });
-}
-
-export async function startSub2APIExport(serverId: string, localAccountIds: string[]) {
-  return httpRequest<{ import_job: CPAImportJob | null }>(`/api/sub2api/servers/${serverId}/export`, {
-    method: "POST",
-    body: { local_account_ids: localAccountIds },
-  });
-}
-
-export async function fetchSub2APIImportJob(serverId: string) {
-  return httpRequest<{ import_job: CPAImportJob | null }>(`/api/sub2api/servers/${serverId}/import`);
 }
 
 // ── Upstream proxy ────────────────────────────────────────────────

@@ -58,7 +58,6 @@ class FakeChannelService:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
         self.edit_calls: list[dict[str, object]] = []
-        self.internal_pool_checked = False
         self.generation_result: tuple[dict[str, object], str] | None = None
         self.edit_result: tuple[dict[str, object], str] | None = None
 
@@ -89,28 +88,17 @@ class FakeChannelService:
         payload["_channel_error"] = error
         return None
 
-    def is_internal_pool_enabled(self) -> bool:
-        self.internal_pool_checked = True
-        return True
-
-
 class PersonalImageChannelApiTests(unittest.TestCase):
-    def test_enabled_personal_channel_failure_does_not_fall_back_to_internal_pool(self) -> None:
+    def test_enabled_personal_channel_failure_does_not_fall_back_to_global_channel(self) -> None:
         app = FastAPI()
         app.include_router(api_ai.create_router())
         auth = FakeAuthService()
         channels = FakeChannelService()
-        internal_calls: list[dict[str, object]] = []
-
-        def fake_internal(payload: dict[str, object]):
-            internal_calls.append(dict(payload))
-            return {"created": 1, "data": [{"url": "https://internal.example/image.png"}]}
 
         with (
             mock.patch.object(api_support, "auth_service", auth),
             mock.patch.object(api_ai, "auth_service", auth),
             mock.patch.object(api_ai, "channel_service", channels),
-            mock.patch.object(api_ai.openai_v1_image_generations, "handle", fake_internal),
         ):
             response = TestClient(app).post(
                 "/v1/images/generations",
@@ -126,8 +114,6 @@ class PersonalImageChannelApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertIn("personal image channel failed", response.text)
         self.assertEqual(len(channels.calls), 1)
-        self.assertFalse(channels.internal_pool_checked)
-        self.assertEqual(internal_calls, [])
         self.assertEqual(auth.reserved, [])
         self.assertEqual(auth.released, [])
 

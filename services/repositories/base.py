@@ -60,29 +60,6 @@ class DatasetRepository(ABC):
         pass
 
 
-class AccountRepository(DatasetRepository):
-    def get_by_access_token(self, access_token: str) -> dict[str, Any] | None:
-        for item in self.list():
-            if str(item.get("access_token") or "").strip() == str(access_token or "").strip():
-                return dict(item)
-        return None
-
-    def acquire_image_lease(self, lease_owner: str, lease_ttl_seconds: int) -> dict[str, Any] | None:
-        raise NotImplementedError
-
-    def release_image_lease(
-        self,
-        access_token: str,
-        lease_owner: str,
-        *,
-        success: bool | None = None,
-    ) -> dict[str, Any] | None:
-        raise NotImplementedError
-
-    def record_image_result(self, access_token: str, success: bool) -> dict[str, Any] | None:
-        raise NotImplementedError
-
-
 class AuthKeyRepository(DatasetRepository):
     pass
 
@@ -270,11 +247,6 @@ class AuditLogRepository(ABC):
 
 
 class RepositoryProvider(ABC):
-    @property
-    @abstractmethod
-    def accounts(self) -> AccountRepository:
-        pass
-
     @property
     @abstractmethod
     def auth_keys(self) -> AuthKeyRepository:

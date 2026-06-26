@@ -31,7 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { editImage, fetchAccounts, fetchMe, generateImage, type Account } from "@/lib/api";
+import { editImage, fetchMe, generateImage } from "@/lib/api";
 import { resolveApiAssetUrl } from "@/lib/assets";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import {
@@ -92,11 +92,6 @@ function formatConversationTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
-}
-
-function formatAvailableQuota(accounts: Account[]) {
-  const availableAccounts = accounts.filter((account) => account.status !== "禁用");
-  return String(availableAccounts.reduce((sum, account) => sum + Math.max(0, account.quota), 0));
 }
 
 function createId() {
@@ -566,20 +561,15 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   }, [activeConversationStorageKey, imageConversationOwnerKey, imageSizeStorageKey]);
 
   const loadQuota = useCallback(async () => {
-    if (!isAdmin) {
-      try {
-        const data = await fetchMe();
-        setAvailableQuota(String(data.user.quota ?? 0));
-      } catch {
-        setAvailableQuota("--");
-      }
+    if (isAdmin) {
+      setAvailableQuota("--");
       return;
     }
     try {
-      const data = await fetchAccounts();
-      setAvailableQuota(formatAvailableQuota(data.items));
+      const data = await fetchMe();
+      setAvailableQuota(String(data.user.quota ?? 0));
     } catch {
-      setAvailableQuota((prev) => (prev === "加载中..." ? "--" : prev));
+      setAvailableQuota("--");
     }
   }, [isAdmin]);
 

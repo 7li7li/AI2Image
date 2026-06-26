@@ -447,7 +447,7 @@ def record_image_result(
     mode: str,
     model: str,
     size: str | None = None,
-    channel: str = "internal_pool",
+    channel: str = "channel",
     quota_cost: int = 0,
     request_id: str = "",
 ) -> list[dict[str, object]]:

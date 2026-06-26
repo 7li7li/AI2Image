@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import tempfile
 import unittest
@@ -105,17 +105,13 @@ class ObservabilityTest(unittest.TestCase):
     def test_request_id_links_image_records_and_health(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = DatabaseStorageBackend(f"sqlite:///{(Path(tmp_dir) / 'observability.db').as_posix()}")
-            storage.save_accounts([
-                {"access_token": "token-a", "status": "正常", "quota": 3, "max_concurrency": 1},
-                {"access_token": "token-b", "status": "限流", "quota": 0, "max_concurrency": 1},
-            ])
             storage.repository_provider.image_records.insert(
                 {
                     "record_id": "image-a",
                     "url": "http://127.0.0.1:8000/images/a.png",
                     "owner_user_id": "user-a",
                     "created_at": "2026-05-29 12:00:00",
-                    "channel": "internal_pool",
+                    "channel": "channel-a",
                     "request_id": "req-image",
                 }
             )
@@ -128,7 +124,7 @@ class ObservabilityTest(unittest.TestCase):
             self.assertEqual(health["status"], "healthy")
             self.assertEqual(health["migration_version"], "004_observability")
             self.assertIn("004_observability", health["schema_migrations"])
-            self.assertEqual(health["available_image_accounts_count"], 1)
+            self.assertEqual(health["image_records_count"], 1)
             storage.close()
 
 

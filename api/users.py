@@ -3,36 +3,21 @@ from __future__ import annotations
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import urlencode
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.support import require_admin, require_identity, resolve_image_base_url
 from services.auth_service import DEFAULT_USER_IMAGE_CHANNEL_MODELS, auth_service
 from services.channel_service import channel_service
-from services.config import config
 from services.image_service import collect_downloadable_images, delete_images, list_images
 from services.log_service import audit_service
 from services.model_service import model_service
-from services import linuxdo_oauth_service
-from services.registration_security import send_registration_verification_code, validate_registration_email
 from services.webdav_service import get_webdav_config, save_webdav_config, sync_images_to_webdav
 from utils.model_catalog import DEFAULT_INTERNAL_MODELS
-
-
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    name: str = ""
-    verification_code: str = ""
-
-
-class VerificationCodeRequest(BaseModel):
-    email: str
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -190,89 +175,6 @@ def _build_image_download_zip(downloads: list[dict[str, object]]) -> bytes:
 
 def create_router() -> APIRouter:
     router = APIRouter()
-
-    @router.get("/auth/register/options")
-    async def register_options(request: Request):
-        linuxdo_ready = (
-            config.linuxdo_oauth_enabled
-            and bool(config.linuxdo_client_id)
-            and bool(config.linuxdo_client_secret)
-        )
-        return {
-            "allow_user_registration": config.allow_user_registration,
-            "email_verification_enabled": config.email_verification_enabled,
-            "email_domain_whitelist_enabled": config.email_domain_whitelist_enabled,
-            "email_alias_restriction_enabled": config.email_alias_restriction_enabled,
-            "email_domain_whitelist": config.email_domain_whitelist if config.email_domain_whitelist_enabled else [],
-            "linuxdo_oauth_enabled": linuxdo_ready,
-            "linuxdo_minimum_trust_level": config.linuxdo_minimum_trust_level,
-            "linuxdo_start_url": "/auth/linuxdo/start",
-            "linuxdo_callback_url": linuxdo_oauth_service.callback_url(request),
-        }
-
-    @router.post("/auth/register/email-code")
-    async def send_register_email_code(body: VerificationCodeRequest):
-        if not config.allow_user_registration:
-            raise HTTPException(status_code=400, detail={"error": "registration is disabled"})
-        try:
-            email = validate_registration_email(body.email)
-            if auth_service.email_exists(email):
-                raise ValueError("email already exists")
-            if config.email_verification_enabled:
-                send_registration_verification_code(email)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail={"error": f"failed to send verification email: {exc}"}) from exc
-        return {"ok": True, "required": config.email_verification_enabled}
-
-    @router.post("/auth/register")
-    async def register(body: RegisterRequest):
-        try:
-            user, token = auth_service.register_user(
-                email=body.email,
-                password=body.password,
-                name=body.name,
-                verification_code=body.verification_code,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
-        return {"ok": True, "user": user, "token": token}
-
-    @router.get("/auth/linuxdo/start")
-    async def linuxdo_start(request: Request):
-        try:
-            url = linuxdo_oauth_service.authorization_url(request)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
-        return RedirectResponse(url, status_code=303)
-
-    @router.get("/oauth/linuxdo")
-    async def linuxdo_callback(request: Request, code: str = "", state: str = "", error: str = ""):
-        def redirect_with(payload: dict[str, object]) -> RedirectResponse:
-            return RedirectResponse(
-                f"{linuxdo_oauth_service.frontend_callback_url(request)}#{urlencode(payload)}",
-                status_code=303,
-            )
-
-        if error:
-            return redirect_with({"error": error})
-        try:
-            profile = linuxdo_oauth_service.authenticate_callback(request, code, state)
-            user, token, created = auth_service.login_or_register_linuxdo(profile)
-        except ValueError as exc:
-            return redirect_with({"error": str(exc)})
-        return redirect_with(
-            {
-                "token": token,
-                "role": user.get("role") or "user",
-                "subject_id": user.get("id") or "",
-                "name": user.get("name") or "",
-                "email": user.get("email") or "",
-                "quota": user.get("quota") or 0,
-                "created": "1" if created else "0",
-            }
-        )
 
     @router.get("/api/me")
     async def get_me(authorization: str | None = Header(default=None)):

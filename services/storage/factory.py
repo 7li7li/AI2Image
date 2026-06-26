@@ -14,49 +14,37 @@ from services.storage.json_storage import JSONStorageBackend
 
 def create_storage_backend(data_dir: Path, settings: Mapping[str, object] | None = None) -> StorageBackend:
     """
-    根据环境变量或 config.json 创建存储后端
-    
-    环境变量优先；未设置时读取项目根目录 config.json：
-    - STORAGE_BACKEND: json|sqlite|postgres|git (默认 json)
-    - DATABASE_URL: 数据库连接字符串 (用于 sqlite/postgres)
-    - GIT_REPO_URL: Git 仓库地址 (用于 git)
-    - GIT_TOKEN: Git 访问令牌 (用于 git)
-    - GIT_BRANCH: Git 分支 (默认 main)
-    - GIT_FILE_PATH: Git 仓库中的文件路径 (默认 accounts.json)
-    - GIT_*_FILE_PATH: Git 仓库中各数据集的文件路径
+    Create the configured storage backend.
+
+    Environment variables override values in config.json:
+    - STORAGE_BACKEND: json|sqlite|postgres|git
+    - DATABASE_URL: database connection string
+    - GIT_REPO_URL/GIT_TOKEN/GIT_BRANCH: Git storage connection settings
+    - GIT_*_FILE_PATH: Git paths for individual datasets
     """
     resolved_settings = settings if settings is not None else _load_config_settings(data_dir)
     backend_type = _get_setting("STORAGE_BACKEND", "json", resolved_settings).lower()
-    
+
     print(f"[storage] Initializing storage backend: {backend_type}")
-    
+
     if backend_type == "json":
-        # 本地 JSON 文件存储
-        file_path = data_dir / "accounts.json"
-        auth_keys_path = data_dir / "auth_keys.json"
-        print(f"[storage] Using JSON storage: {file_path}")
-        return JSONStorageBackend(file_path, auth_keys_path)
-    
-    elif backend_type in ("sqlite", "postgres", "postgresql", "mysql", "database"):
-        # 数据库存储
+        print(f"[storage] Using JSON storage: {data_dir}")
+        return JSONStorageBackend(data_dir)
+
+    if backend_type in ("sqlite", "postgres", "postgresql", "mysql", "database"):
         database_url = _get_setting("DATABASE_URL", "", resolved_settings)
-        
         if not database_url:
-            # 如果没有指定 DATABASE_URL，使用本地 SQLite
-            database_url = f"sqlite:///{data_dir / 'accounts.db'}"
+            database_url = f"sqlite:///{data_dir / 'storage.db'}"
             print(f"[storage] No DATABASE_URL provided, using local SQLite: {database_url}")
         else:
             database_url = _normalize_database_url(database_url)
             print(f"[storage] Using database storage: {_mask_password(database_url)}")
-        
         return DatabaseStorageBackend(database_url)
-    
-    elif backend_type == "git":
-        # Git 仓库存储
+
+    if backend_type == "git":
         repo_url = _get_setting("GIT_REPO_URL", "", resolved_settings)
         token = _get_setting("GIT_TOKEN", "", resolved_settings)
         branch = _get_setting("GIT_BRANCH", "main", resolved_settings)
-        file_path = _get_setting("GIT_FILE_PATH", "accounts.json", resolved_settings)
         auth_keys_file_path = _get_setting("GIT_AUTH_KEYS_FILE_PATH", "auth_keys.json", resolved_settings)
         users_file_path = _get_setting("GIT_USERS_FILE_PATH", "users.json", resolved_settings)
         sessions_file_path = _get_setting("GIT_SESSIONS_FILE_PATH", "sessions.json", resolved_settings)
@@ -64,21 +52,18 @@ def create_storage_backend(data_dir: Path, settings: Mapping[str, object] | None
         channels_file_path = _get_setting("GIT_CHANNELS_FILE_PATH", "channels.json", resolved_settings)
         prompt_library_file_path = _get_setting("GIT_PROMPT_LIBRARY_FILE_PATH", "prompt_library.json", resolved_settings)
         image_records_file_path = _get_setting("GIT_IMAGE_RECORDS_FILE_PATH", "image_records.json", resolved_settings)
-        
+
         if not repo_url:
             raise ValueError(
                 "GIT_REPO_URL is required when using git storage backend. "
                 "Please set GIT_REPO_URL environment variable."
             )
-        
-        print(f"[storage] Using Git storage: {_mask_token(repo_url)}, branch: {branch}, file: {file_path}")
-        
-        cache_dir = data_dir / "git_cache"
+
+        print(f"[storage] Using Git storage: {_mask_token(repo_url)}, branch: {branch}")
         return GitStorageBackend(
             repo_url=repo_url,
             token=token,
             branch=branch,
-            file_path=file_path,
             auth_keys_file_path=auth_keys_file_path,
             users_file_path=users_file_path,
             sessions_file_path=sessions_file_path,
@@ -86,18 +71,16 @@ def create_storage_backend(data_dir: Path, settings: Mapping[str, object] | None
             channels_file_path=channels_file_path,
             prompt_library_file_path=prompt_library_file_path,
             image_records_file_path=image_records_file_path,
-            local_cache_dir=cache_dir,
+            local_cache_dir=data_dir / "git_cache",
         )
-    
-    else:
-        raise ValueError(
-            f"Unknown storage backend: {backend_type}. "
-            f"Supported backends: json, sqlite, postgres, git"
-        )
+
+    raise ValueError(
+        f"Unknown storage backend: {backend_type}. "
+        "Supported backends: json, sqlite, postgres, git"
+    )
 
 
 def _mask_password(url: str) -> str:
-    """隐藏数据库连接字符串中的密码"""
     if "://" not in url:
         return url
     try:
@@ -181,7 +164,6 @@ def _normalize_database_url(url: str) -> str:
 
 
 def _mask_token(url: str) -> str:
-    """隐藏 URL 中的 token"""
     if "@" in url and "://" in url:
         protocol, rest = url.split("://", 1)
         if "@" in rest:

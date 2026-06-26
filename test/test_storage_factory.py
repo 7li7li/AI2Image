@@ -144,7 +144,7 @@ class StorageFactoryTest(unittest.TestCase):
             ) as backend_cls:
                 create_storage_backend(data_dir)
 
-        backend_cls.assert_called_once_with(data_dir / "accounts.json", data_dir / "auth_keys.json")
+        backend_cls.assert_called_once_with(data_dir)
 
     def test_postgres_database_is_created_when_missing(self) -> None:
         connection = _FakeConnection(existing_database=False)
@@ -176,7 +176,7 @@ class StorageFactoryTest(unittest.TestCase):
 
     def test_postgres_database_creation_skips_non_postgres_urls(self) -> None:
         with mock.patch("services.storage.database_storage.create_engine") as create_engine_mock:
-            ensure_database_exists("sqlite:///data/accounts.db")
+            ensure_database_exists("sqlite:///data/storage.db")
 
         create_engine_mock.assert_not_called()
 
@@ -186,7 +186,6 @@ class StorageFactoryTest(unittest.TestCase):
             "GIT_REPO_URL": "https://github.com/example/private-data.git",
             "GIT_TOKEN": "token",
             "GIT_BRANCH": "main",
-            "GIT_FILE_PATH": "data/accounts.json",
             "GIT_AUTH_KEYS_FILE_PATH": "data/auth_keys.json",
             "GIT_USERS_FILE_PATH": "data/users.json",
             "GIT_SESSIONS_FILE_PATH": "data/sessions.json",
@@ -205,7 +204,6 @@ class StorageFactoryTest(unittest.TestCase):
             repo_url="https://github.com/example/private-data.git",
             token="token",
             branch="main",
-            file_path="data/accounts.json",
             auth_keys_file_path="data/auth_keys.json",
             users_file_path="data/users.json",
             sessions_file_path="data/sessions.json",

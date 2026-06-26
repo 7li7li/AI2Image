@@ -8,16 +8,8 @@ from api.support import require_identity, resolve_image_base_url
 from services.auth_service import auth_service
 from services.channel_service import channel_service
 from services.image_service import record_image_result
-from services.log_service import LoggedCall
+from services.log_service import LOG_TYPE_CALL, log_service
 from services.observability import request_id_from_request
-from services.protocol import (
-    anthropic_v1_messages,
-    openai_v1_chat_complete,
-    openai_v1_image_edit,
-    openai_v1_image_generations,
-    openai_v1_models,
-    openai_v1_response,
-)
 
 
 class ImageGenerationRequest(BaseModel):
@@ -129,15 +121,11 @@ def create_router() -> APIRouter:
         )
         return count
 
-    def require_internal_pool_enabled(external_error: object = None) -> None:
-        if not channel_service.is_internal_pool_enabled():
-            message = "internal account pool is disabled and no external channel completed the request"
-            if external_error:
-                message = f"{message}: {external_error}"
-            raise HTTPException(
-                status_code=503,
-                detail={"error": message},
-            )
+    def require_channel_success(payload: dict[str, object]) -> None:
+        channel_error = str(payload.get("_channel_error") or "").strip()
+        if channel_error:
+            raise HTTPException(status_code=502, detail={"error": channel_error})
+        raise HTTPException(status_code=503, detail={"error": "no enabled image channel supports this request"})
 
     def require_personal_channel_success(payload: dict[str, object]) -> None:
         personal_error = str(payload.get("_personal_channel_error") or "").strip()
@@ -157,10 +145,25 @@ def create_router() -> APIRouter:
     @router.get("/v1/models")
     async def list_models(authorization: str | None = Header(default=None)):
         require_identity(authorization)
-        try:
-            return await run_in_threadpool(openai_v1_models.list_models)
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
+        items: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for channel in channel_service.list_channels():
+            if not channel.get("enabled"):
+                continue
+            for model in channel.get("models") or []:
+                model_id = str(model or "").strip()
+                if not model_id or model_id in seen:
+                    continue
+                seen.add(model_id)
+                items.append(
+                    {
+                        "id": model_id,
+                        "object": "model",
+                        "created": 0,
+                        "owned_by": str(channel.get("name") or "channel"),
+                    }
+                )
+        return {"object": "list", "data": items}
 
     @router.post("/v1/images/generations")
     async def generate_images(
@@ -169,21 +172,28 @@ def create_router() -> APIRouter:
             authorization: str | None = Header(default=None),
     ):
         identity = require_identity(authorization)
-        if identity.get("role") == "user" and body.stream:
-            raise HTTPException(status_code=400, detail={"error": "stream is not supported for personal image tasks"})
+        if body.stream:
+            raise HTTPException(status_code=400, detail={"error": "stream is not supported for channel image tasks"})
         request_id = request_id_from_request(request)
         payload = body.model_dump(mode="python")
         payload["base_url"] = resolve_image_base_url(request)
         payload["request_id"] = request_id
         use_personal_quota_free = attach_personal_image_channel(identity, payload, body.model)
         quota_request_id = None if use_personal_quota_free else reserve_image_quota(identity, int(body.n or 1), request_id)
-        call = LoggedCall(identity, "/v1/images/generations", body.model, "文生图", request_id=request_id)
         try:
             if not body.stream:
                 routed = await run_in_threadpool(channel_service.call_generation, payload)
                 if routed is not None:
                     result, channel_name = routed
-                    call.log("渠道调用完成", result)
+                    log_service.add(
+                        LOG_TYPE_CALL,
+                        "文生图 渠道调用完成",
+                        endpoint="/v1/images/generations",
+                        model=body.model,
+                        channel=channel_name,
+                        status="success",
+                        request_id=request_id,
+                    )
                     count = finalize_image_result(
                         identity,
                         result,
@@ -197,22 +207,7 @@ def create_router() -> APIRouter:
                     finalize_quota(quota_request_id, count)
                     return result
             require_personal_channel_success(payload)
-            require_internal_pool_enabled(payload.get("_channel_error"))
-            result = await call.run(openai_v1_image_generations.handle, payload)
-            count = 0
-            if isinstance(result, dict):
-                count = finalize_image_result(
-                    identity,
-                    result,
-                    prompt=body.prompt,
-                    mode="generate",
-                    model=body.model,
-                    size=body.size,
-                    channel="internal_pool",
-                    request_id=request_id,
-                )
-            finalize_quota(quota_request_id, count)
-            return result
+            require_channel_success(payload)
         except Exception:
             if quota_request_id:
                 auth_service.release_quota(quota_request_id)
@@ -232,8 +227,8 @@ def create_router() -> APIRouter:
             stream: bool | None = Form(default=None),
     ):
         identity = require_identity(authorization)
-        if identity.get("role") == "user" and stream:
-            raise HTTPException(status_code=400, detail={"error": "stream is not supported for personal image tasks"})
+        if stream:
+            raise HTTPException(status_code=400, detail={"error": "stream is not supported for channel image tasks"})
         if n < 1 or n > 4:
             raise HTTPException(status_code=400, detail={"error": "n must be between 1 and 4"})
         uploads = [*(image or []), *(image_list or [])]
@@ -259,13 +254,20 @@ def create_router() -> APIRouter:
         }
         use_personal_quota_free = attach_personal_image_channel(identity, payload, model)
         quota_request_id = None if use_personal_quota_free else reserve_image_quota(identity, int(n or 1), request_id)
-        call = LoggedCall(identity, "/v1/images/edits", model, "图生图", request_id=request_id)
         try:
             if not stream:
                 routed = await run_in_threadpool(channel_service.call_edit, payload)
                 if routed is not None:
                     result, channel_name = routed
-                    call.log("渠道调用完成", result)
+                    log_service.add(
+                        LOG_TYPE_CALL,
+                        "图生图 渠道调用完成",
+                        endpoint="/v1/images/edits",
+                        model=model,
+                        channel=channel_name,
+                        status="success",
+                        request_id=request_id,
+                    )
                     count = finalize_image_result(
                         identity,
                         result,
@@ -279,22 +281,7 @@ def create_router() -> APIRouter:
                     finalize_quota(quota_request_id, count)
                     return result
             require_personal_channel_success(payload)
-            require_internal_pool_enabled(payload.get("_channel_error"))
-            result = await call.run(openai_v1_image_edit.handle, payload)
-            count = 0
-            if isinstance(result, dict):
-                count = finalize_image_result(
-                    identity,
-                    result,
-                    prompt=prompt,
-                    mode="edit",
-                    model=model,
-                    size=size,
-                    channel="internal_pool",
-                    request_id=request_id,
-                )
-            finalize_quota(quota_request_id, count)
-            return result
+            require_channel_success(payload)
         except Exception:
             if quota_request_id:
                 auth_service.release_quota(quota_request_id)
@@ -309,12 +296,7 @@ def create_router() -> APIRouter:
         identity = require_identity(authorization)
         if identity.get("role") == "user":
             raise HTTPException(status_code=403, detail={"error": "personal users can only use image features"})
-        payload = body.model_dump(mode="python")
-        model = str(payload.get("model") or "auto")
-        request_id = request_id_from_request(request)
-        payload["request_id"] = request_id
-        call = LoggedCall(identity, "/v1/chat/completions", model, "文本生成", request_id=request_id)
-        return await call.run(openai_v1_chat_complete.handle, payload)
+        raise HTTPException(status_code=410, detail={"error": "text compatibility endpoints are disabled; use image channels"})
 
     @router.post("/v1/responses")
     async def create_response(
@@ -325,12 +307,7 @@ def create_router() -> APIRouter:
         identity = require_identity(authorization)
         if identity.get("role") == "user":
             raise HTTPException(status_code=403, detail={"error": "personal users can only use image features"})
-        payload = body.model_dump(mode="python")
-        model = str(payload.get("model") or "auto")
-        request_id = request_id_from_request(request)
-        payload["request_id"] = request_id
-        call = LoggedCall(identity, "/v1/responses", model, "Responses", request_id=request_id)
-        return await call.run(openai_v1_response.handle, payload)
+        raise HTTPException(status_code=410, detail={"error": "text compatibility endpoints are disabled; use image channels"})
 
     @router.post("/v1/messages")
     async def create_message(
@@ -343,11 +320,6 @@ def create_router() -> APIRouter:
         identity = require_identity(authorization or (f"Bearer {x_api_key}" if x_api_key else None))
         if identity.get("role") == "user":
             raise HTTPException(status_code=403, detail={"error": "personal users can only use image features"})
-        payload = body.model_dump(mode="python")
-        model = str(payload.get("model") or "auto")
-        request_id = request_id_from_request(request)
-        payload["request_id"] = request_id
-        call = LoggedCall(identity, "/v1/messages", model, "Messages", request_id=request_id)
-        return await call.run(anthropic_v1_messages.handle, payload, sse="anthropic")
+        raise HTTPException(status_code=410, detail={"error": "text compatibility endpoints are disabled; use image channels"})
 
     return router

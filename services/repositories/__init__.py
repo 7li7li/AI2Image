@@ -1,5 +1,4 @@
 from services.repositories.base import (
-    AccountRepository,
     AuditLogRepository,
     AuthKeyRepository,
     ChannelRepository,
@@ -18,7 +17,6 @@ from services.repositories.base import (
 from services.repositories.sqlalchemy import SQLAlchemyRepositoryProvider
 
 __all__ = [
-    "AccountRepository",
     "AuditLogRepository",
     "AuthKeyRepository",
     "ChannelRepository",

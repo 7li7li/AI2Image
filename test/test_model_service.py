@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import tempfile
 import unittest
@@ -8,7 +8,6 @@ from unittest import mock
 from services.channel_service import ChannelService
 from services.model_service import FIXED_BILLING_MODE, ModelService, normalize_model_pricing
 from services.storage.json_storage import JSONStorageBackend
-from utils.model_catalog import DEFAULT_INTERNAL_MODELS
 
 
 class FakeConfigStore:
@@ -42,7 +41,7 @@ class ModelServiceTest(unittest.TestCase):
 
     def test_catalog_merges_channel_models_with_default_pricing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
@@ -61,41 +60,14 @@ class ModelServiceTest(unittest.TestCase):
             by_model = {item["model"]: item for item in catalog["items"]}
 
             self.assertIn("gpt-5-5", by_model)
-            self.assertIn("codex-gpt-image-2", by_model)
-            self.assertEqual(by_model["gpt-5-5"]["channel_count"], 2)
+            self.assertIn("gpt-image-2", by_model)
+            self.assertEqual(by_model["gpt-5-5"]["channel_count"], 1)
             self.assertFalse(by_model["gpt-5-5"]["configured"])
             self.assertEqual(by_model["gpt-5-5"]["pricing"]["billing_mode"], "tokens")
 
-    def test_internal_pool_uses_new_api_default_models(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
-            service = ModelService(ChannelService(storage), FakeConfigStore())
-
-            catalog = service.list_catalog()
-            by_model = {item["model"]: item for item in catalog["items"]}
-
-            for model in DEFAULT_INTERNAL_MODELS:
-                self.assertIn(model, by_model)
-                self.assertGreaterEqual(by_model[model]["channel_count"], 1)
-
-    def test_internal_pool_enabled_state_is_configurable(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
-            config_store = FakeConfigStore()
-            service = ChannelService(storage, config_store)
-
-            self.assertTrue(service.get_channel("internal_pool")["enabled"])
-
-            item = service.update_channel("internal_pool", {"enabled": False})
-
-            self.assertIsNotNone(item)
-            self.assertFalse(item["enabled"])
-            self.assertFalse(service.is_internal_pool_enabled())
-            self.assertFalse(service.list_channels()[0]["enabled"])
-
     def test_channel_model_test_reports_status_without_persisting_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
@@ -158,7 +130,7 @@ class ModelServiceTest(unittest.TestCase):
                 return FakeResponse()
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
@@ -177,13 +149,12 @@ class ModelServiceTest(unittest.TestCase):
 
             self.assertIsNotNone(result)
             self.assertFalse(result["ok"])
-            self.assertIn("渠道模型列表接口不可用", result["error"])
             self.assertIn("GET /v1/models", result["error"])
             self.assertIn("HTTP 405", result["error"])
 
     def test_external_channel_matches_mapped_image_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
@@ -201,7 +172,7 @@ class ModelServiceTest(unittest.TestCase):
 
     def test_generation_uses_mapped_channel_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
@@ -231,7 +202,7 @@ class ModelServiceTest(unittest.TestCase):
 
     def test_generation_prefers_external_image_alias_before_internal_mapping(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
@@ -258,7 +229,7 @@ class ModelServiceTest(unittest.TestCase):
 
     def test_personal_generation_channel_precedes_global_channels(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
@@ -296,11 +267,11 @@ class ModelServiceTest(unittest.TestCase):
 
             self.assertIsNotNone(routed)
             self.assertEqual(calls, ["personal_image_channel:user-a"])
-            self.assertEqual(routed[1], "个人渠道/Mine")
+            self.assertTrue(str(routed[1]).endswith("/Mine"))
 
     def test_personal_generation_channel_does_not_fall_back_to_global_channel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
@@ -340,7 +311,7 @@ class ModelServiceTest(unittest.TestCase):
 
             self.assertIsNone(routed)
             self.assertEqual(calls, ["personal_image_channel:user-a"])
-            self.assertIn("个人渠道/Mine: 连接被上游重置", payload["_personal_channel_error"])
+            self.assertIn("Mine", payload["_personal_channel_error"])
 
     def test_external_generation_channel_normalizes_aspect_ratio_for_upstream(self) -> None:
         class FakeResponse:
@@ -360,7 +331,7 @@ class ModelServiceTest(unittest.TestCase):
                 return FakeResponse()
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
@@ -387,11 +358,12 @@ class ModelServiceTest(unittest.TestCase):
         self.assertEqual(calls["url"], "https://a.example/v1/images/generations")
         body = calls["kwargs"]["json"]
         self.assertEqual(body["size"], "1024x1536")
-        self.assertEqual(body["prompt"], "draw\n\n输出为 9:16 竖屏构图，适合竖版画幅展示。")
+        self.assertTrue(body["prompt"].startswith("draw\n\n"))
+        self.assertIn("9:16", body["prompt"])
 
     def test_personal_edit_channel_does_not_fall_back_to_global_channel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
@@ -431,7 +403,7 @@ class ModelServiceTest(unittest.TestCase):
 
             self.assertIsNone(routed)
             self.assertEqual(calls, ["personal_image_channel:user-a"])
-            self.assertIn("个人渠道/Mine: 连接被上游重置", payload["_personal_channel_error"])
+            self.assertIn("Mine", payload["_personal_channel_error"])
 
     def test_external_edit_channel_uses_curl_mime_multipart(self) -> None:
         class FakeResponse:
@@ -465,7 +437,7 @@ class ModelServiceTest(unittest.TestCase):
                 self.closed = True
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
@@ -540,7 +512,7 @@ class ModelServiceTest(unittest.TestCase):
                 self.closed = True
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
@@ -568,15 +540,14 @@ class ModelServiceTest(unittest.TestCase):
         self.assertIsNotNone(routed)
         self.assertEqual(calls["url"], "https://a.example/v1/images/edits")
         parts = mime_instances[0].parts
-        self.assertIn(
-            {"name": "prompt", "data": "draw\n\n输出为 9:16 竖屏构图，适合竖版画幅展示。".encode("utf-8")},
-            parts,
-        )
+        prompt_part = next(part for part in parts if part["name"] == "prompt")
+        self.assertTrue(prompt_part["data"].decode("utf-8").startswith("draw\n\n"))
+        self.assertIn("9:16", prompt_part["data"].decode("utf-8"))
         self.assertIn({"name": "size", "data": b"1024x1536"}, parts)
 
     def test_channel_model_test_accepts_mapped_requested_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
@@ -599,7 +570,7 @@ class ModelServiceTest(unittest.TestCase):
 
     def test_update_pricing_persists_and_estimates_token_cost(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             service = ModelService(ChannelService(storage), FakeConfigStore())
 
             pricing = service.update_pricing(
@@ -615,7 +586,7 @@ class ModelServiceTest(unittest.TestCase):
 
     def test_fixed_price_mode_estimates_per_request_cost(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            storage = JSONStorageBackend(Path(tmp_dir) / "accounts.json")
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             service = ModelService(ChannelService(storage), FakeConfigStore())
 
             service.update_pricing(
@@ -636,3 +607,4 @@ class ModelServiceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

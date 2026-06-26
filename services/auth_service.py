@@ -9,7 +9,6 @@ from threading import RLock
 from typing import Literal
 
 from services.config import config
-from services.registration_security import validate_registration_email, verify_registration_code
 from services.repositories.base import RepositoryProvider
 from services.repositories.storage_adapter import RepositoryStorageAdapter
 from services.storage.base import StorageBackend
@@ -213,9 +212,6 @@ class AuthService:
             "quota": quota,
             "quota_used": quota_used,
             "auth_provider": self._clean(raw.get("auth_provider")) or "password",
-            "linuxdo_id": self._clean(raw.get("linuxdo_id")) or None,
-            "linuxdo_username": self._clean(raw.get("linuxdo_username")) or None,
-            "linuxdo_trust_level": int(raw.get("linuxdo_trust_level") or 0),
             "webdav_config": raw.get("webdav_config") if isinstance(raw.get("webdav_config"), dict) else {},
             IMAGE_CHANNEL_CONFIG_KEY: _normalize_user_image_channel_config(
                 raw.get(IMAGE_CHANNEL_CONFIG_KEY),
@@ -355,9 +351,6 @@ class AuthService:
             "updated_at": user.get("updated_at"),
             "last_login_at": user.get("last_login_at"),
             "auth_provider": user.get("auth_provider"),
-            "linuxdo_id": user.get("linuxdo_id"),
-            "linuxdo_username": user.get("linuxdo_username"),
-            "linuxdo_trust_level": int(user.get("linuxdo_trust_level") or 0),
             "image_channel": _normalize_user_image_channel_config(
                 user.get(IMAGE_CHANNEL_CONFIG_KEY),
                 include_api_key=False,
@@ -376,15 +369,6 @@ class AuthService:
         normalized_email = self._clean_email(email)
         for index, user in enumerate(self._users):
             if self._clean_email(user.get("email")) == normalized_email:
-                return index
-        return -1
-
-    def _find_user_index_by_linuxdo_id(self, linuxdo_id: str) -> int:
-        normalized_id = self._clean(linuxdo_id)
-        if not normalized_id:
-            return -1
-        for index, user in enumerate(self._users):
-            if self._clean(user.get("linuxdo_id")) == normalized_id:
                 return index
         return -1
 
@@ -472,29 +456,6 @@ class AuthService:
     def email_exists(self, email: str) -> bool:
         with self._lock:
             return self._find_user_index_by_email(email) >= 0
-
-    def register_user(
-        self,
-        *,
-        email: str,
-        password: str,
-        name: str = "",
-        verification_code: str = "",
-    ) -> tuple[dict[str, object], str]:
-        if not config.allow_user_registration:
-            raise ValueError("registration is disabled")
-        normalized_email = validate_registration_email(email)
-        if self.email_exists(normalized_email):
-            raise ValueError("email already exists")
-        if config.email_verification_enabled:
-            verify_registration_code(normalized_email, verification_code)
-        return self.create_user(
-            email=normalized_email,
-            password=password,
-            name=name,
-            quota=config.new_user_initial_quota,
-            role="user",
-        )
 
     def create_user(
         self,
@@ -762,69 +723,6 @@ class AuthService:
             self._users[index] = self._normalize_user(user) or user
             self._save_users()
             return self._public_user(self._users[index])
-
-    def login_or_register_linuxdo(self, profile: dict[str, object]) -> tuple[dict[str, object], str, bool]:
-        linuxdo_id = self._clean(profile.get("provider_user_id"))
-        if not linuxdo_id:
-            raise ValueError("Linux DO user id is missing")
-        username = self._clean(profile.get("username")) or f"linuxdo-{linuxdo_id}"
-        display_name = self._clean(profile.get("display_name")) or username
-        trust_level = max(0, int(profile.get("trust_level") or 0))
-        with self._lock:
-            index = self._find_user_index_by_linuxdo_id(linuxdo_id)
-            now = _now_iso()
-            if index >= 0:
-                user = dict(self._users[index])
-                if user.get("status") != "active":
-                    raise ValueError("user is disabled")
-                user.update(
-                    {
-                        "name": display_name,
-                        "auth_provider": user.get("auth_provider") or "linuxdo",
-                        "linuxdo_username": username,
-                        "linuxdo_trust_level": trust_level,
-                        "last_login_at": now,
-                        "updated_at": now,
-                    }
-                )
-                self._users[index] = self._normalize_user(user) or user
-                token = self._create_session_locked(str(self._users[index]["id"]))
-                self._save_users()
-                self._save_sessions()
-                return self._public_user(self._users[index]), token, False
-
-            if not config.allow_user_registration:
-                raise ValueError("registration is disabled")
-
-            email = f"linuxdo-{linuxdo_id}@linuxdo.local"
-            if self._find_user_index_by_email(email) >= 0:
-                raise ValueError("Linux DO account is already linked")
-            user = self._normalize_user(
-                {
-                    "id": uuid.uuid4().hex[:12],
-                    "email": email,
-                    "name": display_name,
-                    "role": "user",
-                    "status": "active",
-                    "password_hash": "",
-                    "quota": config.new_user_initial_quota,
-                    "quota_used": 0,
-                    "auth_provider": "linuxdo",
-                    "linuxdo_id": linuxdo_id,
-                    "linuxdo_username": username,
-                    "linuxdo_trust_level": trust_level,
-                    "created_at": now,
-                    "updated_at": now,
-                    "last_login_at": now,
-                }
-            )
-            if user is None:
-                raise ValueError("user payload is invalid")
-            self._users.append(user)
-            token = self._create_session_locked(str(user["id"]))
-            self._save_users()
-            self._save_sessions()
-            return self._public_user(user), token, True
 
     def ensure_quota(self, user_id: str, amount: int) -> None:
         if amount <= 0:

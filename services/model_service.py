@@ -93,7 +93,7 @@ class ModelService:
 
     def _channel_summaries(self) -> list[dict[str, object]]:
         summaries: list[dict[str, object]] = []
-        for channel in self.channels.list_channels(include_internal=True):
+        for channel in self.channels.list_channels():
             channel_models = _models(channel.get("models"))
             summaries.append(
                 {
