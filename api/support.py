@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from threading import Event, Thread
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 
@@ -45,8 +46,37 @@ def require_admin(authorization: str | None) -> dict[str, object]:
     return identity
 
 
+def _base_url_from_absolute_url(value: object) -> str:
+    parsed = urlparse(str(value or "").strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+
+def _first_header_value(value: object) -> str:
+    return str(value or "").split(",", 1)[0].strip()
+
+
 def resolve_image_base_url(request: Request) -> str:
-    return config.base_url or f"{request.url.scheme}://{request.headers.get('host', request.url.netloc)}"
+    configured = config.base_url
+    if configured:
+        return configured
+
+    origin = _base_url_from_absolute_url(request.headers.get("origin"))
+    if origin:
+        return origin
+
+    referer = _base_url_from_absolute_url(request.headers.get("referer"))
+    if referer:
+        return referer
+
+    forwarded_host = _first_header_value(request.headers.get("x-forwarded-host"))
+    if forwarded_host:
+        forwarded_proto = _first_header_value(request.headers.get("x-forwarded-proto")) or str(request.url.scheme)
+        if forwarded_proto in {"http", "https"}:
+            return f"{forwarded_proto}://{forwarded_host}".rstrip("/")
+
+    return f"{request.url.scheme}://{request.headers.get('host', request.url.netloc)}".rstrip("/")
 
 
 def raise_image_quota_error(exc: Exception) -> None:

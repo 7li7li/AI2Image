@@ -51,8 +51,7 @@ def _record_to_item(record: dict[str, object], base_url: str) -> dict[str, objec
             stat = local_path.stat()
             size = stat.st_size
             file_created_at = china_timestamp_text(stat.st_mtime)
-            if not url.startswith("http"):
-                url = f"{base_url.rstrip('/')}{parsed_path}"
+            url = f"{base_url.rstrip('/')}{parsed_path}"
     created_at = _clean(record.get("created_at")) or file_created_at or china_now_text()
     day = created_at[:10]
     return {

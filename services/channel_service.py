@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 from typing import Any
+from urllib.parse import urlparse
 
 from curl_cffi import CurlMime
 from curl_cffi.requests import Session
@@ -39,6 +40,52 @@ def _save_image_bytes(image_data: bytes, base_url: str | None = None) -> str:
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_bytes(image_data)
     return f"{(base_url or config.base_url)}/images/{relative_dir.as_posix()}/{filename}"
+
+
+def _download_image_url(image_url: str) -> bytes:
+    parsed = urlparse(image_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise RuntimeError("channel image url is invalid")
+    session = Session(**proxy_settings.build_session_kwargs(verify=True))
+    try:
+        response = session.get(image_url, timeout=60)
+    finally:
+        session.close()
+    if not response.ok:
+        raise RuntimeError(f"channel image download failed HTTP {response.status_code}: {response.text[:200]}")
+    image_data = bytes(response.content or b"")
+    if not image_data:
+        raise RuntimeError("channel image download is empty")
+    return image_data
+
+
+def _local_image_url_from_path(parsed_path: str, base_url: str) -> str:
+    if not parsed_path.startswith("/images/"):
+        return ""
+    local_path = config.images_dir / parsed_path.removeprefix("/images/")
+    if not local_path.is_file():
+        return ""
+    return f"{base_url.rstrip('/')}{parsed_path}"
+
+
+def _localize_url_items(items: list[dict[str, Any]], base_url: str | None) -> list[dict[str, Any]]:
+    target_base_url = _clean(base_url) or config.base_url
+    if not target_base_url:
+        return items
+
+    localized: list[dict[str, Any]] = []
+    for item in items:
+        image_url = _clean(item.get("url"))
+        if not image_url:
+            continue
+        parsed = urlparse(image_url)
+        local_url = _local_image_url_from_path(parsed.path or image_url, target_base_url)
+        if local_url:
+            localized.append({**item, "url": local_url})
+            continue
+        image_data = _download_image_url(image_url)
+        localized.append({**item, "url": _save_image_bytes(image_data, target_base_url)})
+    return localized
 
 
 def _format_image_result(
@@ -940,17 +987,19 @@ class ChannelService:
             raise RuntimeError("channel response missing data")
         b64_items = [item for item in data if isinstance(item, dict) and item.get("b64_json")]
         url_items = [item for item in data if isinstance(item, dict) and item.get("url") and not item.get("b64_json")]
+        base_url = _clean(original_payload.get("base_url")) or None
+        localized_url_items = _localize_url_items(url_items, base_url)
         if b64_items:
             result = _format_image_result(
                 b64_items,
                 _clean(original_payload.get("prompt")),
                 _clean(original_payload.get("response_format")) or "b64_json",
-                _clean(original_payload.get("base_url")) or None,
+                base_url,
             )
-            if url_items:
-                result["data"].extend(url_items)
+            if localized_url_items:
+                result["data"].extend(localized_url_items)
             return result
-        normalized = {"created": int(payload.get("created") or datetime.now().timestamp()), "data": url_items}
+        normalized = {"created": int(payload.get("created") or datetime.now().timestamp()), "data": localized_url_items}
         if not normalized["data"]:
             # Some compatible servers return a raw base64 string in `data`.
             for item in data:
@@ -959,7 +1008,7 @@ class ChannelService:
                         [{"b64_json": item}],
                         _clean(original_payload.get("prompt")),
                         "b64_json",
-                        _clean(original_payload.get("base_url")) or None,
+                        base_url,
                     )["data"][0]
                     normalized["data"].append({
                         "b64_json": item,

@@ -3,9 +3,11 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from services.channel_service import ChannelService
+from services import channel_service as channel_service_module
 from services.model_service import FIXED_BILLING_MODE, ModelService, normalize_model_pricing
 from services.storage.json_storage import JSONStorageBackend
 
@@ -418,6 +420,89 @@ class ModelServiceTest(unittest.TestCase):
         self.assertEqual(body["background"], "transparent")
         self.assertTrue(body["prompt"].startswith("draw\n\n"))
         self.assertIn("16:9", body["prompt"])
+
+    def test_external_generation_url_response_is_saved_locally(self) -> None:
+        class FakeResponse:
+            ok = True
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {"created": 1, "data": [{"url": "https://gptimage.futureppo.top/image.png"}]}
+
+        class FakeSession:
+            def post(self, url, **kwargs):
+                return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            images_dir = Path(tmp_dir) / "images"
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            storage.save_channels(
+                [
+                    {
+                        "id": "channel-a",
+                        "name": "A",
+                        "base_url": "https://a.example",
+                        "api_key": "sk-test",
+                        "models": ["gpt-image-2"],
+                    }
+                ]
+            )
+            service = ChannelService(storage, FakeConfigStore())
+            service._session = lambda channel: FakeSession()  # type: ignore[method-assign]
+            fake_config = SimpleNamespace(
+                images_dir=images_dir,
+                base_url="",
+                cleanup_old_images=lambda: 0,
+            )
+
+            with (
+                mock.patch.object(channel_service_module, "config", fake_config),
+                mock.patch.object(channel_service_module, "china_now_text", return_value="2026-05-29 08:00:00"),
+                mock.patch.object(channel_service_module, "_download_image_url", return_value=b"image-bytes") as download,
+            ):
+                routed = service.call_generation({
+                    "prompt": "draw",
+                    "model": "gpt-image-2",
+                    "n": 1,
+                    "response_format": "url",
+                    "base_url": "https://site.example",
+                })
+
+            self.assertIsNotNone(routed)
+            data = routed[0]["data"]
+            self.assertEqual(len(data), 1)
+            self.assertTrue(data[0]["url"].startswith("https://site.example/images/2026/05/29/"))
+            self.assertTrue(list((images_dir / "2026" / "05" / "29").glob("*.png")))
+            download.assert_called_once_with("https://gptimage.futureppo.top/image.png")
+
+    def test_external_generation_existing_local_url_is_rebased_without_download(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            images_dir = Path(tmp_dir) / "images"
+            image_path = images_dir / "2026" / "05" / "29" / "image.png"
+            image_path.parent.mkdir(parents=True)
+            image_path.write_bytes(b"image-bytes")
+            fake_config = SimpleNamespace(images_dir=images_dir, base_url="", cleanup_old_images=lambda: 0)
+
+            class FakeResponse:
+                ok = True
+                status_code = 200
+                text = ""
+
+                def json(self):
+                    return {"created": 1, "data": [{"url": "https://old.example/images/2026/05/29/image.png"}]}
+
+            with (
+                mock.patch.object(channel_service_module, "config", fake_config),
+                mock.patch.object(channel_service_module, "_download_image_url") as download,
+            ):
+                result = ChannelService._normalize_response(
+                    FakeResponse(),
+                    {"prompt": "draw", "response_format": "url", "base_url": "https://site.example"},
+                )
+
+        self.assertEqual(result["data"][0]["url"], "https://site.example/images/2026/05/29/image.png")
+        download.assert_not_called()
 
     def test_personal_edit_channel_does_not_fall_back_to_global_channel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
