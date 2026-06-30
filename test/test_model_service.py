@@ -361,6 +361,64 @@ class ModelServiceTest(unittest.TestCase):
         self.assertTrue(body["prompt"].startswith("draw\n\n"))
         self.assertIn("9:16", body["prompt"])
 
+    def test_external_generation_channel_applies_resolution_to_aspect_ratio(self) -> None:
+        class FakeResponse:
+            ok = True
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {"created": 1, "data": [{"url": "https://a.example/image.png"}]}
+
+        calls: dict[str, object] = {}
+
+        class FakeSession:
+            def post(self, url, **kwargs):
+                calls["url"] = url
+                calls["kwargs"] = kwargs
+                return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            storage.save_channels(
+                [
+                    {
+                        "id": "channel-a",
+                        "name": "A",
+                        "base_url": "https://a.example",
+                        "api_key": "sk-test",
+                        "models": ["gpt-image-2"],
+                    }
+                ]
+            )
+            service = ChannelService(storage, FakeConfigStore())
+            service._session = lambda channel: FakeSession()  # type: ignore[method-assign]
+
+            routed = service.call_generation({
+                "prompt": "draw",
+                "model": "gpt-image-2",
+                "n": 1,
+                "size": "16:9",
+                "resolution": "2k",
+                "quality": "high",
+                "output_format": "webp",
+                "output_compression": 82,
+                "moderation": "low",
+                "background": "transparent",
+                "response_format": "url",
+            })
+
+        self.assertIsNotNone(routed)
+        body = calls["kwargs"]["json"]
+        self.assertEqual(body["size"], "2048x1152")
+        self.assertEqual(body["quality"], "high")
+        self.assertEqual(body["output_format"], "webp")
+        self.assertEqual(body["output_compression"], 82)
+        self.assertEqual(body["moderation"], "low")
+        self.assertEqual(body["background"], "transparent")
+        self.assertTrue(body["prompt"].startswith("draw\n\n"))
+        self.assertIn("16:9", body["prompt"])
+
     def test_personal_edit_channel_does_not_fall_back_to_global_channel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
@@ -458,6 +516,11 @@ class ModelServiceTest(unittest.TestCase):
                     "model": "gpt-image-2",
                     "n": 2,
                     "size": "1024x1024",
+                    "quality": "medium",
+                    "output_format": "jpeg",
+                    "output_compression": 64,
+                    "moderation": "low",
+                    "background": "opaque",
                     "response_format": "url",
                     "images": [(b"image-bytes", "input.png", "image/png")],
                 })
@@ -474,6 +537,11 @@ class ModelServiceTest(unittest.TestCase):
         self.assertIn({"name": "model", "data": b"gpt-image-2"}, parts)
         self.assertIn({"name": "n", "data": b"2"}, parts)
         self.assertIn({"name": "size", "data": b"1024x1024"}, parts)
+        self.assertIn({"name": "quality", "data": b"medium"}, parts)
+        self.assertIn({"name": "output_format", "data": b"jpeg"}, parts)
+        self.assertIn({"name": "output_compression", "data": b"64"}, parts)
+        self.assertIn({"name": "moderation", "data": b"low"}, parts)
+        self.assertIn({"name": "background", "data": b"opaque"}, parts)
         self.assertIn({"name": "response_format", "data": b"url"}, parts)
         self.assertIn(
             {"name": "image", "filename": "input.png", "content_type": "image/png", "data": b"image-bytes"},
@@ -545,6 +613,71 @@ class ModelServiceTest(unittest.TestCase):
         self.assertIn("9:16", prompt_part["data"].decode("utf-8"))
         self.assertIn({"name": "size", "data": b"1024x1536"}, parts)
 
+    def test_external_edit_channel_applies_resolution_to_aspect_ratio(self) -> None:
+        class FakeResponse:
+            ok = True
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {"created": 1, "data": [{"url": "https://a.example/image.png"}]}
+
+        calls: dict[str, object] = {}
+
+        class FakeSession:
+            def post(self, url, **kwargs):
+                calls["url"] = url
+                calls["kwargs"] = kwargs
+                return FakeResponse()
+
+        mime_instances = []
+
+        class FakeCurlMime:
+            def __init__(self):
+                self.parts = []
+                self.closed = False
+                mime_instances.append(self)
+
+            def addpart(self, name, **kwargs):
+                self.parts.append({"name": name, **kwargs})
+
+            def close(self):
+                self.closed = True
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            storage.save_channels(
+                [
+                    {
+                        "id": "channel-a",
+                        "name": "A",
+                        "base_url": "https://a.example",
+                        "api_key": "sk-test",
+                        "models": ["gpt-image-2"],
+                    }
+                ]
+            )
+            service = ChannelService(storage, FakeConfigStore())
+            service._session = lambda channel: FakeSession()  # type: ignore[method-assign]
+
+            with mock.patch("services.channel_service.CurlMime", FakeCurlMime):
+                routed = service.call_edit({
+                    "prompt": "draw",
+                    "model": "gpt-image-2",
+                    "n": 2,
+                    "size": "3:4",
+                    "resolution": "4k",
+                    "response_format": "url",
+                    "images": [(b"image-bytes", "input.png", "image/png")],
+                })
+
+        self.assertIsNotNone(routed)
+        self.assertEqual(calls["url"], "https://a.example/v1/images/edits")
+        parts = mime_instances[0].parts
+        self.assertIn({"name": "size", "data": b"3072x4096"}, parts)
+        prompt_part = next(part for part in parts if part["name"] == "prompt")
+        self.assertIn("3:4", prompt_part["data"].decode("utf-8"))
+
     def test_channel_model_test_accepts_mapped_requested_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
@@ -607,4 +740,3 @@ class ModelServiceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -16,7 +16,6 @@ import {
   Newspaper,
   NotebookPen,
   Search,
-  Share2,
   Scissors,
   Sparkles,
   SunMedium,
@@ -30,10 +29,18 @@ import { toast } from "sonner";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { createPromptShare, fetchPromptLibrary, type PromptLibraryItem, type PromptLibraryPayload } from "@/lib/api";
+import {
+  fetchPromptLibrary,
+  type ImageModeration,
+  type ImageOutputFormat,
+  type ImageQuality,
+  type PromptLibraryItem,
+} from "@/lib/api";
 import { resolveApiAssetUrl } from "@/lib/assets";
 import type { ImageConversationMode } from "@/store/image-conversations";
 import { cn } from "@/lib/utils";
@@ -685,36 +692,6 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
   });
 }
 
-function buildPromptShareTitle(prompt: string) {
-  const cleaned = prompt.replace(/\s+/g, " ").trim();
-  if (!cleaned) {
-    return "未命名提示词";
-  }
-  return cleaned.length > 24 ? `${cleaned.slice(0, 24)}...` : cleaned;
-}
-
-function shareUrlFromId(shareId: string) {
-  if (typeof window === "undefined") {
-    return `/prompt-manager?share=${encodeURIComponent(shareId)}`;
-  }
-  return `${window.location.origin}/prompt-manager?share=${encodeURIComponent(shareId)}`;
-}
-
-async function sharePromptPayload(payload: PromptLibraryPayload) {
-  const data = await createPromptShare(payload);
-  const shareUrl = shareUrlFromId(data.share_id);
-  if (navigator.share) {
-    try {
-      await navigator.share({ title: payload.title, text: payload.description || payload.title, url: shareUrl });
-      return "shared";
-    } catch {
-      // Fall back to clipboard below when native sharing is cancelled or unavailable.
-    }
-  }
-  await navigator.clipboard.writeText(shareUrl);
-  return "copied";
-}
-
 function isBananaPromptItem(value: unknown): value is PromptPickerItem {
   if (!value || typeof value !== "object") {
     return false;
@@ -728,6 +705,12 @@ type ImageComposerProps = {
   prompt: string;
   imageCount: string;
   imageSize: string;
+  imageResolution: string;
+  imageQuality: ImageQuality;
+  imageOutputFormat: ImageOutputFormat;
+  imageOutputCompression: string;
+  imageModeration: ImageModeration;
+  imageTransparentBackground: boolean;
   availableQuota: string;
   activeTaskCount: number;
   referenceImages: Array<{ name: string; dataUrl: string }>;
@@ -737,6 +720,12 @@ type ImageComposerProps = {
   onPromptChange: (value: string) => void;
   onImageCountChange: (value: string) => void;
   onImageSizeChange: (value: string) => void;
+  onImageResolutionChange: (value: string) => void;
+  onImageQualityChange: (value: ImageQuality) => void;
+  onImageOutputFormatChange: (value: ImageOutputFormat) => void;
+  onImageOutputCompressionChange: (value: string) => void;
+  onImageModerationChange: (value: ImageModeration) => void;
+  onImageTransparentBackgroundChange: (value: boolean) => void;
   onSubmit: () => void | Promise<void>;
   onPickReferenceImage: () => void;
   onReferenceImageChange: (files: File[]) => void | Promise<void>;
@@ -748,6 +737,12 @@ export function ImageComposer({
   prompt,
   imageCount,
   imageSize,
+  imageResolution,
+  imageQuality,
+  imageOutputFormat,
+  imageOutputCompression,
+  imageModeration,
+  imageTransparentBackground,
   availableQuota,
   activeTaskCount,
   referenceImages,
@@ -757,6 +752,12 @@ export function ImageComposer({
   onPromptChange,
   onImageCountChange,
   onImageSizeChange,
+  onImageResolutionChange,
+  onImageQualityChange,
+  onImageOutputFormatChange,
+  onImageOutputCompressionChange,
+  onImageModerationChange,
+  onImageTransparentBackgroundChange,
   onSubmit,
   onPickReferenceImage,
   onReferenceImageChange,
@@ -765,6 +766,7 @@ export function ImageComposer({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [isSizeMenuOpen, setIsSizeMenuOpen] = useState(false);
+  const [isResolutionMenuOpen, setIsResolutionMenuOpen] = useState(false);
   const [isPromptLibraryOpen, setIsPromptLibraryOpen] = useState(false);
   const [bananaPromptStatus, setBananaPromptStatus] = useState<BananaPromptStatus>("idle");
   const [bananaPromptError, setBananaPromptError] = useState("");
@@ -773,35 +775,49 @@ export function ImageComposer({
   const [bananaPromptCategory, setBananaPromptCategory] = useState("全部");
   const [bananaPromptRetryKey, setBananaPromptRetryKey] = useState(0);
   const sizeMenuRef = useRef<HTMLDivElement>(null);
+  const resolutionMenuRef = useRef<HTMLDivElement>(null);
   const lightboxImages = useMemo(
     () => referenceImages.map((image, index) => ({ id: `${image.name}-${index}`, src: image.dataUrl })),
     [referenceImages],
   );
   const imageSizeOptions = [
-    { value: "", label: "未指定" },
+    { value: "", label: "自动" },
     { value: "1:1", label: "1:1 (正方形)" },
+    { value: "3:2", label: "3:2 (横版)" },
+    { value: "2:3", label: "2:3 (竖版)" },
     { value: "16:9", label: "16:9 (横版)" },
     { value: "4:3", label: "4:3 (横版)" },
     { value: "3:4", label: "3:4 (竖版)" },
     { value: "9:16", label: "9:16 (竖版)" },
+    { value: "21:9", label: "21:9 (超宽)" },
   ];
-  const imageSizeLabel = imageSizeOptions.find((option) => option.value === imageSize)?.label || "未指定";
-  const quickPromptItems = useMemo(() => {
-    const selected = sortPromptItems(bananaPrompts.filter((item) => item.quick_access)).slice(0, QUICK_PROMPT_COUNT);
-    if (selected.length >= QUICK_PROMPT_COUNT) {
-      return selected;
-    }
-    const selectedIds = new Set(selected.map((item) => item.id).filter(Boolean));
-    const fallbackItems = defaultPromptItems
-      .filter((item) => item.quick_access && (!item.id || !selectedIds.has(item.id)))
-      .slice(0, QUICK_PROMPT_COUNT - selected.length);
-    return [...selected, ...fallbackItems];
-  }, [bananaPrompts]);
+  const imageSizeLabel = imageSizeOptions.find((option) => option.value === imageSize)?.label || "自动";
+  const imageResolutionOptions = [
+    { value: "auto", label: "自动" },
+    { value: "1k", label: "1k" },
+    { value: "2k", label: "2k" },
+    { value: "4k", label: "4k" },
+  ];
+  const imageResolutionLabel = imageResolutionOptions.find((option) => option.value === imageResolution)?.label || "自动";
+  const imageQualityOptions: Array<{ value: ImageQuality; label: string }> = [
+    { value: "auto", label: "自动" },
+    { value: "low", label: "低" },
+    { value: "medium", label: "中" },
+    { value: "high", label: "高" },
+  ];
+  const imageOutputFormatOptions: Array<{ value: ImageOutputFormat; label: string }> = [
+    { value: "png", label: "PNG" },
+    { value: "jpeg", label: "JPEG" },
+    { value: "webp", label: "WebP" },
+  ];
+  const imageModerationOptions: Array<{ value: ImageModeration; label: string }> = [
+    { value: "auto", label: "自动" },
+    { value: "low", label: "低限制" },
+  ];
   const morePromptItems = useMemo(
-    () => uniquePromptItems([...quickPromptItems, ...bananaPrompts]),
-    [bananaPrompts, quickPromptItems],
+    () => uniquePromptItems([...defaultPromptItems, ...bananaPrompts]),
+    [bananaPrompts],
   );
-  const activePresetId = quickPromptItems.find((item) => item.prompt === prompt)?.id;
   const bananaPromptCategories = useMemo(() => {
     const categories = Array.from(new Set(morePromptItems.map(getPromptCategoryLabel))).sort((a, b) => a.localeCompare(b, "zh-CN"));
     return ["全部", ...categories];
@@ -849,27 +865,6 @@ export function ImageComposer({
     }
     await navigator.clipboard.writeText(cleaned);
     toast.success("提示词已复制");
-  };
-
-  const handleSharePrompt = async () => {
-    const cleaned = prompt.trim();
-    if (!cleaned) {
-      toast.error("没有可分享的提示词");
-      return;
-    }
-    try {
-      const result = await sharePromptPayload({
-        title: buildPromptShareTitle(cleaned),
-        description: mode === "edit" ? "图生图提示词" : "文生图提示词",
-        prompt: cleaned,
-        mode,
-        image_size: imageSize,
-        image_count: imageCount,
-      });
-      toast.success(result === "shared" ? "分享已打开" : "分享链接已复制");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "分享失败");
-    }
   };
 
   useEffect(() => {
@@ -928,12 +923,30 @@ export function ImageComposer({
       if (!sizeMenuRef.current?.contains(event.target as Node)) {
         setIsSizeMenuOpen(false);
       }
+      if (!resolutionMenuRef.current?.contains(event.target as Node)) {
+        setIsResolutionMenuOpen(false);
+      }
     };
     window.addEventListener("mousedown", handlePointerDown);
     return () => {
       window.removeEventListener("mousedown", handlePointerDown);
     };
   }, [isSizeMenuOpen]);
+
+  useEffect(() => {
+    if (!isResolutionMenuOpen) {
+      return;
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!resolutionMenuRef.current?.contains(event.target as Node)) {
+        setIsResolutionMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [isResolutionMenuOpen]);
 
   const handleTextareaPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const imageFiles = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
@@ -994,6 +1007,167 @@ export function ImageComposer({
           </div>
         </div>
 
+        <div className="mb-4 rounded-lg border border-rose-100 bg-white/72 p-3">
+          <div className="mb-3 flex items-center gap-2 text-xs font-bold text-stone-500">
+            <span className="h-px flex-1 bg-rose-100" />
+            <span>生成设置</span>
+            <span className="h-px flex-1 bg-rose-100" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {mode === "edit" && (
+              <Button
+                type="button"
+                variant="outline"
+                className="col-span-2 h-10 rounded-lg border-rose-100 bg-white/85 px-3 text-sm font-medium text-stone-700 shadow-none"
+                onClick={onPickReferenceImage}
+              >
+                <ImagePlus className="size-4" />
+                <span>{referenceImages.length > 0 ? "继续添加参考图" : "上传参考图"}</span>
+              </Button>
+            )}
+            <div className="flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3">
+              <span className="text-sm font-medium text-stone-700">张数</span>
+              <Input
+                type="number"
+                min="1"
+                max="10"
+                step="1"
+                value={imageCount}
+                onChange={(event) => onImageCountChange(event.target.value)}
+                className="h-7 w-[44px] border-0 bg-transparent px-0 text-center text-sm font-medium text-stone-700 shadow-none focus-visible:ring-0"
+              />
+            </div>
+            <div
+              ref={sizeMenuRef}
+              className="relative flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm"
+            >
+              <span className="font-medium text-stone-700">比例</span>
+              <button
+                type="button"
+                className="flex h-7 min-w-0 flex-1 items-center justify-between bg-transparent text-left text-sm font-bold text-stone-700"
+                onClick={() => setIsSizeMenuOpen((open) => !open)}
+              >
+                <span className="truncate">{imageSizeLabel}</span>
+                <ChevronDown className={cn("size-4 shrink-0 opacity-60 transition", isSizeMenuOpen && "rotate-180")} />
+              </button>
+              {isSizeMenuOpen ? (
+                <div className="absolute top-[calc(100%+8px)] left-0 z-50 w-full overflow-hidden rounded-lg border border-white/80 bg-white p-2 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.35)]">
+                  {imageSizeOptions.map((option) => {
+                    const active = option.value === imageSize;
+                    return (
+                      <button
+                        key={option.label}
+                        type="button"
+                        className={cn(
+                          "flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-stone-700 transition hover:bg-rose-50",
+                          active && "bg-rose-50 font-medium text-stone-950",
+                        )}
+                        onClick={() => {
+                          onImageSizeChange(option.value);
+                          setIsSizeMenuOpen(false);
+                        }}
+                      >
+                        <span>{option.label}</span>
+                        {active ? <Check className="size-4" /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+            <div
+              ref={resolutionMenuRef}
+              className="relative col-span-2 flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm"
+            >
+              <span className="font-medium text-stone-700">分辨率</span>
+              <button
+                type="button"
+                className="flex h-7 min-w-0 flex-1 items-center justify-between bg-transparent text-left text-sm font-bold text-stone-700"
+                onClick={() => setIsResolutionMenuOpen((open) => !open)}
+              >
+                <span className="truncate">{imageResolutionLabel}</span>
+                <ChevronDown className={cn("size-4 shrink-0 opacity-60 transition", isResolutionMenuOpen && "rotate-180")} />
+              </button>
+              {isResolutionMenuOpen ? (
+                <div className="absolute top-[calc(100%+8px)] left-0 z-50 w-full overflow-hidden rounded-lg border border-white/80 bg-white p-2 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.35)]">
+                  {imageResolutionOptions.map((option) => {
+                    const active = option.value === imageResolution;
+                    return (
+                      <button
+                        key={option.label}
+                        type="button"
+                        className={cn(
+                          "flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-stone-700 transition hover:bg-rose-50",
+                          active && "bg-rose-50 font-medium text-stone-950",
+                        )}
+                        onClick={() => {
+                          onImageResolutionChange(option.value);
+                          setIsResolutionMenuOpen(false);
+                        }}
+                      >
+                        <span>{option.label}</span>
+                        {active ? <Check className="size-4" /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+            <SettingSelect
+              label="质量"
+              value={imageQuality}
+              options={imageQualityOptions}
+              onChange={(value) => onImageQualityChange(value as ImageQuality)}
+            />
+            <SettingSelect
+              label="格式"
+              value={imageOutputFormat}
+              options={imageOutputFormatOptions}
+              onChange={(value) => {
+                const nextFormat = value as ImageOutputFormat;
+                onImageOutputFormatChange(nextFormat);
+                if (nextFormat !== "png") {
+                  onImageTransparentBackgroundChange(false);
+                }
+              }}
+            />
+            {imageOutputFormat === "png" ? (
+              <label className="col-span-2 flex h-9 items-center justify-between gap-3 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm">
+                <span className="font-medium text-stone-700">透明背景</span>
+                <span className="flex items-center gap-2 text-xs font-medium text-stone-500">
+                  <Checkbox
+                    checked={imageTransparentBackground}
+                    onCheckedChange={(checked) => onImageTransparentBackgroundChange(checked === true)}
+                    className="border-rose-200 data-[state=checked]:border-rose-500 data-[state=checked]:bg-rose-500"
+                  />
+                  PNG
+                </span>
+              </label>
+            ) : (
+              <div className="col-span-2 flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm">
+                <span className="font-medium text-stone-700">压缩率</span>
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={imageOutputCompression}
+                  onChange={(event) => onImageOutputCompressionChange(event.target.value)}
+                  placeholder="自动"
+                  className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 text-right text-sm font-bold text-stone-700 shadow-none placeholder:text-stone-400 focus-visible:ring-0"
+                />
+              </div>
+            )}
+            <SettingSelect
+              label="审核"
+              value={imageModeration}
+              options={imageModerationOptions}
+              onChange={(value) => onImageModerationChange(value as ImageModeration)}
+              className="col-span-2"
+            />
+          </div>
+        </div>
+
         {mode === "edit" && referenceImages.length > 0 ? (
           <div className="mb-3 flex flex-wrap gap-2 px-1">
             {referenceImages.map((image, index) => (
@@ -1030,46 +1204,20 @@ export function ImageComposer({
         ) : null}
 
         <div className="mb-3 space-y-2 px-1">
-          <div className="grid grid-cols-2 gap-2">
-            {quickPromptItems.map((item, index) => {
-              const active = item.id === activePresetId;
-              const PresetIcon = getPromptIcon(item);
-              return (
-                <button
-                  key={getPromptItemKey(item, index)}
-                  type="button"
-                  onClick={() => handleBananaPromptSelect(item)}
-                  className={cn(
-                    "flex min-h-14 items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition",
-                    active
-                      ? "border-rose-100 bg-[#2d1d26] text-white shadow-sm"
-                      : "border-rose-100 bg-white/72 text-stone-800 hover:border-rose-200 hover:bg-white",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "inline-flex size-8 shrink-0 items-center justify-center rounded-full",
-                      active ? "bg-white/15 text-white" : "bg-rose-50 text-rose-500",
-                    )}
-                  >
-                    <PresetIcon className="size-4" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold">{item.title}</span>
-                    <span className={cn("mt-0.5 block truncate text-xs", active ? "text-white/70" : "text-stone-500")}>
-                      {getPromptDescription(item)}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => setIsPromptLibraryOpen(true)}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-100 bg-white/75 px-3 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white"
+            >
+              <Images className="size-4" />
+              更多提示词
+            </button>
             <button
               type="button"
               onClick={() => void handleCopyPrompt()}
               disabled={!prompt}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/75 px-3 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-100 bg-white/75 px-3 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
               aria-label="复制当前提示词"
             >
               <Copy className="size-4" />
@@ -1077,30 +1225,12 @@ export function ImageComposer({
             </button>
             <button
               type="button"
-              onClick={() => void handleSharePrompt()}
-              disabled={!prompt}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/75 px-3 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
-              aria-label="分享当前提示词"
-            >
-              <Share2 className="size-4" />
-              分享
-            </button>
-            <button
-              type="button"
               onClick={handleClearPrompt}
               disabled={!prompt}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/75 px-3 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-100 bg-white/75 px-3 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
             >
               <X className="size-4" />
-              清空提示词
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsPromptLibraryOpen(true)}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/75 px-3 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white"
-            >
-              <Images className="size-4" />
-              更多提示词
+              清空
             </button>
           </div>
         </div>
@@ -1112,8 +1242,8 @@ export function ImageComposer({
                 <div className="min-w-0">
                   <DialogTitle className="text-xl font-semibold text-stone-950">更多提示词</DialogTitle>
                   <DialogDescription className="mt-2 leading-6 text-stone-500">
-                    包含当前三个快捷提示词{morePromptItems.length > 0 ? `，已加载 ${morePromptItems.length} 条` : ""}
-                    ，点击使用会填入提示词并自动切换文生图或图生图模式。
+                    {morePromptItems.length > 0 ? `已加载 ${morePromptItems.length} 条提示词，` : ""}
+                    点击使用会填入提示词并自动切换文生图或图生图模式。
                   </DialogDescription>
                 </div>
                 <Button
@@ -1277,85 +1407,11 @@ export function ImageComposer({
                   void onSubmit();
                 }
               }}
-              className="min-h-[220px] resize-y rounded-lg border-0 bg-transparent px-4 pt-4 pb-4 text-[15px] leading-7 text-stone-900 shadow-none placeholder:text-stone-400 focus-visible:ring-0"
+              className="min-h-[170px] resize-y rounded-lg border-0 bg-transparent px-4 pt-4 pb-4 text-[15px] leading-7 text-stone-900 shadow-none placeholder:text-stone-400 focus-visible:ring-0"
             />
 
             <div className="border-t border-rose-100 bg-white/80 px-3 py-3">
               <div className="flex flex-col gap-3">
-                <div className="grid min-w-0 flex-1 grid-cols-2 gap-2">
-                  {mode === "edit" && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="col-span-2 h-10 rounded-lg border-rose-100 bg-white/85 px-3 text-sm font-medium text-stone-700 shadow-none"
-                      onClick={onPickReferenceImage}
-                    >
-                      <ImagePlus className="size-4" />
-                      <span>{referenceImages.length > 0 ? "继续添加参考图" : "上传参考图"}</span>
-                    </Button>
-                  )}
-                  <div className="inline-flex h-9 items-center justify-center rounded-lg bg-rose-50 px-3 text-xs font-medium text-stone-600">
-                    <span className="mr-1">本地额度</span>{availableQuota}
-                  </div>
-                  {activeTaskCount > 0 && (
-                    <div className="col-span-2 flex h-9 items-center justify-center gap-1.5 rounded-lg bg-amber-50 px-3 text-xs font-medium text-amber-700">
-                      <LoaderCircle className="size-3 animate-spin" />
-                      {activeTaskCount}<span> 个任务处理中</span>
-                    </div>
-                  )}
-                  <div className="flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3">
-                    <span className="text-sm font-medium text-stone-700">张数</span>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="10"
-                      step="1"
-                      value={imageCount}
-                      onChange={(event) => onImageCountChange(event.target.value)}
-                      className="h-7 w-[44px] border-0 bg-transparent px-0 text-center text-sm font-medium text-stone-700 shadow-none focus-visible:ring-0"
-                    />
-                  </div>
-                  <div
-                    ref={sizeMenuRef}
-                    className="relative col-span-2 flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm"
-                  >
-                    <span className="font-medium text-stone-700">比例</span>
-                    <button
-                      type="button"
-                      className="flex h-7 min-w-0 flex-1 items-center justify-between bg-transparent text-left text-sm font-bold text-stone-700"
-                      onClick={() => setIsSizeMenuOpen((open) => !open)}
-                    >
-                      <span className="truncate">{imageSizeLabel}</span>
-                      <ChevronDown className={cn("size-4 shrink-0 opacity-60 transition", isSizeMenuOpen && "rotate-180")} />
-                    </button>
-                    {isSizeMenuOpen ? (
-                      <div className="absolute bottom-[calc(100%+10px)] left-0 z-50 w-full overflow-hidden rounded-lg border border-white/80 bg-white p-2 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.35)]">
-                        {imageSizeOptions.map((option) => {
-                          const active = option.value === imageSize;
-                          return (
-                            <button
-                              key={option.label}
-                              type="button"
-                              className={cn(
-                                "flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-stone-700 transition hover:bg-rose-50",
-                                active && "bg-rose-50 font-medium text-stone-950",
-                              )}
-                              onClick={() => {
-                                onImageSizeChange(option.value);
-                                setIsSizeMenuOpen(false);
-                              }}
-                            >
-                              <span>{option.label}</span>
-                              {active ? <Check className="size-4" /> : null}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-                  </div>
-
-                </div>
-
                 <button
                   type="button"
                   onClick={() => void onSubmit()}
@@ -1395,5 +1451,37 @@ function ModeButton({
     >
       {children}
     </button>
+  );
+}
+
+function SettingSelect({
+  label,
+  value,
+  options,
+  className,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  className?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className={cn("flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm", className)}>
+      <span className="shrink-0 font-medium text-stone-700">{label}</span>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 py-0 text-sm font-bold text-stone-700 shadow-none focus-visible:ring-0 [&>svg]:size-4">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }

@@ -176,6 +176,20 @@ export type ImageResponse = {
   data: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
 };
 
+export type ImageQuality = "auto" | "low" | "medium" | "high";
+export type ImageOutputFormat = "png" | "jpeg" | "webp";
+export type ImageModeration = "auto" | "low";
+
+export type ImageRequestOptions = {
+  size?: string;
+  resolution?: string;
+  quality?: ImageQuality | string;
+  output_format?: ImageOutputFormat | string;
+  output_compression?: number | null;
+  moderation?: ImageModeration | string;
+  background?: string;
+};
+
 export type LoginResponse = {
   ok: boolean;
   version: string;
@@ -288,7 +302,33 @@ export async function redeemMyCode(code: string) {
   });
 }
 
-export async function generateImage(prompt: string, model?: ImageModel, size?: string) {
+function normalizeImageRequestOptions(options: ImageRequestOptions = {}) {
+  const payload: Record<string, string | number> = {};
+  if (options.size) {
+    payload.size = options.size;
+  }
+  if (options.resolution && options.resolution !== "auto") {
+    payload.resolution = options.resolution;
+  }
+  if (options.quality) {
+    payload.quality = options.quality;
+  }
+  if (options.output_format) {
+    payload.output_format = options.output_format;
+  }
+  if (options.output_format !== "png" && typeof options.output_compression === "number") {
+    payload.output_compression = Math.max(0, Math.min(100, Math.round(options.output_compression)));
+  }
+  if (options.moderation) {
+    payload.moderation = options.moderation;
+  }
+  if (options.background) {
+    payload.background = options.background;
+  }
+  return payload;
+}
+
+export async function generateImage(prompt: string, model?: ImageModel, options: ImageRequestOptions = {}) {
   return httpRequest<ImageResponse>(
     "/v1/images/generations",
     {
@@ -296,7 +336,7 @@ export async function generateImage(prompt: string, model?: ImageModel, size?: s
       body: {
         prompt,
         ...(model ? { model } : {}),
-        ...(size ? { size } : {}),
+        ...normalizeImageRequestOptions(options),
         n: 1,
         response_format: "url",
       },
@@ -304,7 +344,7 @@ export async function generateImage(prompt: string, model?: ImageModel, size?: s
   );
 }
 
-export async function editImage(files: File | File[], prompt: string, model?: ImageModel, size?: string) {
+export async function editImage(files: File | File[], prompt: string, model?: ImageModel, options: ImageRequestOptions = {}) {
   const formData = new FormData();
   const uploadFiles = Array.isArray(files) ? files : [files];
 
@@ -315,8 +355,9 @@ export async function editImage(files: File | File[], prompt: string, model?: Im
   if (model) {
     formData.append("model", model);
   }
-  if (size) {
-    formData.append("size", size);
+  const requestOptions = normalizeImageRequestOptions(options);
+  for (const [key, value] of Object.entries(requestOptions)) {
+    formData.append(key, String(value));
   }
   formData.append("n", "1");
   formData.append("response_format", "url");

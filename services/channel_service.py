@@ -101,18 +101,41 @@ EXTERNAL_IMAGE_MODEL_ALIASES = {
 
 EXTERNAL_IMAGE_RATIO_SIZE_ALIASES = {
     "1:1": "1024x1024",
+    "3:2": "1536x1024",
+    "2:3": "1024x1536",
     "16:9": "1536x1024",
     "4:3": "1536x1024",
     "9:16": "1024x1536",
     "3:4": "1024x1536",
+    "21:9": "1536x658",
 }
 
 EXTERNAL_IMAGE_RATIO_PROMPT_HINTS = {
     "1:1": "输出为 1:1 正方形构图，主体居中，适合正方形画幅。",
+    "3:2": "输出为 3:2 横屏构图，适合宽画幅和产品展示。",
+    "2:3": "输出为 2:3 竖屏构图，适合竖版海报和人物展示。",
     "16:9": "输出为 16:9 横屏构图，适合宽画幅展示。",
     "9:16": "输出为 9:16 竖屏构图，适合竖版画幅展示。",
     "4:3": "输出为 4:3 比例，兼顾宽度与高度，适合展示画面细节。",
     "3:4": "输出为 3:4 比例，纵向构图，适合人物肖像或竖向场景。",
+    "21:9": "输出为 21:9 超宽幅构图，适合电影感场景和横向展示。",
+}
+
+EXTERNAL_IMAGE_RESOLUTION_LONG_SIDE = {
+    "1k": 1024,
+    "2k": 2048,
+    "4k": 4096,
+}
+
+EXTERNAL_IMAGE_RATIO_DIMENSIONS = {
+    "1:1": (1, 1),
+    "3:2": (3, 2),
+    "2:3": (2, 3),
+    "16:9": (16, 9),
+    "4:3": (4, 3),
+    "9:16": (9, 16),
+    "3:4": (3, 4),
+    "21:9": (21, 9),
 }
 
 
@@ -133,9 +156,47 @@ def _is_explicit_image_size(value: str) -> bool:
     return bool(separator and width.isdigit() and height.isdigit())
 
 
-def _normalize_external_image_request(prompt: object, size: object) -> tuple[str | None, str | None]:
+def _resolve_image_resolution_size(size: str, resolution: str) -> str | None:
+    normalized_resolution = resolution.lower()
+    if normalized_resolution in {"", "auto"}:
+        return None
+    long_side = EXTERNAL_IMAGE_RESOLUTION_LONG_SIDE.get(normalized_resolution)
+    if not long_side:
+        return None
+    if _is_explicit_image_size(size):
+        width, _, height = size.lower().partition("x")
+        width_value = int(width)
+        height_value = int(height)
+        if width_value <= 0 or height_value <= 0:
+            return None
+        if width_value >= height_value:
+            resolved_width = long_side
+            resolved_height = round(long_side * height_value / width_value)
+        else:
+            resolved_width = round(long_side * width_value / height_value)
+            resolved_height = long_side
+        return f"{resolved_width}x{resolved_height}"
+    ratio = EXTERNAL_IMAGE_RATIO_DIMENSIONS.get(size) or EXTERNAL_IMAGE_RATIO_DIMENSIONS["1:1"]
+    width_ratio, height_ratio = ratio
+    if width_ratio >= height_ratio:
+        resolved_width = long_side
+        resolved_height = round(long_side * height_ratio / width_ratio)
+    else:
+        resolved_width = round(long_side * width_ratio / height_ratio)
+        resolved_height = long_side
+    return f"{resolved_width}x{resolved_height}"
+
+
+def _normalize_external_image_request(prompt: object, size: object, resolution: object = None) -> tuple[str | None, str | None]:
     normalized_prompt = _clean(prompt) or None
     normalized_size = _clean(size)
+    normalized_resolution = _clean(resolution)
+    resolution_size = _resolve_image_resolution_size(normalized_size, normalized_resolution)
+    if resolution_size:
+        hint = EXTERNAL_IMAGE_RATIO_PROMPT_HINTS.get(normalized_size)
+        if hint and normalized_prompt:
+            normalized_prompt = f"{normalized_prompt}\n\n{hint}"
+        return normalized_prompt, resolution_size
     if not normalized_size:
         return normalized_prompt, None
     if _is_explicit_image_size(normalized_size) or normalized_size.lower() == "auto":
@@ -147,6 +208,30 @@ def _normalize_external_image_request(prompt: object, size: object) -> tuple[str
             normalized_prompt = f"{normalized_prompt}\n\n{hint}"
         return normalized_prompt, mapped_size
     return normalized_prompt, normalized_size
+
+
+def _normalize_external_image_options(payload: dict[str, Any]) -> dict[str, object]:
+    options: dict[str, object] = {}
+    quality = _clean(payload.get("quality")).lower()
+    if quality in {"auto", "low", "medium", "high"}:
+        options["quality"] = quality
+    output_format = _clean(payload.get("output_format")).lower()
+    if output_format in {"png", "jpeg", "webp"}:
+        options["output_format"] = output_format
+    if output_format in {"jpeg", "webp"}:
+        try:
+            output_compression = int(payload.get("output_compression"))
+        except (TypeError, ValueError):
+            output_compression = None
+        if output_compression is not None:
+            options["output_compression"] = max(0, min(100, output_compression))
+    moderation = _clean(payload.get("moderation")).lower()
+    if moderation in {"auto", "low"}:
+        options["moderation"] = moderation
+    background = _clean(payload.get("background")).lower()
+    if background in {"auto", "transparent", "opaque"}:
+        options["background"] = background
+    return options
 
 
 def _response_preview(response, limit: int = 300) -> str:
@@ -761,12 +846,17 @@ class ChannelService:
         return None
 
     def _call_generation(self, channel: dict[str, object], payload: dict[str, Any]) -> dict[str, Any]:
-        prompt, size = _normalize_external_image_request(payload.get("prompt"), payload.get("size"))
+        prompt, size = _normalize_external_image_request(
+            payload.get("prompt"),
+            payload.get("size"),
+            payload.get("resolution"),
+        )
         body = {
             key: value
             for key, value in payload.items()
             if key in {"model", "n", "response_format"} and value is not None
         }
+        body.update(_normalize_external_image_options(payload))
         if prompt is not None:
             body["prompt"] = prompt
         if size is not None:
@@ -781,13 +871,18 @@ class ChannelService:
         return self._normalize_response(response, payload)
 
     def _call_edit(self, channel: dict[str, object], payload: dict[str, Any]) -> dict[str, Any]:
-        prompt, size = _normalize_external_image_request(payload.get("prompt"), payload.get("size"))
+        prompt, size = _normalize_external_image_request(
+            payload.get("prompt"),
+            payload.get("size"),
+            payload.get("resolution"),
+        )
         form_data = {
             "prompt": prompt or "",
             "model": _clean(payload.get("model")) or (channel.get("models") or ["gpt-image-1"])[0],
             "n": str(int(payload.get("n") or 1)),
             "response_format": _clean(payload.get("response_format")) or "b64_json",
         }
+        form_data.update(_normalize_external_image_options(payload))
         if size is not None:
             form_data["size"] = size
         multipart = CurlMime()

@@ -2,7 +2,7 @@
 
 import localforage from "localforage";
 
-import type { ImageModel } from "@/lib/api";
+import type { ImageModeration, ImageModel, ImageOutputFormat, ImageQuality } from "@/lib/api";
 
 export type ImageConversationMode = "generate" | "edit";
 
@@ -30,6 +30,12 @@ export type ImageTurn = {
   referenceImages: StoredReferenceImage[];
   count: number;
   size: string;
+  resolution: string;
+  quality: ImageQuality | string;
+  outputFormat: ImageOutputFormat | string;
+  outputCompression: number | null;
+  moderation: ImageModeration | string;
+  transparentBackground: boolean;
   images: StoredImage[];
   createdAt: string;
   status: ImageTurnStatus;
@@ -64,6 +70,10 @@ const imageConversationStorage = localforage.createInstance({
 
 const IMAGE_CONVERSATIONS_KEY = "items";
 export const IMAGE_CONVERSATIONS_CHANGED_EVENT = "chatgpt2api:image-conversations-changed";
+export const DEFAULT_IMAGE_QUALITY: ImageQuality = "auto";
+export const DEFAULT_IMAGE_OUTPUT_FORMAT: ImageOutputFormat = "png";
+export const DEFAULT_IMAGE_MODERATION: ImageModeration = "auto";
+export const DEFAULT_IMAGE_TRANSPARENT_BACKGROUND = false;
 let imageConversationWriteQueue: Promise<void> = Promise.resolve();
 
 export type ImageConversationsChangedDetail = {
@@ -165,6 +175,38 @@ function getLegacyReferenceImages(source: Record<string, unknown>): StoredRefere
   return [];
 }
 
+function normalizeOption(value: unknown, allowed: string[], fallback: string) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return allowed.includes(normalized) ? normalized : fallback;
+}
+
+function normalizeOutputCompression(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized)) {
+    return null;
+  }
+  return Math.max(0, Math.min(100, Math.round(normalized)));
+}
+
+function normalizeBoolean(value: unknown, fallback: boolean) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on", "enabled"].includes(normalized)) {
+      return true;
+    }
+    if (["0", "false", "no", "off", "disabled"].includes(normalized)) {
+      return false;
+    }
+  }
+  return fallback;
+}
+
 function normalizeTurn(turn: ImageTurn & Record<string, unknown>): ImageTurn {
   const normalizedImages = Array.isArray(turn.images) ? turn.images.map(normalizeStoredImage) : [];
   const derivedStatus: ImageTurnStatus =
@@ -182,6 +224,19 @@ function normalizeTurn(turn: ImageTurn & Record<string, unknown>): ImageTurn {
     referenceImages: getLegacyReferenceImages(turn),
     count: Math.max(1, Number(turn.count || normalizedImages.length || 1)),
     size: typeof turn.size === "string" ? turn.size : "",
+    resolution: typeof turn.resolution === "string" && turn.resolution ? turn.resolution : "auto",
+    quality: normalizeOption(turn.quality, ["auto", "low", "medium", "high"], DEFAULT_IMAGE_QUALITY),
+    outputFormat: normalizeOption(
+      turn.outputFormat ?? turn.output_format,
+      ["png", "jpeg", "webp"],
+      DEFAULT_IMAGE_OUTPUT_FORMAT,
+    ),
+    outputCompression: normalizeOutputCompression(turn.outputCompression ?? turn.output_compression),
+    moderation: normalizeOption(turn.moderation, ["auto", "low"], DEFAULT_IMAGE_MODERATION),
+    transparentBackground: normalizeBoolean(
+      turn.transparentBackground ?? turn.transparent_background,
+      DEFAULT_IMAGE_TRANSPARENT_BACKGROUND,
+    ),
     images: normalizedImages,
     createdAt: String(turn.createdAt || new Date().toISOString()),
     status:
@@ -210,6 +265,19 @@ function normalizeConversation(
           referenceImages: getLegacyReferenceImages(conversation),
           count: Number(conversation.count || 1),
           size: typeof conversation.size === "string" ? conversation.size : "",
+          resolution: typeof conversation.resolution === "string" && conversation.resolution ? conversation.resolution : "auto",
+          quality: normalizeOption(conversation.quality, ["auto", "low", "medium", "high"], DEFAULT_IMAGE_QUALITY),
+          outputFormat: normalizeOption(
+            conversation.outputFormat ?? conversation.output_format,
+            ["png", "jpeg", "webp"],
+            DEFAULT_IMAGE_OUTPUT_FORMAT,
+          ),
+          outputCompression: normalizeOutputCompression(conversation.outputCompression ?? conversation.output_compression),
+          moderation: normalizeOption(conversation.moderation, ["auto", "low"], DEFAULT_IMAGE_MODERATION),
+          transparentBackground: normalizeBoolean(
+            conversation.transparentBackground ?? conversation.transparent_background,
+            DEFAULT_IMAGE_TRANSPARENT_BACKGROUND,
+          ),
           images: Array.isArray(conversation.images) ? (conversation.images as StoredImage[]) : [],
           createdAt: String(conversation.createdAt || new Date().toISOString()),
           status:

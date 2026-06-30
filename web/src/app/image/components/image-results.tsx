@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Clock3, Copy, ImageIcon, LoaderCircle, Share2, Sparkles } from "lucide-react";
+import { Clock3, Copy, ImageIcon, LoaderCircle, RefreshCw, Share2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ type ImageResultsProps = {
   selectedConversation: ImageConversation | null;
   onOpenLightbox: (images: ImageLightboxItem[], index: number) => void;
   onContinueEdit: (conversationId: string, image: StoredImage | StoredReferenceImage) => void;
+  onRegenerate: (conversationId: string, turn: ImageConversation["turns"][number]) => void;
   formatConversationTime: (value: string) => string;
 };
 
@@ -101,6 +102,7 @@ export function ImageResults({
   selectedConversation,
   onOpenLightbox,
   onContinueEdit,
+  onRegenerate,
   formatConversationTime,
 }: ImageResultsProps) {
   const [imageDimensions, setImageDimensions] = useState<Record<string, string>>({});
@@ -178,41 +180,31 @@ export function ImageResults({
 
   if (!selectedConversation) {
     return (
-      <div className="grid min-h-[520px] items-center gap-4 lg:grid-cols-[minmax(0,1.08fr)_minmax(280px,.92fr)]">
-        <div className="relative min-h-[420px] overflow-hidden rounded-lg border border-white/70 bg-white/52 shadow-sm">
-          <img
-            src={emptyStateHero.preview}
-            alt={emptyStateHero.title}
-            className="absolute inset-0 h-full w-full object-cover opacity-75"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#2d1d26]/70 via-[#2d1d26]/12 to-white/10" />
-          <div className="absolute inset-x-0 bottom-0 p-5 text-white">
-            <div className="inline-flex rounded-full bg-white/18 px-3 py-1 text-xs font-semibold backdrop-blur">示例预览</div>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight">{emptyStateHero.title}</h2>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-white/78">{emptyStateHero.description}</p>
+      <div className="grid min-h-[520px] content-center gap-4">
+        <div className="rounded-lg border border-white/70 bg-white/58 p-5 text-center">
+          <div className="mx-auto grid size-12 place-items-center rounded-lg bg-gradient-to-br from-rose-100 to-fuchsia-100 text-rose-500">
+            <ImageIcon className="size-5" />
           </div>
+          <h1 className="mt-4 text-2xl font-bold tracking-tight text-stone-950">从右侧创作台开始</h1>
+          <p className="mt-2 text-sm leading-6 text-stone-500">
+            支持文生图、图生图、参考图上传和粘贴、提示词库、队列恢复、灯箱预览与继续编辑。
+          </p>
         </div>
-
-        <div className="grid gap-3">
-          <div className="rounded-lg border border-white/70 bg-white/58 p-4">
-            <div className="grid size-12 place-items-center rounded-lg bg-gradient-to-br from-rose-100 to-fuchsia-100 text-rose-500">
-              <ImageIcon className="size-5" />
-            </div>
-            <h1 className="mt-4 text-2xl font-bold tracking-tight text-stone-950">从右侧创作台开始</h1>
-            <p className="mt-2 text-sm leading-6 text-stone-500">
-              支持文生图、图生图、参考图上传和粘贴、提示词库、队列恢复、灯箱预览与继续编辑。
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            {emptyStateExamples.map((item) => (
-              <div key={item.label} className="rounded-lg border border-white/70 bg-gradient-to-br from-white/76 to-rose-50/70 p-3">
-                <div className="h-20 overflow-hidden rounded-lg border border-white/70 bg-rose-50">
-                  <img src={item.preview} alt={`${item.label}示例`} className="h-full w-full object-cover" loading="lazy" />
-                </div>
-                <div className="mt-3 text-sm font-semibold text-stone-800">{item.label}</div>
+        <div className="mx-auto grid w-full max-w-[620px] grid-cols-2 gap-3">
+          {emptyStateExamples.map((item) => (
+            <div key={item.label} className="overflow-hidden rounded-lg border border-white/70 bg-white/58 shadow-sm">
+              <div className="aspect-[4/3] bg-rose-50">
+                <img
+                  src={item.preview}
+                  alt={`${item.label}示例图`}
+                  className="h-full w-full object-cover"
+                  loading="eager"
+                  decoding="async"
+                />
               </div>
-            ))}
-          </div>
+              <div className="px-3 py-2 text-sm font-semibold text-stone-800">{item.label}</div>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -253,6 +245,17 @@ export function ImageResults({
                   <p className="line-clamp-2 text-sm leading-6 text-stone-800">{turn.prompt}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-lg border-rose-100 bg-white/85 px-2.5 text-stone-700 hover:bg-white"
+                    onClick={() => onRegenerate(selectedConversation.id, turn)}
+                    disabled={turn.status === "queued" || turn.status === "generating"}
+                  >
+                    <RefreshCw className="size-4" />
+                    重新生成
+                  </Button>
                   <Button
                     type="button"
                     variant="outline"
@@ -352,12 +355,23 @@ export function ImageResults({
                           }}
                         />
                       </button>
-                      <div className="flex items-center justify-between gap-2 px-3 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-3">
                         <div className="min-w-0 text-xs text-stone-500">
                           <span>结果 {index + 1}</span>
                           {imageMeta ? <span className="ml-2 text-stone-400">{imageMeta}</span> : null}
                         </div>
-                        <Button
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
+                            onClick={() => onRegenerate(selectedConversation.id, turn)}
+                            disabled={turn.status === "queued" || turn.status === "generating"}
+                          >
+                            <RefreshCw className="size-4" />
+                            重新生成
+                          </Button>
+                          <Button
                           variant="outline"
                           size="sm"
                           className="rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
@@ -365,7 +379,8 @@ export function ImageResults({
                         >
                           <Sparkles className="size-4" />
                           编辑
-                        </Button>
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   );

@@ -58,7 +58,9 @@ def create_app() -> FastAPI:
         if asset is not None:
             if head_only:
                 return Response()
-            return FileResponse(asset)
+            response = FileResponse(asset)
+            response.headers["Cache-Control"] = "no-store"
+            return response
         if full_path.strip("/").startswith("_next/"):
             raise HTTPException(status_code=404, detail="Not Found")
         fallback = resolve_web_asset("")
@@ -66,7 +68,9 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Not Found")
         if head_only:
             return Response()
-        return FileResponse(fallback)
+        response = FileResponse(fallback)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.head("/{full_path:path}", include_in_schema=False)
     async def head_web(full_path: str):
