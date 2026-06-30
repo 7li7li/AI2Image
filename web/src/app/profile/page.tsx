@@ -16,6 +16,19 @@ import {
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
+function formatTime(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 function ProfileContent() {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [name, setName] = useState("");
@@ -58,7 +71,8 @@ function ProfileContent() {
       const data = await redeemMyCode(code.trim());
       setUser(data.user);
       setCode("");
-      toast.success(`兑换成功，增加 ${data.redeem_code.quota} 点额度`);
+      const validText = data.redeem_code.valid_months > 0 ? `，有效期 ${data.redeem_code.valid_months} 个月` : "";
+      toast.success(`兑换成功，增加 ${data.redeem_code.quota} 点额度${validText}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "兑换失败");
     }
@@ -109,6 +123,9 @@ function ProfileContent() {
             <div className="text-sm text-stone-500">可用额度</div>
             <div className="text-4xl font-semibold text-rose-600">{user?.quota ?? 0}</div>
             <div className="text-xs text-stone-400">已消耗 {user?.spent_quota ?? user?.quota_used ?? 0} 点</div>
+            <div className="text-xs text-stone-400">
+              {user?.quota_expires_at ? `有效期至 ${formatTime(user.quota_expires_at)}` : "额度长期有效"}
+            </div>
           </CardContent>
         </Card>
       </div>

@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import secrets
 import uuid
+from calendar import monthrange
 from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import Literal
@@ -19,6 +20,7 @@ _SESSION_DAYS = 30
 _PASSWORD_ITERATIONS = 210_000
 IMAGE_CHANNEL_CONFIG_KEY = "image_channel_config"
 DEFAULT_USER_IMAGE_CHANNEL_MODELS = ["gpt-image-2", "codex-gpt-image-2", "gpt-5-5"]
+_UNSET = object()
 
 
 def _now() -> datetime:
@@ -69,9 +71,20 @@ def _parse_time(value: object) -> datetime | None:
     if not text:
         return None
     try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _add_months(value: datetime, months: int) -> datetime:
+    month_index = value.month - 1 + max(0, int(months or 0))
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, monthrange(year, month)[1])
+    return value.replace(year=year, month=month, day=day)
 
 
 def _clean_text(value: object) -> str:
@@ -202,6 +215,7 @@ class AuthService:
         except (TypeError, ValueError):
             quota_used = 0
         name = self._clean(raw.get("name")) or email.split("@")[0]
+        quota_expires_at = self._clean(raw.get("quota_expires_at")) or None
         return {
             "id": item_id,
             "email": email,
@@ -211,6 +225,7 @@ class AuthService:
             "password_hash": self._clean(raw.get("password_hash")),
             "quota": quota,
             "quota_used": quota_used,
+            "quota_expires_at": quota_expires_at,
             "auth_provider": self._clean(raw.get("auth_provider")) or "password",
             "webdav_config": raw.get("webdav_config") if isinstance(raw.get("webdav_config"), dict) else {},
             IMAGE_CHANNEL_CONFIG_KEY: _normalize_user_image_channel_config(
@@ -254,6 +269,10 @@ class AuthService:
             max_uses = max(1, int(raw.get("max_uses") or 1))
         except (TypeError, ValueError):
             max_uses = 1
+        try:
+            valid_months = max(0, int(raw.get("valid_months") or raw.get("quota_valid_months") or 0))
+        except (TypeError, ValueError):
+            valid_months = 0
         used_by = raw.get("used_by") if isinstance(raw.get("used_by"), list) else []
         status = self._clean(raw.get("status")).lower() or "enabled"
         if status not in {"enabled", "disabled"}:
@@ -264,6 +283,7 @@ class AuthService:
             "quota": quota,
             "status": status,
             "max_uses": max_uses,
+            "valid_months": valid_months,
             "used_count": min(max_uses, int(raw.get("used_count") or len(used_by))),
             "used_by": used_by,
             "expires_at": self._clean(raw.get("expires_at")) or None,
@@ -347,6 +367,7 @@ class AuthService:
             "status": user.get("status"),
             "quota": int(user.get("quota") or 0),
             "quota_used": int(user.get("quota_used") or 0),
+            "quota_expires_at": user.get("quota_expires_at"),
             "created_at": user.get("created_at"),
             "updated_at": user.get("updated_at"),
             "last_login_at": user.get("last_login_at"),
@@ -388,6 +409,26 @@ class AuthService:
             item["image_count"] += 1
             item["spent_quota"] += max(0, int(record.get("quota_cost") or 0))
         return stats
+
+    @staticmethod
+    def _quota_is_expired(user: dict[str, object], now: datetime | None = None) -> bool:
+        expires_at = _parse_time(user.get("quota_expires_at"))
+        return expires_at is not None and expires_at <= (now or _now())
+
+    def _clear_expired_quota_locked(self, user: dict[str, object], *, now: datetime | None = None) -> dict[str, object]:
+        if not self._quota_is_expired(user, now):
+            return user
+        next_user = dict(user)
+        if int(next_user.get("quota") or 0) > 0:
+            next_user["quota"] = 0
+            next_user["updated_at"] = (now or _now()).isoformat()
+        return self._normalize_user(next_user) or next_user
+
+    @staticmethod
+    def _next_quota_expiry(valid_months: int, now: datetime) -> str | None:
+        if valid_months <= 0:
+            return None
+        return _add_months(now, valid_months).isoformat()
 
     def list_keys(self, role: AuthRole | None = None) -> list[dict[str, object]]:
         with self._lock:
@@ -464,6 +505,7 @@ class AuthService:
         password: str,
         name: str = "",
         quota: int = 0,
+        quota_expires_at: str | None = None,
         role: AuthRole = "user",
         status: str = "active",
     ) -> tuple[dict[str, object], str]:
@@ -485,6 +527,7 @@ class AuthService:
                 "password_hash": _hash_password(password),
                 "quota": quota,
                 "quota_used": 0,
+                "quota_expires_at": quota_expires_at,
                 "created_at": now,
                 "updated_at": now,
                 "last_login_at": None,
@@ -535,6 +578,10 @@ class AuthService:
             index = self._find_user_index_by_id(self._clean(user_id))
             if index < 0:
                 return None
+            normalized_user = self._clear_expired_quota_locked(self._users[index])
+            if normalized_user != self._users[index]:
+                self._users[index] = normalized_user
+                self._save_users()
             stats = self._image_stats_by_user().get(user_id)
             return self._public_user(self._users[index], stats)
 
@@ -545,7 +592,13 @@ class AuthService:
         with self._lock:
             stats = self._image_stats_by_user()
             users = []
-            for user in self._users:
+            changed = False
+            for index, user in enumerate(self._users):
+                normalized_user = self._clear_expired_quota_locked(user)
+                if normalized_user != user:
+                    self._users[index] = normalized_user
+                    user = normalized_user
+                    changed = True
                 if status_text and user.get("status") != status_text:
                     continue
                 if role_text and user.get("role") != role_text:
@@ -554,6 +607,8 @@ class AuthService:
                 if query_text and query_text not in searchable:
                     continue
                 users.append(self._public_user(user, stats.get(str(user.get("id")))))
+            if changed:
+                self._save_users()
             users.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
             return users
 
@@ -581,6 +636,8 @@ class AuthService:
                 current["status"] = status
             if "quota" in updates and updates.get("quota") is not None:
                 current["quota"] = max(0, int(updates.get("quota") or 0))
+            if "quota_expires_at" in updates:
+                current["quota_expires_at"] = self._clean(updates.get("quota_expires_at")) or None
             if IMAGE_CHANNEL_CONFIG_KEY in updates and isinstance(updates.get(IMAGE_CHANNEL_CONFIG_KEY), dict):
                 current[IMAGE_CHANNEL_CONFIG_KEY] = _normalize_user_image_channel_config(
                     updates.get(IMAGE_CHANNEL_CONFIG_KEY),
@@ -709,7 +766,13 @@ class AuthService:
             self._save_users()
             return self._public_user(user), next_password
 
-    def adjust_user_quota(self, user_id: str, amount: int, mode: str = "add") -> dict[str, object] | None:
+    def adjust_user_quota(
+        self,
+        user_id: str,
+        amount: int,
+        mode: str = "add",
+        quota_expires_at: object = _UNSET,
+    ) -> dict[str, object] | None:
         normalized_id = self._clean(user_id)
         with self._lock:
             index = self._find_user_index_by_id(normalized_id)
@@ -719,6 +782,8 @@ class AuthService:
             current_quota = int(user.get("quota") or 0)
             next_quota = amount if mode == "set" else current_quota + amount
             user["quota"] = max(0, int(next_quota))
+            if quota_expires_at is not _UNSET:
+                user["quota_expires_at"] = self._clean(quota_expires_at) or None
             user["updated_at"] = _now_iso()
             self._users[index] = self._normalize_user(user) or user
             self._save_users()
@@ -734,6 +799,11 @@ class AuthService:
             user = self._users[index]
             if user.get("role") == "admin":
                 return
+            normalized_user = self._clear_expired_quota_locked(user)
+            if normalized_user != user:
+                self._users[index] = normalized_user
+                self._save_users()
+                user = normalized_user
             if int(user.get("quota") or 0) < amount:
                 raise ValueError("insufficient image quota")
 
@@ -767,6 +837,11 @@ class AuthService:
             user = self._users[index]
             if user.get("role") == "admin":
                 return None
+            normalized_user = self._clear_expired_quota_locked(user)
+            if normalized_user != user:
+                self._users[index] = normalized_user
+                user = normalized_user
+                self._save_users()
             if self.repositories is not None:
                 reservation = self.repositories.quota_reservations.reserve(
                     normalized_user_id,
@@ -912,6 +987,7 @@ class AuthService:
         quota: int,
         count: int = 1,
         max_uses: int = 1,
+        valid_months: int = 0,
         expires_at: str | None = None,
         created_by: str = "",
         note: str = "",
@@ -919,6 +995,7 @@ class AuthService:
         total = max(1, min(500, int(count or 1)))
         amount = max(1, int(quota or 1))
         uses = max(1, int(max_uses or 1))
+        months = max(0, int(valid_months or 0))
         with self._lock:
             if self.repositories is not None:
                 self._redeem_codes = self._load_redeem_codes()
@@ -934,6 +1011,7 @@ class AuthService:
                     "quota": amount,
                     "status": "enabled",
                     "max_uses": uses,
+                    "valid_months": months,
                     "used_count": 0,
                     "used_by": [],
                     "expires_at": expires_at,
@@ -963,7 +1041,7 @@ class AuthService:
                 if item.get("id") != normalized_id:
                     continue
                 next_item = dict(item)
-                for key in ("status", "expires_at", "note", "max_uses", "quota"):
+                for key in ("status", "expires_at", "note", "max_uses", "quota", "valid_months"):
                     if key in updates and updates.get(key) is not None:
                         next_item[key] = updates.get(key)
                 normalized = self._normalize_redeem_code(next_item)
@@ -1033,12 +1111,20 @@ class AuthService:
                 raise ValueError("redeem code has been used")
             if any(entry.get("user_id") == user_id for entry in used_by if isinstance(entry, dict)):
                 raise ValueError("redeem code has already been used by this user")
+            now = _now()
+            normalized_user = self._clear_expired_quota_locked(user, now=now)
+            if normalized_user != user:
+                user = normalized_user
             quota = int(item.get("quota") or 0)
+            valid_months = int(item.get("valid_months") or 0)
+            quota_expires_at = self._next_quota_expiry(valid_months, now)
             used_by.append({
                 "user_id": user.get("id"),
                 "email": user.get("email"),
                 "quota": quota,
-                "used_at": _now_iso(),
+                "valid_months": valid_months,
+                "quota_expires_at": quota_expires_at,
+                "used_at": now.isoformat(),
             })
             item["used_by"] = used_by
             item["used_count"] = len(used_by)
@@ -1046,7 +1132,11 @@ class AuthService:
                 item["status"] = "disabled"
             next_user = dict(user)
             next_user["quota"] = int(next_user.get("quota") or 0) + quota
-            next_user["updated_at"] = _now_iso()
+            if valid_months > 0:
+                next_user["quota_expires_at"] = quota_expires_at
+            else:
+                next_user["quota_expires_at"] = None
+            next_user["updated_at"] = now.isoformat()
             self._users[user_index] = self._normalize_user(next_user) or next_user
             self._redeem_codes[code_index] = self._normalize_redeem_code(item) or item
             self._save_users()

@@ -72,6 +72,7 @@ class AdminUserCreateRequest(BaseModel):
     password: str
     name: str = ""
     quota: int = 0
+    quota_expires_at: str | None = None
     status: str = "active"
 
 
@@ -80,11 +81,13 @@ class AdminUserUpdateRequest(BaseModel):
     name: str | None = None
     status: str | None = None
     quota: int | None = None
+    quota_expires_at: str | None = None
 
 
 class AdminUserQuotaRequest(BaseModel):
     amount: int
     mode: str = "add"
+    quota_expires_at: str | None = None
 
 
 class ResetPasswordRequest(BaseModel):
@@ -99,6 +102,7 @@ class RedeemCodeCreateRequest(BaseModel):
     quota: int = Field(default=1, ge=1)
     count: int = Field(default=1, ge=1, le=500)
     max_uses: int = Field(default=1, ge=1)
+    valid_months: int = Field(default=0, ge=0)
     expires_at: str | None = None
     note: str = ""
 
@@ -107,6 +111,7 @@ class RedeemCodeUpdateRequest(BaseModel):
     status: str | None = None
     quota: int | None = None
     max_uses: int | None = None
+    valid_months: int | None = None
     expires_at: str | None = None
     note: str | None = None
 
@@ -400,6 +405,7 @@ def create_router() -> APIRouter:
                 password=body.password,
                 name=body.name,
                 quota=body.quota,
+                quota_expires_at=body.quota_expires_at,
                 status=body.status,
                 role="user",
             )
@@ -410,7 +416,12 @@ def create_router() -> APIRouter:
             action="users.create",
             resource="user",
             target_id=str(user.get("id") or ""),
-            detail={"email": user.get("email"), "quota": user.get("quota"), "status": user.get("status")},
+            detail={
+                "email": user.get("email"),
+                "quota": user.get("quota"),
+                "quota_expires_at": user.get("quota_expires_at"),
+                "status": user.get("status"),
+            },
         )
         return {"item": user, "password": body.password, "session_token": password_or_token, "items": auth_service.list_users()}
 
@@ -461,7 +472,11 @@ def create_router() -> APIRouter:
     async def admin_update_user_quota(user_id: str, body: AdminUserQuotaRequest, authorization: str | None = Header(default=None)):
         admin = require_admin(authorization)
         before = auth_service.get_user(user_id)
-        user = auth_service.adjust_user_quota(user_id, body.amount, body.mode)
+        updates = body.model_dump(exclude_unset=True, mode="python")
+        if "quota_expires_at" in updates:
+            user = auth_service.adjust_user_quota(user_id, body.amount, body.mode, updates.get("quota_expires_at"))
+        else:
+            user = auth_service.adjust_user_quota(user_id, body.amount, body.mode)
         if user is None:
             raise HTTPException(status_code=404, detail={"error": "user not found"})
         audit_service.add(
@@ -474,6 +489,8 @@ def create_router() -> APIRouter:
                 "amount": body.amount,
                 "previous_quota": (before or {}).get("quota"),
                 "current_quota": user.get("quota"),
+                "previous_quota_expires_at": (before or {}).get("quota_expires_at"),
+                "current_quota_expires_at": user.get("quota_expires_at"),
             },
         )
         return {"item": user, "items": auth_service.list_users()}
@@ -502,6 +519,7 @@ def create_router() -> APIRouter:
             quota=body.quota,
             count=1,
             max_uses=body.max_uses,
+            valid_months=body.valid_months,
             expires_at=body.expires_at,
             created_by=str(admin.get("id") or ""),
             note=body.note,
@@ -515,6 +533,7 @@ def create_router() -> APIRouter:
             quota=body.quota,
             count=body.count,
             max_uses=body.max_uses,
+            valid_months=body.valid_months,
             expires_at=body.expires_at,
             created_by=str(admin.get("id") or ""),
             note=body.note,

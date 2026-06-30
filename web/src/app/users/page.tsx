@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Copy, LoaderCircle, Plus, RefreshCw, Search, Trash2, UserRound } from "lucide-react";
+import { addMonths, format, parseISO } from "date-fns";
+import { AlertTriangle, CalendarIcon, Copy, LoaderCircle, Plus, RefreshCw, Search, Trash2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -17,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   createAdminUser,
   deleteAdminUsers,
@@ -40,12 +43,97 @@ function formatTime(value?: string | null) {
   }).format(date);
 }
 
+function formatDateValue(value?: string | null) {
+  const date = parseDateValue(value);
+  if (!date) return "";
+  return format(date, "yyyy-MM-dd");
+}
+
+function parseDateValue(value?: string | null) {
+  if (!value) return undefined;
+  try {
+    const date = parseISO(value);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  } catch {
+    return undefined;
+  }
+}
+
+function createExpiryDate(months: number) {
+  return format(addMonths(new Date(), months), "yyyy-MM-dd");
+}
+
+type QuotaExpiryPickerProps = {
+  value?: string | null;
+  onChange: (value: string) => void;
+  className?: string;
+};
+
+function QuotaExpiryPicker({ value, onChange, className = "" }: QuotaExpiryPickerProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedDate = parseDateValue(value);
+  const label = value ? formatDateValue(value) || "选择日期" : "选择到期";
+  const presets = [
+    { label: "1个月", months: 1 },
+    { label: "3个月", months: 3 },
+    { label: "半年", months: 6 },
+    { label: "1年", months: 12 },
+  ];
+  const handleChange = (nextValue: string) => {
+    onChange(nextValue);
+    setIsOpen(false);
+  };
+
+  return (
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className={`justify-start rounded-lg border-rose-100 bg-white px-2 font-normal text-stone-700 ${className}`}>
+          <CalendarIcon className="size-4 text-stone-400" />
+          <span className="truncate">{label}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-3" align="start">
+        <div className="mb-3 grid grid-cols-4 gap-2">
+          {presets.map((preset) => (
+            <Button
+              key={preset.label}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-lg border-rose-100 bg-white px-2 text-xs"
+              onClick={() => handleChange(createExpiryDate(preset.months))}
+            >
+              {preset.label}
+            </Button>
+          ))}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mb-2 h-8 w-full rounded-lg text-xs text-stone-500 hover:bg-stone-50"
+          onClick={() => handleChange("")}
+        >
+          不限期
+        </Button>
+        <Calendar
+          mode="single"
+          selected={selectedDate}
+          defaultMonth={selectedDate}
+          onSelect={(date) => date && handleChange(format(date, "yyyy-MM-dd"))}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function UsersPageContent() {
   const [items, setItems] = useState<AdminUser[]>([]);
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [creating, setCreating] = useState({ email: "", password: "", name: "", quota: "0" });
+  const [creating, setCreating] = useState({ email: "", password: "", name: "", quota: "0", quota_expires_at: "" });
   const [quotaInputs, setQuotaInputs] = useState<Record<string, string>>({});
+  const [quotaExpiryInputs, setQuotaExpiryInputs] = useState<Record<string, string>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<AdminUser[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -88,10 +176,11 @@ function UsersPageContent() {
         password: creating.password,
         name: creating.name.trim(),
         quota: Number(creating.quota || 0),
+        quota_expires_at: creating.quota_expires_at || undefined,
       });
       setItems(data.items);
       setSelectedIds((current) => current.filter((id) => data.items.some((item) => item.id === id)));
-      setCreating({ email: "", password: "", name: "", quota: "0" });
+      setCreating({ email: "", password: "", name: "", quota: "0", quota_expires_at: "" });
       toast.success("用户已创建");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "创建用户失败");
@@ -110,7 +199,14 @@ function UsersPageContent() {
 
   const handleSetQuota = async (user: AdminUser) => {
     try {
-      const data = await updateAdminUserQuota(user.id, { amount: Number(quotaInputs[user.id] || 0), mode: "set" });
+      const payload: { amount: number; mode: "set"; quota_expires_at?: string | null } = {
+        amount: Number(quotaInputs[user.id] || 0),
+        mode: "set",
+      };
+      if (Object.prototype.hasOwnProperty.call(quotaExpiryInputs, user.id)) {
+        payload.quota_expires_at = quotaExpiryInputs[user.id] || null;
+      }
+      const data = await updateAdminUserQuota(user.id, payload);
       setItems(data.items);
       setSelectedIds((current) => current.filter((id) => data.items.some((item) => item.id === id)));
       toast.success("额度已更新");
@@ -207,11 +303,16 @@ function UsersPageContent() {
             <Plus className="size-4 text-rose-500" />
             创建个人用户
           </div>
-          <div className="grid gap-3 md:grid-cols-[1.2fr_1fr_1fr_120px_auto]">
+          <div className="grid gap-3 md:grid-cols-[1.2fr_1fr_1fr_120px_180px_auto]">
             <Input value={creating.email} onChange={(event) => setCreating((current) => ({ ...current, email: event.target.value }))} placeholder="邮箱" className="h-10 rounded-xl border-rose-100 bg-white" />
             <Input value={creating.name} onChange={(event) => setCreating((current) => ({ ...current, name: event.target.value }))} placeholder="昵称" className="h-10 rounded-xl border-rose-100 bg-white" />
             <Input type="password" value={creating.password} onChange={(event) => setCreating((current) => ({ ...current, password: event.target.value }))} placeholder="初始密码" className="h-10 rounded-xl border-rose-100 bg-white" />
             <Input type="number" value={creating.quota} onChange={(event) => setCreating((current) => ({ ...current, quota: event.target.value }))} placeholder="额度" className="h-10 rounded-xl border-rose-100 bg-white" />
+            <QuotaExpiryPicker
+              value={creating.quota_expires_at}
+              onChange={(value) => setCreating((current) => ({ ...current, quota_expires_at: value }))}
+              className="h-10 w-full rounded-xl"
+            />
             <Button className="h-10 rounded-xl bg-rose-500 text-white hover:bg-rose-600" onClick={() => void handleCreate()}>
               创建
             </Button>
@@ -237,7 +338,7 @@ function UsersPageContent() {
               </span>
             ) : null}
           </div>
-          <div className="grid grid-cols-[44px_minmax(220px,1.4fr)_120px_120px_120px_150px_300px] border-b border-rose-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-stone-400">
+          <div className="grid grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_400px] border-b border-rose-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-stone-400">
             <Checkbox
               checked={allSelected}
               onCheckedChange={(checked) => toggleSelectAll(Boolean(checked))}
@@ -248,6 +349,7 @@ function UsersPageContent() {
             <span>额度</span>
             <span>图片/消耗</span>
             <span>最后登录</span>
+            <span>额度到期</span>
             <span>操作</span>
           </div>
           {isLoading ? (
@@ -258,7 +360,7 @@ function UsersPageContent() {
             <div className="px-6 py-14 text-center text-sm text-stone-500">暂无用户</div>
           ) : (
             items.map((user) => (
-              <div key={user.id} className="grid grid-cols-[44px_minmax(220px,1.4fr)_120px_120px_120px_150px_300px] items-center border-b border-rose-50 px-5 py-4 text-sm last:border-0">
+              <div key={user.id} className="grid grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_400px] items-center border-b border-rose-50 px-5 py-4 text-sm last:border-0">
                 <Checkbox
                   checked={selectedIds.includes(user.id)}
                   onCheckedChange={(checked) => {
@@ -280,12 +382,18 @@ function UsersPageContent() {
                 <div className="font-semibold text-rose-600">{user.quota}</div>
                 <div className="text-stone-600">{user.image_count || 0} / {user.spent_quota || user.quota_used || 0}</div>
                 <div className="text-stone-500">{formatTime(user.last_login_at)}</div>
+                <div className="text-xs text-stone-500">{user.quota_expires_at ? formatTime(user.quota_expires_at) : "不限期"}</div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Input
                     type="number"
                     value={quotaInputs[user.id] ?? String(user.quota)}
                     onChange={(event) => setQuotaInputs((current) => ({ ...current, [user.id]: event.target.value }))}
                     className="h-8 w-20 rounded-lg border-rose-100 bg-white px-2"
+                  />
+                  <QuotaExpiryPicker
+                    value={quotaExpiryInputs[user.id] ?? (user.quota_expires_at || "")}
+                    onChange={(value) => setQuotaExpiryInputs((current) => ({ ...current, [user.id]: value }))}
+                    className="h-8 w-36"
                   />
                   <Button variant="outline" size="sm" className="h-8 rounded-lg border-rose-100 bg-white" onClick={() => void handleSetQuota(user)}>
                     改额度

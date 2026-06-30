@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from calendar import monthrange
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -49,7 +50,7 @@ from utils.timezone import china_now_text
 
 
 Base = declarative_base()
-SCHEMA_VERSION = "004_observability"
+SCHEMA_VERSION = "005_quota_expiry"
 
 
 def _json_column_type():
@@ -79,6 +80,7 @@ class UserRow(Base):
     status = Column(String(32), index=True)
     quota = Column(Integer)
     quota_used = Column(Integer)
+    quota_expires_at = Column(String(80), index=True)
     data = Column(_json_column_type(), nullable=False)
 
 
@@ -336,6 +338,25 @@ def _parse_iso(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _add_months(value: datetime, months: int) -> datetime:
+    month_index = value.month - 1 + max(0, int(months or 0))
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, monthrange(year, month)[1])
+    return value.replace(year=year, month=month, day=day)
+
+
+def _quota_is_expired(user_data: dict[str, Any], now: datetime) -> bool:
+    expires_at = _parse_iso(user_data.get("quota_expires_at"))
+    return expires_at is not None and expires_at <= now
+
+
+def _next_quota_expiry(valid_months: int, now: datetime) -> str | None:
+    if valid_months <= 0:
+        return None
+    return _iso(_add_months(now, valid_months))
+
+
 DEFINITIONS: dict[str, RepositoryDefinition] = {
     "auth_keys": RepositoryDefinition(
         dataset_name="auth_keys",
@@ -362,6 +383,7 @@ DEFINITIONS: dict[str, RepositoryDefinition] = {
             "status": lambda item: _clean(item.get("status")) or None,
             "quota": lambda item: _int(item.get("quota")),
             "quota_used": lambda item: _int(item.get("quota_used")),
+            "quota_expires_at": lambda item: _clean(item.get("quota_expires_at")) or None,
         },
     ),
     "sessions": RepositoryDefinition(
@@ -570,7 +592,24 @@ class SQLAlchemyAuthKeyRepository(SQLAlchemyDatasetRepository, AuthKeyRepository
 
 
 class SQLAlchemyUserRepository(SQLAlchemyDatasetRepository, UserRepository):
-    pass
+    def list(self) -> list[dict[str, Any]]:
+        with self._session_factory() as session:
+            rows = session.execute(
+                select(UserRow).order_by(UserRow.position.asc(), UserRow.id.asc())
+            ).scalars()
+            return [self._row_item(row) for row in rows]
+
+    @staticmethod
+    def _row_item(row: UserRow) -> dict[str, Any]:
+        item = _data_copy(row.data)
+        item.setdefault("id", row.user_id)
+        item.setdefault("email", row.email)
+        item.setdefault("role", row.role or "user")
+        item.setdefault("status", row.status or "active")
+        item.setdefault("quota", int(row.quota or 0))
+        item.setdefault("quota_used", int(row.quota_used or 0))
+        item.setdefault("quota_expires_at", row.quota_expires_at)
+        return item
 
 
 class SQLAlchemySessionRepository(SQLAlchemyDatasetRepository, SessionRepository):
@@ -620,13 +659,22 @@ class SQLAlchemyRedeemCodeRepository(SQLAlchemyDatasetRepository, RedeemCodeRepo
                     if used_count >= max_uses:
                         raise ValueError("redeem code has been used")
 
-                    quota = _positive_int(item.get("quota") or item.get("amount"), 1)
                     now = _now_utc()
+                    quota = _positive_int(item.get("quota") or item.get("amount"), 1)
+                    valid_months = _non_negative_int(item.get("valid_months") or item.get("quota_valid_months"))
                     user_data = self._user_item(user)
+                    if _quota_is_expired(user_data, now):
+                        user_data["quota"] = 0
+                    quota_expires_at = _next_quota_expiry(valid_months, now)
                     next_quota = _non_negative_int(user_data.get("quota")) + quota
                     user_data["quota"] = next_quota
+                    if valid_months > 0:
+                        user_data["quota_expires_at"] = quota_expires_at
+                    else:
+                        user_data["quota_expires_at"] = None
                     user_data["updated_at"] = _iso(now)
                     user.quota = next_quota
+                    user.quota_expires_at = _clean(user_data.get("quota_expires_at")) or None
                     user.data = user_data
 
                     used_by = list(used_by)
@@ -635,6 +683,8 @@ class SQLAlchemyRedeemCodeRepository(SQLAlchemyDatasetRepository, RedeemCodeRepo
                             "user_id": user_data.get("id"),
                             "email": user_data.get("email"),
                             "quota": quota,
+                            "valid_months": valid_months,
+                            "quota_expires_at": quota_expires_at,
                             "used_at": _iso(now),
                         }
                     )
@@ -666,6 +716,7 @@ class SQLAlchemyRedeemCodeRepository(SQLAlchemyDatasetRepository, RedeemCodeRepo
         item.setdefault("status", row.status or "active")
         item.setdefault("quota", int(row.quota or 0))
         item.setdefault("quota_used", int(row.quota_used or 0))
+        item.setdefault("quota_expires_at", row.quota_expires_at)
         return item
 
     @staticmethod
@@ -818,6 +869,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
 
         try:
             with self._session_factory() as session:
+                quota_expired = False
                 with session.begin():
                     self._expire_in_session(session)
                     existing = self._get_by_request_id(session, normalized_request_id)
@@ -829,6 +881,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
                     ).scalar_one_or_none()
                     if user is None:
                         raise ValueError("user not found")
+                    now = _now_utc()
                     user_data = _data_copy(user.data)
                     role = _clean(user.role or user_data.get("role")) or "user"
                     if role == "admin":
@@ -836,45 +889,61 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
                     status = _clean(user.status or user_data.get("status")) or "active"
                     if status != "active":
                         raise ValueError("user is disabled")
-                    user_changed = False
-                    if user.quota is None:
-                        user.quota = max(0, int(user_data.get("quota") or 0))
-                        user_changed = True
-                    if not user.role:
-                        user.role = role
-                        user_changed = True
-                    if not user.status:
-                        user.status = status
-                        user_changed = True
-                    if user_changed:
+                    user_data.setdefault("quota_expires_at", user.quota_expires_at)
+                    if _quota_is_expired(user_data, now):
+                        self._set_user_data(user, quota=0, now=now, quota_expires_at=user_data.get("quota_expires_at"))
+                        quota_expired = True
+                    else:
+                        user_changed = False
+                        if user.quota is None:
+                            user.quota = max(0, int(user_data.get("quota") or 0))
+                            user_changed = True
+                        if user.quota_expires_at is None and _clean(user_data.get("quota_expires_at")):
+                            user.quota_expires_at = _clean(user_data.get("quota_expires_at"))
+                            user_changed = True
+                        if not user.role:
+                            user.role = role
+                            user_changed = True
+                        if not user.status:
+                            user.status = status
+                            user_changed = True
+                        if user_changed:
+                            session.flush()
+
+                        result = session.execute(
+                            update(UserRow)
+                            .where(UserRow.user_id == normalized_user_id)
+                            .where(UserRow.role != "admin")
+                            .where(UserRow.status == "active")
+                            .where(UserRow.quota >= normalized_amount)
+                            .where(
+                                or_(
+                                    UserRow.quota_expires_at.is_(None),
+                                    UserRow.quota_expires_at == "",
+                                    UserRow.quota_expires_at > _iso(now),
+                                )
+                            )
+                            .values(quota=UserRow.quota - normalized_amount)
+                        )
+                        if int(result.rowcount or 0) != 1:
+                            raise ValueError("insufficient image quota")
+
+                        session.refresh(user)
+                        expires_at = now + timedelta(seconds=max(1, int(ttl_seconds or 900)))
+                        self._set_user_data(user, quota=int(user.quota or 0), now=now)
+                        reservation = self._new_row(
+                            user_id=normalized_user_id,
+                            request_id=normalized_request_id,
+                            amount=normalized_amount,
+                            status="reserved",
+                            created_at=now,
+                            expires_at=expires_at,
+                        )
+                        session.add(reservation)
                         session.flush()
-
-                    result = session.execute(
-                        update(UserRow)
-                        .where(UserRow.user_id == normalized_user_id)
-                        .where(UserRow.role != "admin")
-                        .where(UserRow.status == "active")
-                        .where(UserRow.quota >= normalized_amount)
-                        .values(quota=UserRow.quota - normalized_amount)
-                    )
-                    if int(result.rowcount or 0) != 1:
-                        raise ValueError("insufficient image quota")
-
-                    session.refresh(user)
-                    now = _now_utc()
-                    expires_at = now + timedelta(seconds=max(1, int(ttl_seconds or 900)))
-                    self._set_user_data(user, quota=int(user.quota or 0), now=now)
-                    reservation = self._new_row(
-                        user_id=normalized_user_id,
-                        request_id=normalized_request_id,
-                        amount=normalized_amount,
-                        status="reserved",
-                        created_at=now,
-                        expires_at=expires_at,
-                    )
-                    session.add(reservation)
-                    session.flush()
-                    return self._to_item(reservation)
+                        return self._to_item(reservation)
+                if quota_expired:
+                    raise ValueError("insufficient image quota")
         except IntegrityError:
             with self._session_factory() as session:
                 existing = self._get_by_request_id(session, normalized_request_id)
@@ -1078,6 +1147,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
         quota: int,
         now: datetime,
         quota_used: int | None = None,
+        quota_expires_at: Any = None,
     ) -> None:
         data = _data_copy(user.data)
         user.quota = max(0, int(quota))
@@ -1085,6 +1155,10 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
         if quota_used is not None:
             user.quota_used = max(0, int(quota_used))
             data["quota_used"] = user.quota_used
+        if quota_expires_at is None:
+            quota_expires_at = data.get("quota_expires_at") or user.quota_expires_at
+        user.quota_expires_at = _clean(quota_expires_at) or None
+        data["quota_expires_at"] = user.quota_expires_at
         data["updated_at"] = _iso(now)
         user.data = data
 
@@ -1760,6 +1834,7 @@ def _column_specs() -> dict[str, dict[str, str]]:
             "status": "VARCHAR(32)",
             "quota": "INTEGER",
             "quota_used": "INTEGER",
+            "quota_expires_at": "VARCHAR(80)",
         },
         "sessions": {
             "position": "INTEGER",

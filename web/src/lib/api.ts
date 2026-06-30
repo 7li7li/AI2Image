@@ -209,6 +209,7 @@ export type CurrentUser = {
   status?: "active" | "disabled";
   quota?: number;
   quota_used?: number;
+  quota_expires_at?: string | null;
   image_count?: number;
   spent_quota?: number;
   created_at?: string | null;
@@ -645,6 +646,7 @@ export async function createAdminUser(payload: {
   password: string;
   name?: string;
   quota?: number;
+  quota_expires_at?: string | null;
   status?: "active" | "disabled";
 }) {
   return httpRequest<{ item: AdminUser; password: string; session_token: string; items: AdminUser[] }>(
@@ -658,7 +660,7 @@ export async function createAdminUser(payload: {
 
 export async function updateAdminUser(
   userId: string,
-  payload: { email?: string; name?: string; status?: "active" | "disabled"; quota?: number },
+  payload: { email?: string; name?: string; status?: "active" | "disabled"; quota?: number; quota_expires_at?: string | null },
 ) {
   return httpRequest<{ item: AdminUser; items: AdminUser[] }>(`/api/admin/users/${userId}`, {
     method: "POST",
@@ -679,7 +681,10 @@ export async function deleteAdminUsers(userIds: string[]) {
   });
 }
 
-export async function updateAdminUserQuota(userId: string, payload: { amount: number; mode?: "add" | "set" }) {
+export async function updateAdminUserQuota(
+  userId: string,
+  payload: { amount: number; mode?: "add" | "set"; quota_expires_at?: string | null },
+) {
   return httpRequest<{ item: AdminUser; items: AdminUser[] }>(`/api/admin/users/${userId}/quota`, {
     method: "POST",
     body: payload,
@@ -699,8 +704,16 @@ export type RedeemCode = {
   quota: number;
   status: "enabled" | "disabled";
   max_uses: number;
+  valid_months: number;
   used_count: number;
-  used_by: Array<{ user_id: string; email: string; quota: number; used_at: string }>;
+  used_by: Array<{
+    user_id: string;
+    email: string;
+    quota: number;
+    valid_months?: number;
+    quota_expires_at?: string | null;
+    used_at: string;
+  }>;
   expires_at?: string | null;
   created_at: string;
   created_by?: string;
@@ -720,6 +733,7 @@ export async function createRedeemCodes(payload: {
   quota: number;
   count: number;
   max_uses?: number;
+  valid_months?: number;
   expires_at?: string;
   note?: string;
 }) {
@@ -731,7 +745,14 @@ export async function createRedeemCodes(payload: {
 
 export async function updateRedeemCode(
   codeId: string,
-  payload: { status?: "enabled" | "disabled"; quota?: number; max_uses?: number; expires_at?: string; note?: string },
+  payload: {
+    status?: "enabled" | "disabled";
+    quota?: number;
+    max_uses?: number;
+    valid_months?: number;
+    expires_at?: string;
+    note?: string;
+  },
 ) {
   return httpRequest<{ item: RedeemCode; items: RedeemCode[] }>(`/api/admin/redeem-codes/${codeId}`, {
     method: "POST",

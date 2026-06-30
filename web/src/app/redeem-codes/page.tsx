@@ -37,7 +37,7 @@ function RedeemCodesContent() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<RedeemCode[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [form, setForm] = useState({ quota: "10", count: "10", max_uses: "1", expires_at: "", note: "" });
+  const [form, setForm] = useState({ quota: "10", count: "10", max_uses: "1", valid_months: "1", expires_at: "", note: "" });
   const selectedCodes = items.filter((item) => selectedIds.includes(item.id));
   const allSelected = items.length > 0 && items.every((item) => selectedIds.includes(item.id));
   const deleteCount = deleteTarget?.length ?? 0;
@@ -69,6 +69,7 @@ function RedeemCodesContent() {
         quota: Number(form.quota || 1),
         count: Number(form.count || 1),
         max_uses: Number(form.max_uses || 1),
+        valid_months: Number(form.valid_months || 0),
         expires_at: form.expires_at || undefined,
         note: form.note,
       });
@@ -151,10 +152,11 @@ function RedeemCodesContent() {
             <Plus className="size-4 text-rose-500" />
             批量生成兑换码
           </div>
-          <div className="grid gap-3 md:grid-cols-[120px_120px_120px_180px_1fr_auto]">
+          <div className="grid gap-3 md:grid-cols-[120px_120px_120px_120px_180px_1fr_auto]">
             <Input type="number" value={form.quota} onChange={(event) => setForm((current) => ({ ...current, quota: event.target.value }))} placeholder="额度" className="h-10 rounded-xl border-rose-100 bg-white" />
             <Input type="number" value={form.count} onChange={(event) => setForm((current) => ({ ...current, count: event.target.value }))} placeholder="数量" className="h-10 rounded-xl border-rose-100 bg-white" />
             <Input type="number" value={form.max_uses} onChange={(event) => setForm((current) => ({ ...current, max_uses: event.target.value }))} placeholder="次数" className="h-10 rounded-xl border-rose-100 bg-white" />
+            <Input type="number" min="0" value={form.valid_months} onChange={(event) => setForm((current) => ({ ...current, valid_months: event.target.value }))} placeholder="有效月数" className="h-10 rounded-xl border-rose-100 bg-white" />
             <Input value={form.expires_at} onChange={(event) => setForm((current) => ({ ...current, expires_at: event.target.value }))} placeholder="过期时间，可空" className="h-10 rounded-xl border-rose-100 bg-white" />
             <Input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder="备注" className="h-10 rounded-xl border-rose-100 bg-white" />
             <Button className="h-10 rounded-xl bg-rose-500 text-white hover:bg-rose-600" onClick={() => void handleCreate()}>
@@ -207,7 +209,7 @@ function RedeemCodesContent() {
             <div className="px-6 py-14 text-center text-sm text-stone-500">暂无兑换码</div>
           ) : (
             items.map((item) => (
-              <div key={item.id} className="grid gap-3 border-b border-rose-50 px-5 py-4 text-sm last:border-0 lg:grid-cols-[44px_1.4fr_100px_100px_120px_160px_180px] lg:items-center">
+              <div key={item.id} className="grid gap-3 border-b border-rose-50 px-5 py-4 text-sm last:border-0 lg:grid-cols-[44px_1.4fr_100px_100px_120px_120px_160px_180px] lg:items-center">
                 <Checkbox
                   checked={selectedIds.includes(item.id)}
                   onCheckedChange={(checked) => {
@@ -231,6 +233,7 @@ function RedeemCodesContent() {
                 <div className="font-semibold text-rose-600">{item.quota} 点</div>
                 <div className="text-stone-600">{item.used_count}/{item.max_uses}</div>
                 <Badge variant={item.status === "enabled" ? "success" : "secondary"}>{item.status === "enabled" ? "启用" : "停用"}</Badge>
+                <div className="text-xs text-stone-500">{item.valid_months > 0 ? `${item.valid_months} 个月` : "不限期"}</div>
                 <div className="text-xs text-stone-500">{item.expires_at || "永不过期"}</div>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" className="h-8 rounded-lg border-rose-100 bg-white" onClick={() => void handleToggle(item)}>

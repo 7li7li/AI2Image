@@ -122,8 +122,8 @@ class ObservabilityTest(unittest.TestCase):
             self.assertEqual(page["total"], 1)
             self.assertEqual(page["items"][0]["request_id"], "req-image")
             self.assertEqual(health["status"], "healthy")
-            self.assertEqual(health["migration_version"], "004_observability")
-            self.assertIn("004_observability", health["schema_migrations"])
+            self.assertEqual(health["migration_version"], "005_quota_expiry")
+            self.assertIn("005_quota_expiry", health["schema_migrations"])
             self.assertEqual(health["image_records_count"], 1)
             storage.close()
 
