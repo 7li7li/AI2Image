@@ -1,21 +1,16 @@
 services:
   app:
-    image: ${YANAI_IMAGE:-huaiyuechusan/yanai:latest}
-    container_name: yanai
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${IMAGESTUDIO_IMAGE:-imagestudio:local}
+    container_name: imagestudio
     restart: unless-stopped
     ports:
-      - "${YANAI_PORT:-9001}:9001"
+      - "${IMAGESTUDIO_PORT:-9001}:9001"
     volumes:
-      # Keep secrets and mutable runtime state outside of the public image.
       - ./data:/app/data
       - ./config.json:/app/config.json
     environment:
-      STORAGE_BACKEND: ${STORAGE_BACKEND:-json}
-      # DATABASE_URL: sqlite:////app/data/accounts.db
-      # DATABASE_URL: postgresql://user:password@host:5432/dbname
-      # GIT_REPO_URL: https://github.com/user/private-data-repo.git
-      # GIT_TOKEN: your_git_token_here
-      # GIT_BRANCH: main
-      # GIT_FILE_PATH: accounts.json
-      # CHATGPT2API_AUTH_KEY: your_secret_key_here
-      # CHATGPT2API_BASE_URL: https://your-domain.com
+      - STORAGE_BACKEND=postgres
+      - DATABASE_URL=postgresql://user:password@host:5432/dbname

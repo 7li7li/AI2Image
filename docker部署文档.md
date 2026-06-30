@@ -1,131 +1,175 @@
-# Docker 部署文档
+# ImageStudio 本地 Docker + 外部 PostgreSQL 部署文档
 
-本文档说明如何使用 Docker / Docker Compose 部署本项目。当前镜像内会同时包含后端 FastAPI 服务和前端静态页面，容器默认监听 `9001` 端口。
+本文档只说明一种部署方式：基于当前项目代码在本地构建 Docker 镜像，并连接外部 PostgreSQL 数据库。Compose 只启动 ImageStudio 应用容器，不启动数据库容器。
 
-## 1. 部署前准备
+## 1. 部署结果
 
-服务器需要安装：
+部署完成后会启动一个容器：
 
-- Docker 24+
-- Docker Compose v2，也就是 `docker compose` 命令
-- 可访问镜像仓库的网络环境
+- `imagestudio`：应用容器，包含后端 FastAPI 和前端静态页面，容器内监听 `9001`
 
-建议创建独立部署目录：
+外部依赖：
 
-```bash
-mkdir -p /opt/yanai
-cd /opt/yanai
+- 一套已经可访问的 PostgreSQL 数据库
+
+本地访问地址：
+
+```text
+http://127.0.0.1:9001
 ```
 
-运行时数据不要写进镜像。本项目的 Docker 镜像不会包含以下内容：
+管理员登录使用 `.env` 中的 `CHATGPT2API_AUTH_KEY`。
 
-- `config.json`
-- `data/`
-- `.env`
-- 数据库文件
-- 本地虚拟环境
+## 2. 前置要求
 
-这些文件需要通过宿主机挂载到容器中。
+本机需要安装：
 
-## 2. 准备配置文件
+- Docker
+- Docker Compose v2，也就是 `docker compose` 命令
 
-从仓库复制示例配置：
+外部 PostgreSQL 需要提前准备好：
+
+- 数据库地址和端口
+- 数据库名
+- 用户名和密码
+- 该用户具备连接数据库、建表、读写数据的权限
+
+如果 PostgreSQL 开启了防火墙或白名单，需要允许当前 Docker 主机访问。
+
+## 3. 准备运行文件
+
+进入当前项目根目录：
 
 ```bash
-cp config.example.json config.json
+cd /path/to/ai2image
+```
+
+Windows PowerShell 示例：
+
+```powershell
+cd D:\Project\Github\ai2image
+```
+
+创建应用运行时目录：
+
+```bash
 mkdir -p data
 ```
 
-编辑 `config.json`，至少修改 `auth-key`：
+Windows PowerShell：
 
-```json
-{
-  "auth-key": "change_this_to_a_long_random_secret",
-  "site_title": "Image Studio",
-  "site_icon": "/favicon.ico",
-  "site_background": "",
-  "image_retention_days": 15,
-  "log_levels": ["info", "warning", "error"],
-  "proxy": "",
-  "base_url": "",
-  "image_model_mappings": {
-    "gpt-image-2": "gpt-5-5",
-    "codex-gpt-image-2": "codex-gpt-image-2"
-  }
-}
+```powershell
+New-Item -ItemType Directory -Force data
 ```
 
-`auth-key` 就是管理员密钥。管理员登录时选择“管理员”，输入该密钥即可。
-
-也可以不在 `config.json` 写真实密钥，而是用环境变量覆盖：
+创建 `config.json`：
 
 ```bash
-export CHATGPT2API_AUTH_KEY="your_long_random_secret"
+cp config.example.json config.json
 ```
 
-不要把真实密钥写入 Dockerfile、公开仓库、公开 Compose 文件或镜像构建参数。
+Windows PowerShell：
 
-## 3. 基于当前代码构建镜像
-
-如果要部署当前仓库里的代码，必须先在当前项目根目录构建镜像。直接使用远程已有镜像只能部署该镜像发布时的代码，不一定包含你本地当前代码。
-
-在项目根目录执行：
-
-```bash
-docker build -t yanai:local .
+```powershell
+Copy-Item config.example.json config.json
 ```
 
-构建完成后确认镜像存在：
+`config.json` 需要存在，因为 Compose 会把它挂载到容器内。管理员密钥推荐放在 `.env` 的 `CHATGPT2API_AUTH_KEY` 中，优先级高于 `config.json`。
 
-```bash
-docker image ls yanai
+## 4. 创建 .env
+
+在项目根目录创建 `.env`：
+
+```dotenv
+IMAGESTUDIO_IMAGE=imagestudio:local
+IMAGESTUDIO_PORT=9001
+
+DATABASE_URL=postgresql://db_user:db_password@db_host:5432/db_name
+
+CHATGPT2API_AUTH_KEY=replace_with_a_long_random_admin_key
+CHATGPT2API_BASE_URL=http://127.0.0.1:9001
 ```
 
-如果服务器和构建机器不是同一台，需要把镜像推送到自己的镜像仓库：
+示例：
 
-```bash
-docker tag yanai:local your-registry/yanai:latest
-docker push your-registry/yanai:latest
+```dotenv
+DATABASE_URL=postgresql://imagestudio:strong_password@192.168.1.10:5432/imagestudio
 ```
 
-多架构构建示例：
+注意：
 
-```bash
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
-  -t your-registry/yanai:latest \
-  --push .
-```
+- `CHATGPT2API_AUTH_KEY` 是管理员密钥，登录后台时使用。
+- `DATABASE_URL` 指向外部 PostgreSQL，不要写 `postgres:5432`，除非你的外部数据库主机名就叫 `postgres`。
+- 如果数据库密码包含 `@`、`:`、`/`、`#`、空格等特殊字符，需要 URL encode。
+- 如果本机 `9001` 已被占用，把 `IMAGESTUDIO_PORT` 改成其他端口，例如 `9010`，并同步修改 `CHATGPT2API_BASE_URL`。
 
-## 4. 使用构建好的镜像部署
+## 5. docker-compose.yml
 
-如果镜像是在当前服务器本机用 `docker build -t yanai:local .` 构建的，Compose 可以直接使用本地镜像。
-
-在部署目录创建 `docker-compose.yml`：
+当前项目的 `docker-compose.yml` 应为：
 
 ```yaml
 services:
   app:
-    image: ${YANAI_IMAGE:-yanai:local}
-    container_name: yanai
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${IMAGESTUDIO_IMAGE:-imagestudio:local}
+    container_name: imagestudio
     restart: unless-stopped
     ports:
-      - "${YANAI_PORT:-9001}:9001"
+      - "${IMAGESTUDIO_PORT:-9001}:9001"
     volumes:
       - ./data:/app/data
       - ./config.json:/app/config.json
     environment:
-      STORAGE_BACKEND: ${STORAGE_BACKEND:-json}
-      # 推荐生产环境显式设置管理员密钥，优先级高于 config.json
-      # CHATGPT2API_AUTH_KEY: your_long_random_secret
-      # 对外访问域名，用于生成图片 URL、OAuth 回调等场景
-      # CHATGPT2API_BASE_URL: https://your-domain.com
+      STORAGE_BACKEND: postgres
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      CHATGPT2API_AUTH_KEY: ${CHATGPT2API_AUTH_KEY:?CHATGPT2API_AUTH_KEY is required}
+      CHATGPT2API_BASE_URL: ${CHATGPT2API_BASE_URL:-}
 ```
 
-启动服务：
+说明：
+
+- `build: .` 表示基于当前项目代码构建镜像。
+- `image: imagestudio:local` 是本地构建出的镜像名。
+- `STORAGE_BACKEND=postgres` 固定使用 PostgreSQL。
+- `DATABASE_URL` 从 `.env` 读取，指向外部 PostgreSQL。
+- `./data` 保存应用生成的图片、附件等运行时文件。
+
+## 6. 构建镜像
+
+在项目根目录执行：
+
+```bash
+docker build -t imagestudio:local .
+```
+
+确认镜像已生成：
+
+```bash
+docker image ls imagestudio
+```
+
+也可以直接使用 Compose 构建：
+
+```bash
+docker compose build app
+```
+
+每次修改当前项目代码后，都需要重新构建镜像。
+
+## 7. 启动服务
+
+启动：
 
 ```bash
 docker compose up -d
+```
+
+查看容器状态：
+
+```bash
+docker compose ps
 ```
 
 查看日志：
@@ -134,385 +178,212 @@ docker compose up -d
 docker compose logs -f app
 ```
 
-访问：
-
-```text
-http://服务器IP:9001
-```
-
 健康检查：
 
 ```bash
 curl http://127.0.0.1:9001/health
 ```
 
-正常会返回类似：
+如果 `.env` 中修改了 `IMAGESTUDIO_PORT`，健康检查端口也要同步修改。
 
-```json
-{
-  "status": "healthy",
-  "version": "1.0.0",
-  "storage": {
-    "status": "healthy",
-    "backend": "json"
-  }
-}
-```
+## 8. 登录后台
 
-如果使用的是推送到镜像仓库的镜像，启动时指定镜像名：
-
-```bash
-YANAI_IMAGE=your-registry/yanai:latest docker compose up -d
-```
-
-如果明确想部署官方/已有发布镜像，而不是当前本地代码，可以指定：
-
-```bash
-YANAI_IMAGE=huaiyuechusan/yanai:latest docker compose up -d
-```
-
-这种方式适合快速体验，但不保证包含当前仓库的本地改动。
-
-## 5. 端口配置
-
-容器内固定监听 `9001`。宿主机端口通过 `YANAI_PORT` 控制：
-
-```bash
-YANAI_PORT=3000 docker compose up -d
-```
-
-此时访问：
+打开：
 
 ```text
-http://服务器IP:3000
+http://127.0.0.1:9001/login
 ```
 
-如果服务器上已有服务占用 `9001`，只需要改宿主机端口，不需要改容器端口：
+选择“管理员”，输入 `.env` 中的：
 
-```yaml
-ports:
-  - "3000:9001"
+```text
+CHATGPT2API_AUTH_KEY
 ```
 
-## 6. 存储后端配置
+## 9. 更新代码后的部署流程
 
-项目支持多种存储后端。默认是 `json`，数据保存在挂载目录 `./data` 中。
-
-### JSON 存储
-
-适合单机、小规模使用：
-
-```yaml
-environment:
-  STORAGE_BACKEND: json
-```
-
-### SQLite 存储
-
-适合单机、轻量并发：
-
-```yaml
-environment:
-  STORAGE_BACKEND: sqlite
-  DATABASE_URL: sqlite:////app/data/accounts.db
-```
-
-数据库文件会保存在宿主机的 `./data/accounts.db`。
-
-### PostgreSQL 存储
-
-适合多人使用和生产环境：
-
-```yaml
-environment:
-  STORAGE_BACKEND: postgres
-  DATABASE_URL: postgresql://user:password@postgres-host:5432/dbname
-```
-
-PostgreSQL 可以是外部数据库，也可以在同一个 Compose 中额外启动。外部数据库更方便备份、监控和迁移。
-
-### Git 存储
-
-适合把运行时配置同步到私有 Git 仓库：
-
-```yaml
-environment:
-  STORAGE_BACKEND: git
-  GIT_REPO_URL: https://github.com/user/private-data-repo.git
-  GIT_TOKEN: your_git_token_here
-  GIT_BRANCH: main
-  GIT_FILE_PATH: accounts.json
-```
-
-`GIT_TOKEN` 属于敏感信息，建议放在服务器环境变量或 `.env` 文件中，不要提交到仓库。
-
-## 7. 使用 .env 管理部署变量
-
-可以在部署目录创建 `.env`：
-
-```dotenv
-YANAI_IMAGE=yanai:local
-YANAI_PORT=9001
-STORAGE_BACKEND=json
-CHATGPT2API_AUTH_KEY=your_long_random_secret
-CHATGPT2API_BASE_URL=https://your-domain.com
-```
-
-然后正常启动：
+修改代码后，重新构建并重启应用容器：
 
 ```bash
-docker compose up -d
+docker build -t imagestudio:local .
+docker compose up -d --force-recreate app
 ```
 
-Compose 会自动读取当前目录的 `.env`。
-
-## 8. 反向代理配置
-
-生产环境建议使用 Nginx / Caddy / 宝塔面板等反向代理到容器端口。
-
-Nginx 示例：
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    location / {
-        proxy_pass http://127.0.0.1:9001;
-        proxy_http_version 1.1;
-        proxy_buffering off;
-        proxy_request_buffering off;
-        proxy_cache off;
-        gzip off;
-        proxy_set_header Connection "";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        add_header X-Accel-Buffering no always;
-        add_header Cache-Control "no-cache, no-transform" always;
-    }
-}
-```
-
-如果使用 HTTPS 和域名访问，建议同步设置：
-
-```yaml
-environment:
-  CHATGPT2API_BASE_URL: https://your-domain.com
-```
-
-## 9. 更新部署
-
-拉取新镜像：
+如果前端页面没有更新，可以强制无缓存构建：
 
 ```bash
-docker compose pull
-docker compose up -d
+docker build --no-cache -t imagestudio:local .
+docker compose up -d --force-recreate app
 ```
 
-如果使用自建镜像：
+外部 PostgreSQL 不会因为重建应用镜像而受影响。
+
+## 10. 停止和重启
+
+停止服务但保留容器：
 
 ```bash
-docker build -t your-registry/yanai:latest .
-docker push your-registry/yanai:latest
-YANAI_IMAGE=your-registry/yanai:latest docker compose pull
-YANAI_IMAGE=your-registry/yanai:latest docker compose up -d
-```
-
-查看当前容器：
-
-```bash
-docker compose ps
-```
-
-查看镜像版本：
-
-```bash
-docker image ls | grep yanai
-```
-
-## 10. 停止、重启和卸载
-
-停止服务：
-
-```bash
-docker compose stop app
+docker compose stop
 ```
 
 重启服务：
 
 ```bash
-docker compose restart app
+docker compose restart
 ```
 
-停止并删除容器，但保留数据：
+停止并删除容器，但保留 `data/`：
 
 ```bash
 docker compose down
 ```
 
-彻底清理镜像需要额外执行：
+删除本地构建镜像：
 
 ```bash
-docker image rm yanai:local
+docker image rm imagestudio:local
 ```
 
-不要随意删除部署目录下的 `data/` 和 `config.json`，否则运行时数据和管理员密钥会丢失。
+不要随意删除：
 
-## 11. 数据备份
-
-至少备份：
-
-- `config.json`
 - `data/`
-- 如果使用外部 PostgreSQL，还要备份对应数据库
+- `config.json`
+- `.env`
 
-JSON / SQLite 部署可直接备份目录：
+否则会丢失应用文件、配置或管理员密钥。数据库数据在外部 PostgreSQL 中，需要按外部数据库自己的备份策略处理。
 
-```bash
-tar -czf yanai-backup-$(date +%F).tar.gz config.json data
-```
+## 11. 外部 PostgreSQL 检查
 
-恢复：
-
-```bash
-docker compose down
-tar -xzf yanai-backup-2026-06-30.tar.gz
-docker compose up -d
-```
-
-迁移存储后端前，先停止写入并备份：
+可以先在宿主机测试数据库连接：
 
 ```bash
-docker compose stop app
-tar -czf yanai-pre-migration-$(date +%F).tar.gz config.json data
+psql "postgresql://db_user:db_password@db_host:5432/db_name"
 ```
 
-项目内置迁移脚本位于 `scripts/`，迁移前建议先阅读脚本参数并做 dry-run。
+如果宿主机能连接，但容器连接失败，通常是以下原因：
 
-## 12. 常见问题
+- PostgreSQL 只允许本机访问，没有允许 Docker 主机 IP
+- 云数据库安全组没有放行 Docker 主机出口 IP
+- `DATABASE_URL` 中的主机名在容器内无法解析
+- 密码包含特殊字符但没有 URL encode
+- 数据库用户没有建表或写入权限
 
-### 1. 容器启动后提示 auth-key 未设置
+如果外部数据库运行在宿主机本机：
 
-说明没有挂载有效的 `config.json`，或者没有设置 `CHATGPT2API_AUTH_KEY`。
+- Docker Desktop Windows / macOS 通常可以用 `host.docker.internal`
+- Linux 可以使用宿主机局域网 IP，或额外配置 Docker host-gateway
+
+示例：
+
+```dotenv
+DATABASE_URL=postgresql://imagestudio:strong_password@host.docker.internal:5432/imagestudio
+```
+
+## 12. 备份
+
+需要备份两类数据：
+
+- 外部 PostgreSQL 数据库
+- 本项目本地运行时文件：`data/`、`config.json`、`.env`
+
+外部 PostgreSQL 建议使用数据库平台自己的备份机制，或者使用 `pg_dump`：
+
+```bash
+pg_dump "postgresql://db_user:db_password@db_host:5432/db_name" > imagestudio-db.sql
+```
+
+备份本地运行时文件：
+
+```bash
+tar -czf imagestudio-files-backup.tar.gz data config.json .env
+```
+
+Windows 可直接压缩 `data`、`config.json`、`.env`。
+
+## 13. 常见问题
+
+### 1. 提示 auth-key 未设置
+
+检查 `.env` 是否存在并包含：
+
+```dotenv
+CHATGPT2API_AUTH_KEY=replace_with_a_long_random_admin_key
+```
+
+然后重启：
+
+```bash
+docker compose up -d --force-recreate app
+```
+
+### 2. 提示 DATABASE_URL is required
+
+说明 `.env` 没有配置 `DATABASE_URL`，或当前目录不是 `docker-compose.yml` 所在目录。
 
 检查：
 
 ```bash
+cat .env
+docker compose config
+```
+
+### 3. 数据库连接失败
+
+查看日志：
+
+```bash
 docker compose logs app
-cat config.json
 ```
 
-解决方式：
+重点检查：
 
-- 在 `config.json` 中填写 `"auth-key"`
-- 或在 Compose 的 `environment` 中设置 `CHATGPT2API_AUTH_KEY`
+- `DATABASE_URL` 是否正确
+- 外部 PostgreSQL 是否允许当前机器访问
+- 数据库用户是否有权限
+- 密码是否需要 URL encode
 
-### 2. 访问不了页面
+### 4. 端口被占用
 
-先确认容器状态：
-
-```bash
-docker compose ps
-docker compose logs --tail=100 app
-```
-
-再确认端口是否监听：
-
-```bash
-curl http://127.0.0.1:9001/health
-```
-
-如果宿主机端口被占用，修改：
-
-```yaml
-ports:
-  - "3000:9001"
-```
-
-### 3. 生成的图片 URL 不是公网域名
-
-设置 `CHATGPT2API_BASE_URL`：
-
-```yaml
-environment:
-  CHATGPT2API_BASE_URL: https://your-domain.com
-```
-
-或在 `config.json` 中设置：
-
-```json
-{
-  "base_url": "https://your-domain.com"
-}
-```
-
-环境变量优先级高于 `config.json`。
-
-### 4. 反向代理下流式接口不实时返回
-
-需要关闭代理缓冲和压缩。Nginx 至少配置：
-
-```nginx
-proxy_buffering off;
-proxy_request_buffering off;
-proxy_cache off;
-gzip off;
-add_header X-Accel-Buffering no always;
-```
-
-### 5. 管理员怎么登录
-
-打开部署地址 `/login`，切换到“管理员”，输入 `auth-key`。
-
-`auth-key` 来源优先级：
-
-1. 环境变量 `CHATGPT2API_AUTH_KEY`
-2. `config.json` 中的 `"auth-key"`
-
-## 13. 推荐生产 Compose 模板
-
-下面模板默认使用前面基于当前代码构建出的 `yanai:local` 镜像。如果镜像来自私有仓库，把 `YANAI_IMAGE` 改成你的仓库地址。
-
-```yaml
-services:
-  app:
-    image: ${YANAI_IMAGE:-yanai:local}
-    container_name: yanai
-    restart: unless-stopped
-    ports:
-      - "${YANAI_PORT:-9001}:9001"
-    volumes:
-      - ./data:/app/data
-      - ./config.json:/app/config.json:ro
-    environment:
-      STORAGE_BACKEND: ${STORAGE_BACKEND:-json}
-      CHATGPT2API_AUTH_KEY: ${CHATGPT2API_AUTH_KEY}
-      CHATGPT2API_BASE_URL: ${CHATGPT2API_BASE_URL:-}
-```
-
-配套 `.env`：
+修改 `.env`：
 
 ```dotenv
-YANAI_IMAGE=yanai:local
-YANAI_PORT=9001
-STORAGE_BACKEND=json
-CHATGPT2API_AUTH_KEY=replace_with_a_long_random_secret
-CHATGPT2API_BASE_URL=https://your-domain.com
+IMAGESTUDIO_PORT=9010
+CHATGPT2API_BASE_URL=http://127.0.0.1:9010
 ```
 
-启动：
+重启：
 
 ```bash
 docker compose up -d
 ```
 
-确认：
+访问：
+
+```text
+http://127.0.0.1:9010
+```
+
+### 5. 修改代码后页面没变
+
+重新构建应用镜像：
+
+```bash
+docker build --no-cache -t imagestudio:local .
+docker compose up -d --force-recreate app
+```
+
+然后刷新浏览器缓存。
+
+### 6. 查看当前使用的存储后端
+
+请求健康检查：
 
 ```bash
 curl http://127.0.0.1:9001/health
-docker compose logs --tail=50 app
+```
+
+返回内容中的 `storage.backend` 应该是：
+
+```json
+"postgres"
 ```
