@@ -47,6 +47,8 @@ REMOVED_PUBLIC_SETTING_KEYS = {
 DEFAULT_SITE_TITLE = "Image Studio"
 DEFAULT_SITE_ICON = "/favicon.ico"
 DEFAULT_SITE_BACKGROUND = ""
+DEFAULT_IMAGE_MODEL = "gpt-image-2"
+DEFAULT_TEXT_MODEL = "gpt-5.5"
 
 
 def _normalize_auth_key(value: object) -> str:
@@ -296,11 +298,24 @@ class ConfigStore:
         )
 
     @property
+    def default_image_model(self) -> str:
+        return _clean_site_text(
+            os.getenv("YANAI_DEFAULT_IMAGE_MODEL") or self._get_config_value("default_image_model"),
+            default=DEFAULT_IMAGE_MODEL,
+            max_length=120,
+        )
+
+    @property
+    def default_text_model(self) -> str:
+        return _clean_site_text(
+            os.getenv("YANAI_DEFAULT_TEXT_MODEL") or self._get_config_value("default_text_model"),
+            default=DEFAULT_TEXT_MODEL,
+            max_length=120,
+        )
+
+    @property
     def image_model_mappings(self) -> dict[str, str]:
-        defaults = {
-            "gpt-image-2": "gpt-5-5",
-            "codex-gpt-image-2": "codex-gpt-image-2",
-        }
+        defaults: dict[str, str] = {}
         raw = self._get_config_value("image_model_mappings")
         if not isinstance(raw, dict):
             return defaults
@@ -325,6 +340,8 @@ class ConfigStore:
         data["site_title"] = self.site_title
         data["site_icon"] = self.site_icon
         data["site_background"] = self.site_background
+        data["default_image_model"] = self.default_image_model
+        data["default_text_model"] = self.default_text_model
         data["image_retention_days"] = self.image_retention_days
         data["log_levels"] = self.log_levels
         data["image_model_mappings"] = self.image_model_mappings
@@ -341,6 +358,8 @@ class ConfigStore:
             "site_title": self.site_title,
             "site_icon": self.site_icon,
             "site_background": self.site_background,
+            "default_image_model": self.default_image_model,
+            "default_text_model": self.default_text_model,
         }
 
     def get_proxy_settings(self) -> str:

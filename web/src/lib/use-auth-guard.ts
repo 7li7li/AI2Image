@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 
+import { getRouteHref } from "@/lib/routes";
 import {
   getDefaultRouteForRole,
   getStoredAuthSession,
@@ -16,7 +16,6 @@ type UseAuthGuardResult = {
 };
 
 export function useAuthGuard(allowedRoles?: AuthRole[]): UseAuthGuardResult {
-  const router = useRouter();
   const [session, setSession] = useState<StoredAuthSession | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const allowedRolesKey = (allowedRoles || []).join(",");
@@ -34,14 +33,14 @@ export function useAuthGuard(allowedRoles?: AuthRole[]): UseAuthGuardResult {
       if (!storedSession) {
         setSession(null);
         setIsCheckingAuth(false);
-        router.replace("/login");
+        window.location.replace(getRouteHref("/login"));
         return;
       }
 
       if (roleList.length > 0 && !roleList.includes(storedSession.role)) {
         setSession(storedSession);
         setIsCheckingAuth(false);
-        router.replace(getDefaultRouteForRole(storedSession.role));
+        window.location.replace(getDefaultRouteForRole(storedSession.role));
         return;
       }
 
@@ -53,13 +52,12 @@ export function useAuthGuard(allowedRoles?: AuthRole[]): UseAuthGuardResult {
     return () => {
       active = false;
     };
-  }, [allowedRolesKey, router]);
+  }, [allowedRolesKey]);
 
   return { isCheckingAuth, session };
 }
 
 export function useRedirectIfAuthenticated() {
-  const router = useRouter();
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   useEffect(() => {
@@ -72,7 +70,7 @@ export function useRedirectIfAuthenticated() {
       }
 
       if (storedSession) {
-        router.replace(getDefaultRouteForRole(storedSession.role));
+        window.location.replace(getDefaultRouteForRole(storedSession.role));
         return;
       }
 
@@ -83,7 +81,7 @@ export function useRedirectIfAuthenticated() {
     return () => {
       active = false;
     };
-  }, [router]);
+  }, []);
 
   return { isCheckingAuth };
 }

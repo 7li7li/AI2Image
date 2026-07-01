@@ -37,7 +37,7 @@ class UserImageChannelTests(unittest.TestCase):
                     "name": "Mine",
                     "base_url": "https://new.example",
                     "api_key": "",
-                    "models": ["gpt-image-2", "gpt-5-5"],
+                    "models": ["gpt-image-2", "gpt-5.5"],
                     "timeout": 45,
                 },
             )
@@ -49,7 +49,7 @@ class UserImageChannelTests(unittest.TestCase):
             self.assertNotIn("api_key", updated)
             self.assertEqual(raw["api_key"], "sk-old")
             self.assertEqual(raw["base_url"], "https://new.example")
-            self.assertEqual(raw["models"], ["gpt-image-2", "gpt-5-5"])
+            self.assertEqual(raw["models"], ["gpt-image-2", "gpt-5.5"])
             self.assertEqual(raw["timeout"], 45)
             self.assertIsNotNone(public_user)
             self.assertTrue(public_user["image_channel"]["has_api_key"])  # type: ignore[index]

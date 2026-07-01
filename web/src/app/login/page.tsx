@@ -1,8 +1,7 @@
 "use client";
 
 import { KeyRound, LoaderCircle, Mail, Sparkles } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -17,7 +16,6 @@ import { getDefaultRouteForRole, setStoredAuthSession } from "@/store/auth";
 type LoginMode = "user" | "admin";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [mode, setMode] = useState<LoginMode>("user");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,6 +23,14 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { isCheckingAuth } = useRedirectIfAuthenticated();
   const siteTitle = useSiteSettingsStore((state) => state.settings.site_title);
+  const siteIcon = useSiteSettingsStore((state) => state.settings.site_icon);
+  const [iconFailed, setIconFailed] = useState(false);
+  const normalizedSiteIcon = siteIcon.trim();
+  const showSiteIcon = Boolean(normalizedSiteIcon && !iconFailed);
+
+  useEffect(() => {
+    setIconFailed(false);
+  }, [normalizedSiteIcon]);
 
   const handleLogin = async () => {
     setIsSubmitting(true);
@@ -42,7 +48,7 @@ export default function LoginPage() {
         email: data.email,
         quota: data.quota,
       });
-      router.replace(getDefaultRouteForRole(data.role));
+      window.location.replace(getDefaultRouteForRole(data.role));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "登录失败");
     } finally {
@@ -63,8 +69,23 @@ export default function LoginPage() {
       <Card className="w-full max-w-[460px] rounded-lg border-white/80 bg-white/90 shadow-[0_28px_90px_rgba(190,24,93,0.12)]">
         <CardContent className="space-y-7 p-6 sm:p-8">
           <div className="space-y-4 text-center">
-            <div className="mx-auto inline-flex size-14 items-center justify-center rounded-[20px] bg-rose-500 text-white shadow-sm">
-              <Sparkles className="size-5" />
+            <div
+              className={cn(
+                "mx-auto inline-flex size-14 items-center justify-center overflow-hidden rounded-[20px] shadow-sm",
+                showSiteIcon ? "border border-rose-100 bg-white p-2" : "bg-rose-500 text-white",
+              )}
+            >
+              {showSiteIcon ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={normalizedSiteIcon}
+                  alt=""
+                  className="size-full object-contain"
+                  onError={() => setIconFailed(true)}
+                />
+              ) : (
+                <Sparkles className="size-5" />
+              )}
             </div>
             <div className="space-y-2">
               <h1 className="text-3xl font-semibold tracking-tight text-stone-950">{siteTitle}</h1>

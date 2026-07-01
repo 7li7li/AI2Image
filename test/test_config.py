@@ -36,14 +36,32 @@ class ConfigLoadingTests(unittest.TestCase):
             config_path.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
             store = module.ConfigStore(config_path)
 
-            self.assertEqual(store.image_model_mappings["gpt-image-2"], "gpt-5-5")
-            self.assertEqual(store.image_model_mappings["codex-gpt-image-2"], "codex-gpt-image-2")
+            self.assertEqual(store.image_model_mappings, {})
 
             store.update({"image_model_mappings": {"gpt-image-2": "auto", "custom-image": "gpt-5-3-mini"}})
 
             self.assertEqual(store.image_model_mappings["gpt-image-2"], "auto")
             self.assertEqual(store.image_model_mappings["custom-image"], "gpt-5-3-mini")
-            self.assertEqual(store.get()["image_model_mappings"]["codex-gpt-image-2"], "codex-gpt-image-2")
+            self.assertEqual(set(store.get()["image_model_mappings"]), {"gpt-image-2", "custom-image"})
+
+    def test_default_models_default_and_override(self) -> None:
+        module = self.config_module
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+            store = module.ConfigStore(config_path)
+
+            self.assertEqual(store.default_image_model, "gpt-image-2")
+            self.assertEqual(store.default_text_model, "gpt-5.5")
+            self.assertEqual(store.public_settings()["default_image_model"], "gpt-image-2")
+            self.assertEqual(store.public_settings()["default_text_model"], "gpt-5.5")
+
+            store.update({"default_image_model": "custom-image", "default_text_model": "custom-chat"})
+
+            self.assertEqual(store.default_image_model, "custom-image")
+            self.assertEqual(store.default_text_model, "custom-chat")
+            self.assertEqual(store.get()["default_image_model"], "custom-image")
+            self.assertEqual(store.get()["default_text_model"], "custom-chat")
 
     def test_removed_registration_settings_are_not_returned(self) -> None:
         module = self.config_module

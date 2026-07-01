@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import random
 import time
 import uuid
@@ -142,9 +143,7 @@ def _requested_models(value: object) -> list[str]:
     return result
 
 
-EXTERNAL_IMAGE_MODEL_ALIASES = {
-    "gpt-image-2": ["codex-gpt-image-2"],
-}
+EXTERNAL_IMAGE_MODEL_ALIASES: dict[str, list[str]] = {}
 
 EXTERNAL_IMAGE_RATIO_SIZE_ALIASES = {
     "1:1": "1024x1024",
@@ -196,6 +195,10 @@ def _dedupe_models(models: list[str]) -> list[str]:
         seen.add(model)
         result.append(model)
     return result
+
+
+def _model_alias_key(model: str) -> str:
+    return model.lower().replace(".", "-")
 
 
 def _is_explicit_image_size(value: str) -> bool:
@@ -396,10 +399,7 @@ class ChannelService:
         }
 
     def _image_model_mappings(self) -> dict[str, str]:
-        defaults = {
-            "gpt-image-2": "gpt-5-5",
-            "codex-gpt-image-2": "codex-gpt-image-2",
-        }
+        defaults: dict[str, str] = {}
         raw = getattr(self.config_store, "image_model_mappings", None)
         if raw is None:
             raw = self.config_store.get().get("image_model_mappings")
@@ -434,6 +434,28 @@ class ChannelService:
         for candidate in candidates:
             if candidate in channel_models:
                 return candidate
+        return ""
+
+    def _resolve_chat_model_for_channel(
+            self,
+            channel: dict[str, object],
+            model: str | None,
+    ) -> str:
+        requested = _clean(model) or "gpt-5.5"
+        channel_models = _normalize_models(channel.get("models"))
+        if not channel_models or requested in channel_models:
+            return requested
+        requested_alias_key = _model_alias_key(requested)
+        for channel_model in channel_models:
+            if _model_alias_key(channel_model) == requested_alias_key:
+                return channel_model
+        mapped_image_models = [
+            image_model
+            for image_model, text_model in self._image_model_mappings().items()
+            if _clean(text_model) == requested and _clean(image_model) in channel_models
+        ]
+        if mapped_image_models:
+            return requested
         return ""
 
     def _normalize_personal_channel(
@@ -817,6 +839,25 @@ class ChannelService:
         random.shuffle(weighted)
         return weighted
 
+    def _enabled_external_chat_channels(self, model: str | None = None) -> list[dict[str, object]]:
+        with self._lock:
+            channels = [
+                dict(channel)
+                for channel in self._current_channels(cache_enabled=True)
+                if bool(channel.get("enabled", True))
+            ]
+        if model:
+            channels = [
+                channel
+                for channel in channels
+                if self._resolve_chat_model_for_channel(channel, model)
+            ]
+        weighted: list[dict[str, object]] = []
+        for channel in sorted(channels, key=lambda item: int(item.get("priority") or 0), reverse=True):
+            weighted.extend([channel] * max(1, int(channel.get("weight") or 1)))
+        random.shuffle(weighted)
+        return weighted
+
     def has_external_channels(self, model: str | None = None) -> bool:
         return bool(self._enabled_external_channels(model))
 
@@ -892,6 +933,42 @@ class ChannelService:
                 payload["_personal_channel_error"] = message
         return None
 
+    def call_chat_completion(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
+        model = _clean(payload.get("model")) or "gpt-5.5"
+        errors: list[str] = []
+        for channel in self._enabled_external_chat_channels(model):
+            resolved_model = self._resolve_chat_model_for_channel(channel, model)
+            routed_payload = {**payload, "model": resolved_model or model}
+            try:
+                return self._call_chat_completion(channel, routed_payload), self._channel_result_name(channel)
+            except Exception as exc:
+                error = _friendly_channel_error(exc)
+                errors.append(f"{self._channel_result_name(channel)}: {error}")
+                print(f"[channel] chat failed channel={channel.get('name')} error={error}")
+        if errors:
+            message = "; ".join(errors)
+            print(f"[channel] all external chat channels failed: {message}")
+            payload["_channel_error"] = message
+        return None
+
+    def call_chat_completion_stream(self, payload: dict[str, Any]):
+        model = _clean(payload.get("model")) or "gpt-5.5"
+        errors: list[str] = []
+        for channel in self._enabled_external_chat_channels(model):
+            resolved_model = self._resolve_chat_model_for_channel(channel, model)
+            routed_payload = {**payload, "model": resolved_model or model, "stream": True}
+            try:
+                return self._call_chat_completion_stream(channel, routed_payload), self._channel_result_name(channel)
+            except Exception as exc:
+                error = _friendly_channel_error(exc)
+                errors.append(f"{self._channel_result_name(channel)}: {error}")
+                print(f"[channel] chat stream failed channel={channel.get('name')} error={error}")
+        if errors:
+            message = "; ".join(errors)
+            print(f"[channel] all external chat stream channels failed: {message}")
+            payload["_channel_error"] = message
+        return None
+
     def _call_generation(self, channel: dict[str, object], payload: dict[str, Any]) -> dict[str, Any]:
         prompt, size = _normalize_external_image_request(
             payload.get("prompt"),
@@ -957,6 +1034,91 @@ class ChannelService:
             multipart.close()
         return self._normalize_response(response, payload)
 
+    def _chat_completion_body(self, channel: dict[str, object], payload: dict[str, Any]) -> dict[str, Any]:
+        messages = payload.get("messages")
+        if not isinstance(messages, list) or not messages:
+            raise ValueError("chat messages are required")
+        body = {
+            key: value
+            for key, value in payload.items()
+            if key
+            in {
+                "model",
+                "messages",
+                "temperature",
+                "top_p",
+                "max_tokens",
+                "max_completion_tokens",
+                "presence_penalty",
+                "frequency_penalty",
+                "response_format",
+                "stop",
+                "tools",
+                "tool_choice",
+            }
+            and value is not None
+        }
+        body["stream"] = bool(payload.get("stream"))
+        if "model" not in body:
+            body["model"] = (channel.get("models") or ["gpt-5.5"])[0]
+        return body
+
+    def _call_chat_completion(self, channel: dict[str, object], payload: dict[str, Any]) -> dict[str, Any]:
+        body = self._chat_completion_body(channel, {**payload, "stream": False})
+        response = self._session(channel).post(
+            self._openai_compatible_url(channel, "/v1/chat/completions"),
+            json=body,
+            timeout=int(channel.get("timeout") or 60),
+        )
+        return self._normalize_chat_response(response)
+
+    def _call_chat_completion_stream(self, channel: dict[str, object], payload: dict[str, Any]):
+        body = self._chat_completion_body(channel, {**payload, "stream": True})
+        session = self._session(channel)
+
+        def chunks():
+            try:
+                response = session.post(
+                    self._openai_compatible_url(channel, "/v1/chat/completions"),
+                    json=body,
+                    timeout=int(channel.get("timeout") or 60),
+                    stream=True,
+                )
+                if not response.ok:
+                    raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
+                pending = b""
+                for chunk in response.iter_content():
+                    if not chunk:
+                        continue
+                    if isinstance(chunk, str):
+                        chunk = chunk.encode("utf-8")
+                    pending += chunk
+                    lines = pending.split(b"\n")
+                    pending = lines.pop() if lines else b""
+                    for raw_line in lines:
+                        text = raw_line.rstrip(b"\r").decode("utf-8", errors="replace").strip()
+                        if not text:
+                            continue
+                        if text.startswith("data:"):
+                            text = text.removeprefix("data:").strip()
+                        if text == "[DONE]":
+                            return
+                        delta = self._chat_stream_delta_text(text)
+                        if delta:
+                            yield delta
+                if pending:
+                    text = pending.rstrip(b"\r").decode("utf-8", errors="replace").strip()
+                    if text.startswith("data:"):
+                        text = text.removeprefix("data:").strip()
+                    if text and text != "[DONE]":
+                        delta = self._chat_stream_delta_text(text)
+                        if delta:
+                            yield delta
+            finally:
+                session.close()
+
+        return chunks()
+
     def _session(self, channel: dict[str, object]) -> Session:
         session = Session(**proxy_settings.build_session_kwargs(verify=True))
         session.headers.update({
@@ -1015,6 +1177,52 @@ class ChannelService:
                         "url": saved["url"],
                     })
         return normalized
+
+    @staticmethod
+    def _normalize_chat_response(response) -> dict[str, Any]:
+        if not response.ok:
+            raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("channel chat response is invalid")
+        return payload
+
+    @staticmethod
+    def _chat_stream_delta_text(raw: str) -> str:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return ""
+        if not isinstance(payload, dict):
+            return ""
+        choices = payload.get("choices")
+        if isinstance(choices, list) and choices:
+            first_choice = choices[0]
+            if isinstance(first_choice, dict):
+                delta = first_choice.get("delta")
+                if isinstance(delta, dict):
+                    content = delta.get("content")
+                    if isinstance(content, str):
+                        return content
+                    if isinstance(content, list):
+                        return "".join(
+                            str(item.get("text") or item.get("content") or "")
+                            for item in content
+                            if isinstance(item, dict)
+                        )
+                message = first_choice.get("message")
+                if isinstance(message, dict) and isinstance(message.get("content"), str):
+                    return str(message.get("content") or "")
+                text = first_choice.get("text")
+                if isinstance(text, str):
+                    return text
+        delta = payload.get("delta")
+        if isinstance(delta, str):
+            return delta
+        text = payload.get("text")
+        if isinstance(text, str):
+            return text
+        return ""
 
 
 channel_service = ChannelService(config.get_repository_provider() or config.get_storage_backend())

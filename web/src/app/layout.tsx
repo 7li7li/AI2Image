@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import { Toaster } from "sonner";
 
+import { AppShell } from "@/components/app-shell";
 import { SiteSettingsProvider } from "@/components/site-settings-provider";
-import { TopNav } from "@/components/top-nav";
 
 import "./globals.css";
 
@@ -58,14 +58,7 @@ export default function RootLayout({
         </Script>
         <SiteSettingsProvider />
         <Toaster position="top-center" richColors offset={48} />
-        <main className="yan-soft-grid h-screen overflow-hidden px-3 py-3 text-stone-900 sm:px-4 lg:px-5">
-          <div className="yan-app-surface mx-auto flex h-[calc(100dvh-1.5rem)] max-w-[1800px] flex-col overflow-hidden rounded-lg">
-            <TopNav />
-            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-5 lg:px-6">
-              {children}
-            </div>
-          </div>
-        </main>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

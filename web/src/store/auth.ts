@@ -2,6 +2,8 @@
 
 import localforage from "localforage";
 
+import { getRouteHref } from "@/lib/routes";
+
 export type AuthRole = "admin" | "user";
 
 export type StoredAuthSession = {
@@ -44,7 +46,7 @@ function normalizeSession(value: unknown, fallbackKey = ""): StoredAuthSession |
 }
 
 export function getDefaultRouteForRole(role: AuthRole) {
-  return role === "admin" ? "/users" : "/image";
+  return getRouteHref(role === "admin" ? "/users" : "/image");
 }
 
 export async function getStoredAuthKey() {

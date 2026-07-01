@@ -19,7 +19,7 @@ AuthRole = Literal["admin", "user"]
 _SESSION_DAYS = 30
 _PASSWORD_ITERATIONS = 210_000
 IMAGE_CHANNEL_CONFIG_KEY = "image_channel_config"
-DEFAULT_USER_IMAGE_CHANNEL_MODELS = ["gpt-image-2", "codex-gpt-image-2", "gpt-5-5"]
+DEFAULT_USER_IMAGE_CHANNEL_MODELS = ["gpt-image-2", "gpt-5.5"]
 _UNSET = object()
 
 

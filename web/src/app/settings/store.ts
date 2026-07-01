@@ -12,6 +12,8 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     site_title: typeof config.site_title === "string" ? config.site_title : "Image Studio",
     site_icon: typeof config.site_icon === "string" ? config.site_icon : "/favicon.ico",
     site_background: typeof config.site_background === "string" ? config.site_background : "",
+    default_image_model: typeof config.default_image_model === "string" ? config.default_image_model : "gpt-image-2",
+    default_text_model: typeof config.default_text_model === "string" ? config.default_text_model : "gpt-5.5",
     image_retention_days: Number(config.image_retention_days || 30),
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
     proxy: typeof config.proxy === "string" ? config.proxy : "",
@@ -24,6 +26,8 @@ function syncSiteSettings(config: SettingsConfig) {
     site_title: String(config.site_title || "Image Studio"),
     site_icon: String(config.site_icon || "/favicon.ico"),
     site_background: String(config.site_background || ""),
+    default_image_model: String(config.default_image_model || "gpt-image-2"),
+    default_text_model: String(config.default_text_model || "gpt-5.5"),
   };
   useSiteSettingsStore.getState().setSettings(settings);
   applySiteSettings(settings);
@@ -45,6 +49,8 @@ type SettingsStore = {
   setSiteTitle: (value: string) => void;
   setSiteIcon: (value: string) => void;
   setSiteBackground: (value: string) => void;
+  setDefaultImageModel: (value: string) => void;
+  setDefaultTextModel: (value: string) => void;
 };
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
@@ -83,6 +89,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         site_title: String(config.site_title || "").trim(),
         site_icon: String(config.site_icon || "").trim(),
         site_background: String(config.site_background || "").trim(),
+        default_image_model: String(config.default_image_model || "").trim() || "gpt-image-2",
+        default_text_model: String(config.default_text_model || "").trim() || "gpt-5.5",
         image_retention_days: Math.max(1, Number(config.image_retention_days) || 30),
         proxy: String(config.proxy || "").trim(),
         base_url: String(config.base_url || "").trim(),
@@ -135,5 +143,13 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setSiteBackground: (value) => {
     set((state) => (state.config ? { config: { ...state.config, site_background: value } } : {}));
+  },
+
+  setDefaultImageModel: (value) => {
+    set((state) => (state.config ? { config: { ...state.config, default_image_model: value } } : {}));
+  },
+
+  setDefaultTextModel: (value) => {
+    set((state) => (state.config ? { config: { ...state.config, default_text_model: value } } : {}));
   },
 }));

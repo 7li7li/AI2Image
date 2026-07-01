@@ -51,6 +51,8 @@ class FakeChannelService:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
         self.edit_calls: list[dict[str, object]] = []
+        self.chat_calls: list[dict[str, object]] = []
+        self.chat_stream_calls: list[dict[str, object]] = []
         self.generation_result: tuple[dict[str, object], str] | None = (
             {"created": 1, "data": [{"url": "https://global.example/image.png"}]},
             "Global",
@@ -59,6 +61,24 @@ class FakeChannelService:
             {"created": 1, "data": [{"url": "https://global.example/edit.png"}]},
             "Global",
         )
+        self.chat_result: tuple[dict[str, object], str] | None = (
+            {
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "gpt-5.5",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "hello"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+            "Global",
+        )
+        self.chat_stream_result: tuple[list[str], str] | None = (["hel", "lo"], "Global")
 
     def has_usable_personal_channel(
         self,
@@ -82,6 +102,26 @@ class FakeChannelService:
             return self.edit_result
         payload["_channel_error"] = "Global: upstream timeout"
         return None
+
+    def call_chat_completion(self, payload: dict[str, object]):
+        self.chat_calls.append(dict(payload))
+        if self.chat_result is not None:
+            return self.chat_result
+        payload["_channel_error"] = "Global: upstream timeout"
+        return None
+
+    def call_chat_completion_stream(self, payload: dict[str, object]):
+        self.chat_stream_calls.append(dict(payload))
+        if self.chat_stream_result is not None:
+            chunks, channel = self.chat_stream_result
+            return iter(chunks), channel
+        payload["_channel_error"] = "Global: upstream timeout"
+        return None
+
+
+class FakeConfig:
+    default_image_model = "gpt-image-custom"
+    default_text_model = "gpt-text-custom"
 
 
 class PersonalImageChannelApiTests(unittest.TestCase):
@@ -205,6 +245,143 @@ class PersonalImageChannelApiTests(unittest.TestCase):
         self.assertEqual(auth.released, [])
         self.assertEqual(record_calls[0]["channel"], "Global")
         self.assertEqual(record_calls[0]["quota_cost"], 1)
+
+    def test_chat_completion_success_charges_single_quota(self) -> None:
+        app = FastAPI()
+        app.include_router(api_ai.create_router())
+        auth = FakeAuthService()
+        channels = FakeChannelService()
+
+        with (
+            mock.patch.object(api_support, "auth_service", auth),
+            mock.patch.object(api_ai, "auth_service", auth),
+            mock.patch.object(api_ai, "channel_service", channels),
+            mock.patch.object(api_ai.log_service, "add", lambda *args, **kwargs: None),
+        ):
+            response = TestClient(app).post(
+                "/api/chat/completions",
+                headers={"Authorization": "Bearer user-token"},
+                json={
+                    "model": "gpt-5.5",
+                    "messages": [{"role": "user", "content": "hello"}],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["choices"][0]["message"]["content"], "hello")
+        self.assertEqual(len(channels.chat_calls), 1)
+        self.assertEqual(len(auth.reserved), 1)
+        self.assertEqual(auth.confirmed, [(auth.reserved[0][2], 1)])
+        self.assertEqual(auth.released, [])
+
+    def test_chat_completion_stream_success_charges_single_quota(self) -> None:
+        app = FastAPI()
+        app.include_router(api_ai.create_router())
+        auth = FakeAuthService()
+        channels = FakeChannelService()
+
+        with (
+            mock.patch.object(api_support, "auth_service", auth),
+            mock.patch.object(api_ai, "auth_service", auth),
+            mock.patch.object(api_ai, "channel_service", channels),
+            mock.patch.object(api_ai.log_service, "add", lambda *args, **kwargs: None),
+        ):
+            with TestClient(app).stream(
+                "POST",
+                "/api/chat/completions",
+                headers={"Authorization": "Bearer user-token"},
+                json={
+                    "model": "gpt-5.5",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "stream": True,
+                },
+            ) as response:
+                text = "".join(response.iter_text())
+
+        self.assertEqual(response.status_code, 200, text)
+        self.assertIn("event: meta", text)
+        self.assertIn('"content": "hel"', text)
+        self.assertIn('"content": "lo"', text)
+        self.assertIn("event: done", text)
+        self.assertEqual(len(channels.chat_stream_calls), 1)
+        self.assertTrue(channels.chat_stream_calls[0]["stream"])
+        self.assertEqual(len(auth.reserved), 1)
+        self.assertEqual(auth.confirmed, [(auth.reserved[0][2], 1)])
+        self.assertEqual(auth.released, [])
+
+    def test_chat_completion_failure_releases_reserved_quota(self) -> None:
+        app = FastAPI()
+        app.include_router(api_ai.create_router())
+        auth = FakeAuthService()
+        channels = FakeChannelService()
+        channels.chat_result = None
+
+        with (
+            mock.patch.object(api_support, "auth_service", auth),
+            mock.patch.object(api_ai, "auth_service", auth),
+            mock.patch.object(api_ai, "channel_service", channels),
+            mock.patch.object(api_ai.log_service, "add", lambda *args, **kwargs: None),
+        ):
+            response = TestClient(app).post(
+                "/api/chat/completions",
+                headers={"Authorization": "Bearer user-token"},
+                json={
+                    "model": "gpt-5.5",
+                    "messages": [{"role": "user", "content": "hello"}],
+                },
+            )
+
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertIn("Global: upstream timeout", response.text)
+        self.assertEqual(len(auth.reserved), 1)
+        self.assertEqual(auth.confirmed, [])
+        self.assertEqual(auth.released, [auth.reserved[0][2]])
+        self.assertEqual(len(channels.chat_calls), 1)
+
+    def test_generation_uses_configured_default_model_when_omitted(self) -> None:
+        app = FastAPI()
+        app.include_router(api_ai.create_router())
+        auth = FakeAuthService()
+        channels = FakeChannelService()
+
+        with (
+            mock.patch.object(api_support, "auth_service", auth),
+            mock.patch.object(api_ai, "auth_service", auth),
+            mock.patch.object(api_ai, "channel_service", channels),
+            mock.patch.object(api_ai, "config", FakeConfig()),
+            mock.patch.object(api_ai, "record_image_result", lambda *args, **kwargs: []),
+        ):
+            response = TestClient(app).post(
+                "/v1/images/generations",
+                headers={"Authorization": "Bearer user-token"},
+                json={"prompt": "draw", "n": 1, "response_format": "url"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(channels.calls[0]["model"], "gpt-image-custom")
+
+    def test_chat_completion_uses_configured_default_model_when_omitted(self) -> None:
+        app = FastAPI()
+        app.include_router(api_ai.create_router())
+        auth = FakeAuthService()
+        channels = FakeChannelService()
+
+        with (
+            mock.patch.object(api_support, "auth_service", auth),
+            mock.patch.object(api_ai, "auth_service", auth),
+            mock.patch.object(api_ai, "channel_service", channels),
+            mock.patch.object(api_ai, "config", FakeConfig()),
+            mock.patch.object(api_ai.log_service, "add", lambda *args, **kwargs: None),
+        ):
+            response = TestClient(app).post(
+                "/api/chat/completions",
+                headers={"Authorization": "Bearer user-token"},
+                json={"messages": [{"role": "user", "content": "hello"}]},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(channels.chat_calls[0]["model"], "gpt-text-custom")
 
 
 if __name__ == "__main__":

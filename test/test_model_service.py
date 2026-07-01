@@ -28,17 +28,17 @@ class ModelServiceTest(unittest.TestCase):
     def test_extract_model_ids_accepts_openai_and_compatible_shapes(self) -> None:
         payload = {
             "data": [
-                {"id": "gpt-5-5"},
+                {"id": "gpt-5.5"},
                 {"model": "gpt-image-2"},
-                "codex-gpt-image-2",
+                "custom-image-model",
                 {"slug": "custom-model"},
-                {"id": "gpt-5-5"},
+                {"id": "gpt-5.5"},
             ]
         }
 
         self.assertEqual(
             ChannelService.extract_model_ids(payload),
-            ["gpt-5-5", "gpt-image-2", "codex-gpt-image-2", "custom-model"],
+            ["gpt-5.5", "gpt-image-2", "custom-image-model", "custom-model"],
         )
 
     def test_catalog_merges_channel_models_with_default_pricing(self) -> None:
@@ -51,7 +51,7 @@ class ModelServiceTest(unittest.TestCase):
                         "name": "2api",
                         "base_url": "https://example.test",
                         "api_key": "sk-test",
-                        "models": ["gpt-5-5", "gpt-image-2"],
+                        "models": ["gpt-5.5", "gpt-image-2"],
                         "enabled": True,
                     }
                 ]
@@ -61,11 +61,11 @@ class ModelServiceTest(unittest.TestCase):
             catalog = service.list_catalog()
             by_model = {item["model"]: item for item in catalog["items"]}
 
-            self.assertIn("gpt-5-5", by_model)
+            self.assertIn("gpt-5.5", by_model)
             self.assertIn("gpt-image-2", by_model)
-            self.assertEqual(by_model["gpt-5-5"]["channel_count"], 1)
-            self.assertFalse(by_model["gpt-5-5"]["configured"])
-            self.assertEqual(by_model["gpt-5-5"]["pricing"]["billing_mode"], "tokens")
+            self.assertEqual(by_model["gpt-5.5"]["channel_count"], 1)
+            self.assertFalse(by_model["gpt-5.5"]["configured"])
+            self.assertEqual(by_model["gpt-5.5"]["pricing"]["billing_mode"], "tokens")
 
     def test_channel_model_test_reports_status_without_persisting_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -154,7 +154,7 @@ class ModelServiceTest(unittest.TestCase):
             self.assertIn("GET /v1/models", result["error"])
             self.assertIn("HTTP 405", result["error"])
 
-    def test_external_channel_matches_mapped_image_model(self) -> None:
+    def test_external_channel_requires_requested_image_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
@@ -164,15 +164,15 @@ class ModelServiceTest(unittest.TestCase):
                         "name": "A",
                         "base_url": "https://a.example",
                         "api_key": "sk-test",
-                        "models": ["gpt-5-5"],
+                        "models": ["gpt-5.5"],
                     }
                 ]
             )
             service = ChannelService(storage, FakeConfigStore())
 
-            self.assertTrue(service.has_external_channels("gpt-image-2"))
+            self.assertFalse(service.has_external_channels("gpt-image-2"))
 
-    def test_generation_uses_mapped_channel_model(self) -> None:
+    def test_generation_uses_requested_image_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
@@ -182,7 +182,7 @@ class ModelServiceTest(unittest.TestCase):
                         "name": "A",
                         "base_url": "https://a.example",
                         "api_key": "sk-test",
-                        "models": ["gpt-5-5"],
+                        "models": ["gpt-image-2"],
                     }
                 ]
             )
@@ -199,10 +199,10 @@ class ModelServiceTest(unittest.TestCase):
 
             self.assertIsNotNone(routed)
             self.assertEqual(seen["channel"], "channel-a")
-            self.assertEqual(seen["model"], "gpt-5-5")
+            self.assertEqual(seen["model"], "gpt-image-2")
             self.assertEqual(routed[1], "A")
 
-    def test_generation_prefers_external_image_alias_before_internal_mapping(self) -> None:
+    def test_chat_uses_text_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
@@ -212,7 +212,108 @@ class ModelServiceTest(unittest.TestCase):
                         "name": "A",
                         "base_url": "https://a.example",
                         "api_key": "sk-test",
-                        "models": ["gpt-5-5", "codex-gpt-image-2"],
+                        "models": ["gpt-5.5"],
+                    }
+                ]
+            )
+            service = ChannelService(storage, FakeConfigStore())
+            seen: dict[str, object] = {}
+
+            def fake_chat_completion(channel, payload):
+                seen["channel"] = channel.get("id")
+                seen["model"] = payload.get("model")
+                return {
+                    "id": "chatcmpl-test",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": payload.get("model"),
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "ok"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+
+            service._call_chat_completion = fake_chat_completion  # type: ignore[method-assign]
+            routed = service.call_chat_completion({
+                "model": "gpt-5.5",
+                "messages": [{"role": "user", "content": "hello"}],
+            })
+
+            self.assertIsNotNone(routed)
+            self.assertEqual(seen["channel"], "channel-a")
+            self.assertEqual(seen["model"], "gpt-5.5")
+            self.assertEqual(routed[1], "A")
+
+    def test_chat_prefers_channel_model_alias_before_image_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            storage.save_channels(
+                [
+                    {
+                        "id": "channel-a",
+                        "name": "A",
+                        "base_url": "https://a.example",
+                        "api_key": "sk-test",
+                        "models": ["gpt-5.5", "gpt-image-2"],
+                    }
+                ]
+            )
+            service = ChannelService(storage, FakeConfigStore())
+            seen: dict[str, object] = {}
+
+            def fake_chat_completion(channel, payload):
+                seen["channel"] = channel.get("id")
+                seen["model"] = payload.get("model")
+                return {
+                    "id": "chatcmpl-test",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": payload.get("model"),
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "ok"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+
+            service._call_chat_completion = fake_chat_completion  # type: ignore[method-assign]
+            routed = service.call_chat_completion({
+                "model": "gpt-5-5",
+                "messages": [{"role": "user", "content": "hello"}],
+            })
+
+            self.assertIsNotNone(routed)
+            self.assertEqual(seen["channel"], "channel-a")
+            self.assertEqual(seen["model"], "gpt-5.5")
+            self.assertEqual(routed[1], "A")
+
+    def test_chat_stream_delta_parser_accepts_openai_chunks(self) -> None:
+        self.assertEqual(
+            ChannelService._chat_stream_delta_text('{"choices":[{"delta":{"content":"hel"}}]}'),
+            "hel",
+        )
+        self.assertEqual(
+            ChannelService._chat_stream_delta_text('{"choices":[{"delta":{"content":"lo"}}]}'),
+            "lo",
+        )
+        self.assertEqual(ChannelService._chat_stream_delta_text('{"choices":[{"delta":{}}]}'), "")
+
+    def test_generation_does_not_use_text_model_when_image_model_is_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            storage.save_channels(
+                [
+                    {
+                        "id": "channel-a",
+                        "name": "A",
+                        "base_url": "https://a.example",
+                        "api_key": "sk-test",
+                        "models": ["gpt-5.5"],
                     }
                 ]
             )
@@ -226,8 +327,8 @@ class ModelServiceTest(unittest.TestCase):
             service._call_generation = fake_generation  # type: ignore[method-assign]
             routed = service.call_generation({"prompt": "draw", "model": "gpt-image-2", "n": 1})
 
-            self.assertIsNotNone(routed)
-            self.assertEqual(seen["model"], "codex-gpt-image-2")
+            self.assertIsNone(routed)
+            self.assertEqual(seen, {})
 
     def test_personal_generation_channel_precedes_global_channels(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -763,7 +864,7 @@ class ModelServiceTest(unittest.TestCase):
         prompt_part = next(part for part in parts if part["name"] == "prompt")
         self.assertIn("3:4", prompt_part["data"].decode("utf-8"))
 
-    def test_channel_model_test_accepts_mapped_requested_model(self) -> None:
+    def test_channel_model_test_requires_requested_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
@@ -773,18 +874,18 @@ class ModelServiceTest(unittest.TestCase):
                         "name": "A",
                         "base_url": "https://a.example",
                         "api_key": "sk-test",
-                        "models": ["gpt-5-5"],
+                        "models": ["gpt-5.5"],
                     }
                 ]
             )
             service = ChannelService(storage, FakeConfigStore())
 
-            service._fetch_external_channel_models = lambda channel: ["gpt-5-5"]  # type: ignore[method-assign]
+            service._fetch_external_channel_models = lambda channel: ["gpt-5.5"]  # type: ignore[method-assign]
             result = service.test_channel_models("channel-a", ["gpt-image-2"])
 
             self.assertIsNotNone(result)
-            self.assertTrue(result["ok"])
-            self.assertEqual(result["missing_models"], [])
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["missing_models"], ["gpt-image-2"])
 
     def test_update_pricing_persists_and_estimates_token_cost(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -792,15 +893,15 @@ class ModelServiceTest(unittest.TestCase):
             service = ModelService(ChannelService(storage), FakeConfigStore())
 
             pricing = service.update_pricing(
-                "gpt-5-5",
+                "gpt-5.5",
                 {"input_price_per_million": 5, "output_price_per_million": 40, "currency": "usd"},
             )
-            estimate = service.estimate_cost("gpt-5-5", prompt_tokens=1_000_000, completion_tokens=1_000_000)
+            estimate = service.estimate_cost("gpt-5.5", prompt_tokens=1_000_000, completion_tokens=1_000_000)
 
             self.assertEqual(pricing["completion_ratio"], 8)
             self.assertEqual(estimate["amount"], 45)
             self.assertEqual(estimate["unit"], "usd")
-            self.assertTrue(service.list_catalog()["pricing"]["gpt-5-5"]["enabled"])
+            self.assertTrue(service.list_catalog()["pricing"]["gpt-5.5"]["enabled"])
 
     def test_fixed_price_mode_estimates_per_request_cost(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
@@ -12,6 +13,7 @@ import {
 import {
   LoaderCircle,
   Menu,
+  MessagesSquare,
   Plus,
   Search,
   Trash2,
@@ -31,8 +33,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { editImage, fetchMe, generateImage, type ImageRequestOptions } from "@/lib/api";
+import { editImage, fetchMe, generateImage, polishImagePrompt, type ImageRequestOptions } from "@/lib/api";
 import { resolveApiAssetUrl } from "@/lib/assets";
+import { useSiteSettingsStore } from "@/lib/site-settings";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import {
   clearImageConversations,
@@ -395,7 +398,10 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: "one"; id: string } | { type: "all" } | null>(null);
   const [composerPanelWidth, setComposerPanelWidth] = useState(COMPOSER_PANEL_DEFAULT_WIDTH);
   const [isComposerPanelResizing, setIsComposerPanelResizing] = useState(false);
+  const [isPolishingPrompt, setIsPolishingPrompt] = useState(false);
 
+  const defaultImageModel = useSiteSettingsStore((state) => state.settings.default_image_model || "gpt-image-2");
+  const defaultTextModel = useSiteSettingsStore((state) => state.settings.default_text_model || "gpt-5.5");
   const isAdmin = session.role === "admin";
   const imageConversationOwnerKey = useMemo(() => getImageConversationOwnerKey(session), [session]);
   const activeConversationStorageKey = useMemo(
@@ -1270,7 +1276,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     const draftTurn: ImageTurn = {
       id: turnId,
       prompt,
-      model: "gpt-image-2",
+      model: defaultImageModel,
       mode: imageMode,
       referenceImages: imageMode === "edit" ? referenceImages : [],
       count: parsedCount,
@@ -1318,6 +1324,30 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
       toast.success("已创建新对话并开始处理");
     } else {
       toast.success("已发送到当前对话");
+    }
+  };
+
+  const handlePolishPrompt = async () => {
+    const prompt = imagePrompt.trim();
+    if (!prompt) {
+      toast.error("请输入提示词");
+      return;
+    }
+    if (isPolishingPrompt) {
+      return;
+    }
+
+    setIsPolishingPrompt(true);
+    try {
+      const polished = await polishImagePrompt(prompt, imageMode, defaultTextModel);
+      setImagePrompt(polished);
+      await loadQuota();
+      window.requestAnimationFrame(() => textareaRef.current?.focus());
+      toast.success("提示词已润色，已扣除 1 点额度");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "AI 润色失败");
+    } finally {
+      setIsPolishingPrompt(false);
     }
   };
 
@@ -1442,7 +1472,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-2xl font-bold tracking-tight text-stone-950">AI影像创作台</h1>
               <p className="mt-1 truncate text-sm text-stone-500">
-                gpt-image-2 · 创作队列 {workspaceStats.active} · 当前空间 Image Studio
+                {defaultImageModel} · 创作队列 {workspaceStats.active} · 当前空间 Image Studio
               </p>
             </div>
             <label className="relative w-full md:max-w-[360px]">
@@ -1514,6 +1544,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             imageOutputCompression={imageOutputCompression}
             imageModeration={imageModeration}
             imageTransparentBackground={imageTransparentBackground}
+            defaultImageModel={defaultImageModel}
             availableQuota={availableQuota}
             activeTaskCount={activeTaskCount}
             referenceImages={referenceImages}
@@ -1530,6 +1561,8 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             onImageModerationChange={setImageModeration}
             onImageTransparentBackgroundChange={setImageTransparentBackground}
             onSubmit={handleSubmit}
+            onPolishPrompt={handlePolishPrompt}
+            isPolishingPrompt={isPolishingPrompt}
             onPickReferenceImage={() => fileInputRef.current?.click()}
             onReferenceImageChange={handleReferenceImageChange}
             onRemoveReferenceImage={handleRemoveReferenceImage}
@@ -1599,6 +1632,16 @@ function ImageStudioSidebar({
               <div className="text-xs font-bold text-stone-500">最近会话</div>
               <div className="mt-1 text-[11px] text-stone-400">{conversations.length} 条记录</div>
             </div>
+            <Button
+              asChild
+              variant="outline"
+              className="h-8 rounded-lg border-rose-100 bg-white/75 px-2.5 text-xs text-stone-600 hover:bg-white"
+            >
+              <Link href="/chat">
+                <MessagesSquare className="size-3.5" />
+                对话
+              </Link>
+            </Button>
           </div>
           <ImageSidebar
             conversations={conversations}

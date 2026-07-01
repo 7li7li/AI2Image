@@ -1,6 +1,8 @@
 import { httpRequest } from "@/lib/request";
+import webConfig from "@/constants/common-env";
+import { getStoredAuthKey } from "@/store/auth";
 
-export type ImageModel = "gpt-image-2" | "codex-gpt-image-2";
+export type ImageModel = string;
 export type AuthRole = "admin" | "user";
 
 export type SettingsConfig = {
@@ -9,6 +11,8 @@ export type SettingsConfig = {
   site_icon?: string;
   site_background?: string;
   base_url?: string;
+  default_image_model?: string;
+  default_text_model?: string;
   image_retention_days?: number | string;
   log_levels?: string[];
   [key: string]: unknown;
@@ -18,6 +22,8 @@ export type PublicSiteSettings = {
   site_title: string;
   site_icon: string;
   site_background: string;
+  default_image_model: string;
+  default_text_model: string;
 };
 
 export type ManagedImage = {
@@ -175,6 +181,51 @@ export type ImageResponse = {
   created: number;
   data: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
 };
+
+export type ChatRole = "system" | "user" | "assistant";
+
+export type ChatTextContentPart = {
+  type: "text";
+  text: string;
+};
+
+export type ChatImageContentPart = {
+  type: "image_url";
+  image_url: {
+    url: string;
+    detail?: "auto" | "low" | "high";
+  };
+};
+
+export type ChatCompletionContent = string | Array<ChatTextContentPart | ChatImageContentPart>;
+
+export type ChatCompletionMessage = {
+  role: ChatRole;
+  content: ChatCompletionContent;
+};
+
+export type ChatCompletionResponse = {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  channel?: string;
+  choices: Array<{
+    index: number;
+    message: {
+      role: ChatRole | string;
+      content: unknown;
+    };
+    finish_reason?: string | null;
+  }>;
+  usage?: Record<string, unknown>;
+};
+
+export type ChatStreamEvent =
+  | { type: "meta"; model?: string; channel?: string; request_id?: string }
+  | { type: "delta"; content: string; request_id?: string }
+  | { type: "done"; model?: string; channel?: string; request_id?: string }
+  | { type: "error"; error: string; request_id?: string };
 
 export type ImageQuality = "auto" | "low" | "medium" | "high";
 export type ImageOutputFormat = "png" | "jpeg" | "webp";
@@ -370,6 +421,210 @@ export async function editImage(files: File | File[], prompt: string, model?: Im
       body: formData,
     },
   );
+}
+
+export async function createChatCompletion(messages: ChatCompletionMessage[], model?: string) {
+  return httpRequest<ChatCompletionResponse>("/api/chat/completions", {
+    method: "POST",
+    body: {
+      ...(model ? { model } : {}),
+      messages,
+    },
+  });
+}
+
+function chatCompletionContentToText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") {
+        return "";
+      }
+      const item = part as { text?: unknown; content?: unknown };
+      return typeof item.text === "string" ? item.text : typeof item.content === "string" ? item.content : "";
+    })
+    .join("");
+}
+
+export async function polishImagePrompt(prompt: string, mode: "generate" | "edit" | string, model?: string) {
+  const normalizedPrompt = prompt.trim();
+  if (!normalizedPrompt) {
+    throw new Error("请输入提示词");
+  }
+  const modeLabel = mode === "edit" ? "图生图" : "文生图";
+  const response = await createChatCompletion(
+    [
+      {
+        role: "system",
+        content:
+          "你是专业 AI 图像提示词编辑器。请在不改变用户核心意图的前提下润色提示词，使其更适合图像生成。保留用户使用的主要语言，可补充构图、光线、材质、风格、镜头、色彩和质量细节。不要加入违背原意的新主体，不要解释，不要编号，不要输出 Markdown，只输出润色后的提示词。",
+      },
+      {
+        role: "user",
+        content: `当前模式：${modeLabel}\n原始提示词：\n${normalizedPrompt}`,
+      },
+    ],
+    model,
+  );
+  const content = response.choices[0]?.message?.content;
+  const polished = chatCompletionContentToText(content)
+    .replace(/^```(?:\w+)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  if (!polished) {
+    throw new Error("AI 润色结果为空");
+  }
+  return polished;
+}
+
+function apiUrl(path: string) {
+  const baseUrl = webConfig.apiUrl.replace(/\/$/, "");
+  return `${baseUrl}${path}`;
+}
+
+function parseSseEvent(raw: string): ChatStreamEvent | null {
+  const lines = raw.split(/\r?\n/);
+  let event = "message";
+  const dataLines: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("event:")) {
+      event = line.slice("event:".length).trim();
+      continue;
+    }
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trimStart());
+    }
+  }
+  const dataText = dataLines.join("\n").trim();
+  if (!dataText) {
+    return null;
+  }
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(dataText) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (event === "delta") {
+    return { type: "delta", content: String(data.content || ""), request_id: String(data.request_id || "") };
+  }
+  if (event === "done") {
+    return {
+      type: "done",
+      model: String(data.model || ""),
+      channel: String(data.channel || ""),
+      request_id: String(data.request_id || ""),
+    };
+  }
+  if (event === "error") {
+    return { type: "error", error: String(data.error || "发送消息失败"), request_id: String(data.request_id || "") };
+  }
+  if (event === "meta") {
+    return {
+      type: "meta",
+      model: String(data.model || ""),
+      channel: String(data.channel || ""),
+      request_id: String(data.request_id || ""),
+    };
+  }
+  return null;
+}
+
+async function readErrorResponse(response: Response) {
+  try {
+    const payload = (await response.json()) as { detail?: unknown; error?: unknown; message?: unknown };
+    const detail = payload.detail as { error?: unknown } | string | undefined;
+    if (typeof detail === "string") {
+      return detail;
+    }
+    if (detail && typeof detail === "object" && typeof detail.error === "string") {
+      return detail.error;
+    }
+    if (typeof payload.error === "string") {
+      return payload.error;
+    }
+    if (typeof payload.message === "string") {
+      return payload.message;
+    }
+  } catch {
+    // Fall back to HTTP status below.
+  }
+  return `请求失败 (${response.status})`;
+}
+
+export async function streamChatCompletion(
+  messages: ChatCompletionMessage[],
+  model: string | undefined,
+  onEvent: (event: ChatStreamEvent) => void | Promise<void>,
+) {
+  const authKey = await getStoredAuthKey();
+  const response = await fetch(apiUrl("/api/chat/completions"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      ...(authKey ? { Authorization: `Bearer ${authKey}` } : {}),
+    },
+    body: JSON.stringify({
+      ...(model ? { model } : {}),
+      messages,
+      stream: true,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorResponse(response));
+  }
+  if (!response.body) {
+    throw new Error("浏览器不支持流式响应");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let doneReceived = false;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() || "";
+    for (const rawEvent of events) {
+      const event = parseSseEvent(rawEvent);
+      if (!event) {
+        continue;
+      }
+      if (event.type === "done") {
+        doneReceived = true;
+      }
+      if (event.type === "error") {
+        throw new Error(event.error);
+      }
+      await onEvent(event);
+    }
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    const event = parseSseEvent(buffer);
+    if (event) {
+      if (event.type === "done") {
+        doneReceived = true;
+      }
+      if (event.type === "error") {
+        throw new Error(event.error);
+      }
+      await onEvent(event);
+    }
+  }
+  if (!doneReceived) {
+    throw new Error("流式响应中断");
+  }
 }
 
 export async function fetchSettingsConfig() {

@@ -26,6 +26,8 @@ export function ConfigCard() {
   const setSiteTitle = useSettingsStore((state) => state.setSiteTitle);
   const setSiteIcon = useSettingsStore((state) => state.setSiteIcon);
   const setSiteBackground = useSettingsStore((state) => state.setSiteBackground);
+  const setDefaultImageModel = useSettingsStore((state) => state.setDefaultImageModel);
+  const setDefaultTextModel = useSettingsStore((state) => state.setDefaultTextModel);
   const saveConfig = useSettingsStore((state) => state.saveConfig);
 
   const handleTestProxy = async () => {
@@ -169,6 +171,26 @@ export function ConfigCard() {
                 className="h-10 rounded-xl border-stone-200 bg-white"
               />
               <p className="text-xs text-stone-500">自动删除多少天前的本地图片。</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">默认画图模型</label>
+              <Input
+                value={String(config?.default_image_model || "")}
+                onChange={(event) => setDefaultImageModel(event.target.value)}
+                placeholder="gpt-image-2"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+              <p className="text-xs text-stone-500">用于文生图和图生图，请填写已配置渠道支持的模型名。</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">默认文本对话模型</label>
+              <Input
+                value={String(config?.default_text_model || "")}
+                onChange={(event) => setDefaultTextModel(event.target.value)}
+                placeholder="gpt-5.5"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+              <p className="text-xs text-stone-500">用于文本对话，每次成功回复扣除 1 额度。</p>
             </div>
             <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
               <div>

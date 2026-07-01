@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   BadgeDollarSign,
@@ -10,6 +9,7 @@ import {
   Image,
   Images,
   LogOut,
+  MessagesSquare,
   PenLine,
   Settings,
   Sparkles,
@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 import webConfig from "@/constants/common-env";
+import { getRouteHref, normalizeAppPath } from "@/lib/routes";
 import { useSiteSettingsStore } from "@/lib/site-settings";
 import { cn } from "@/lib/utils";
 import { clearStoredAuthSession, getStoredAuthSession, type StoredAuthSession } from "@/store/auth";
@@ -31,6 +32,7 @@ type NavItem = {
 };
 
 const adminNavItems = [
+  { href: "/chat", label: "对话", icon: MessagesSquare },
   { href: "/image", label: "画图", icon: Sparkles },
   { href: "/users", label: "用户管理", icon: Users },
   { href: "/prompt-manager", label: "提示词管理", icon: PenLine },
@@ -43,6 +45,7 @@ const adminNavItems = [
 ] satisfies NavItem[];
 
 const userNavItems = [
+  { href: "/chat", label: "对话", icon: MessagesSquare },
   { href: "/image", label: "画图", icon: Sparkles },
   { href: "/my-images", label: "我的图片", icon: Image },
   { href: "/prompt-manager", label: "我的提示词", icon: PenLine },
@@ -51,7 +54,7 @@ const userNavItems = [
 
 export function TopNav() {
   const pathname = usePathname();
-  const router = useRouter();
+  const normalizedPathname = normalizeAppPath(pathname);
   const [session, setSession] = useState<StoredAuthSession | null | undefined>(undefined);
   const siteTitle = useSiteSettingsStore((state) => state.settings.site_title);
   const siteIcon = useSiteSettingsStore((state) => state.settings.site_icon);
@@ -68,7 +71,7 @@ export function TopNav() {
     let active = true;
 
     const load = async () => {
-      if (pathname === "/login") {
+      if (normalizedPathname === "/login") {
         if (active) setSession(null);
         return;
       }
@@ -80,14 +83,14 @@ export function TopNav() {
     return () => {
       active = false;
     };
-  }, [pathname]);
+  }, [normalizedPathname]);
 
   const handleLogout = async () => {
     await clearStoredAuthSession();
-    router.replace("/login");
+    window.location.replace(getRouteHref("/login"));
   };
 
-  if (pathname === "/login" || session === undefined || !session) {
+  if (normalizedPathname === "/login" || session === undefined || !session) {
     return null;
   }
 
@@ -97,7 +100,7 @@ export function TopNav() {
   return (
     <header className="border-b border-rose-100/80 bg-white/48 backdrop-blur-xl">
       <div className="flex min-h-16 items-center justify-between gap-3 px-3 sm:px-5">
-        <Link href="/image" className="group flex shrink-0 items-center gap-2.5 whitespace-nowrap">
+        <a href={getRouteHref("/image")} className="group flex shrink-0 items-center gap-2.5 whitespace-nowrap">
           <span
             className={cn(
               "grid size-10 place-items-center overflow-hidden rounded-lg shadow-[0_14px_30px_rgba(243,111,159,0.22)] transition group-hover:brightness-105",
@@ -115,16 +118,16 @@ export function TopNav() {
             <span className="block text-[17px] font-bold tracking-tight text-stone-950">{siteTitle}</span>
             <span className="block text-xs font-medium text-stone-500">Image Studio</span>
           </span>
-        </Link>
+        </a>
 
         <nav className="hide-scrollbar flex flex-1 justify-start gap-1.5 overflow-x-auto sm:justify-center sm:gap-2">
           {navItems.map((item) => {
-            const active = pathname === item.href;
+            const active = normalizedPathname === item.href;
             const Icon = item.icon;
             return (
-              <Link
+              <a
                 key={item.href}
-                href={item.href}
+                href={getRouteHref(item.href)}
                 className={cn(
                   "relative inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-lg px-3 text-[13px] font-medium transition sm:text-sm",
                   active
@@ -134,7 +137,7 @@ export function TopNav() {
               >
                 <Icon className="size-4" />
                 {item.label}
-              </Link>
+              </a>
             );
           })}
         </nav>

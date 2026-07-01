@@ -711,6 +711,7 @@ type ImageComposerProps = {
   imageOutputCompression: string;
   imageModeration: ImageModeration;
   imageTransparentBackground: boolean;
+  defaultImageModel: string;
   availableQuota: string;
   activeTaskCount: number;
   referenceImages: Array<{ name: string; dataUrl: string }>;
@@ -727,6 +728,8 @@ type ImageComposerProps = {
   onImageModerationChange: (value: ImageModeration) => void;
   onImageTransparentBackgroundChange: (value: boolean) => void;
   onSubmit: () => void | Promise<void>;
+  onPolishPrompt: () => void | Promise<void>;
+  isPolishingPrompt: boolean;
   onPickReferenceImage: () => void;
   onReferenceImageChange: (files: File[]) => void | Promise<void>;
   onRemoveReferenceImage: (index: number) => void;
@@ -743,6 +746,7 @@ export function ImageComposer({
   imageOutputCompression,
   imageModeration,
   imageTransparentBackground,
+  defaultImageModel,
   availableQuota,
   activeTaskCount,
   referenceImages,
@@ -759,6 +763,8 @@ export function ImageComposer({
   onImageModerationChange,
   onImageTransparentBackgroundChange,
   onSubmit,
+  onPolishPrompt,
+  isPolishingPrompt,
   onPickReferenceImage,
   onReferenceImageChange,
   onRemoveReferenceImage,
@@ -991,7 +997,7 @@ export function ImageComposer({
         <div className="mb-4 grid grid-cols-2 gap-3 rounded-lg bg-white/45 p-3">
           <div>
             <div className="text-xs text-stone-500">模型</div>
-            <div className="mt-1 text-sm font-bold text-stone-950">gpt-image-2</div>
+            <div className="mt-1 truncate text-sm font-bold text-stone-950">{defaultImageModel}</div>
           </div>
           <div>
             <div className="text-xs text-stone-500">生成张数</div>
@@ -1204,20 +1210,31 @@ export function ImageComposer({
         ) : null}
 
         <div className="mb-3 space-y-2 px-1">
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(118px,1.35fr)_minmax(104px,1.15fr)_72px_72px]">
             <button
               type="button"
               onClick={() => setIsPromptLibraryOpen(true)}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-100 bg-white/75 px-3 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white"
+              className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2.5 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white"
             >
               <Images className="size-4" />
               更多提示词
             </button>
             <button
               type="button"
+              onClick={() => void onPolishPrompt()}
+              disabled={!prompt.trim() || isPolishingPrompt}
+              className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2.5 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
+              aria-label="AI 润色当前提示词"
+              title="AI 润色会扣除 1 点额度"
+            >
+              {isPolishingPrompt ? <LoaderCircle className="size-4 animate-spin" /> : <WandSparkles className="size-4" />}
+              AI 润色
+            </button>
+            <button
+              type="button"
               onClick={() => void handleCopyPrompt()}
               disabled={!prompt}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-100 bg-white/75 px-3 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
+              className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
               aria-label="复制当前提示词"
             >
               <Copy className="size-4" />
@@ -1227,7 +1244,7 @@ export function ImageComposer({
               type="button"
               onClick={handleClearPrompt}
               disabled={!prompt}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-100 bg-white/75 px-3 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
+              className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
             >
               <X className="size-4" />
               清空

@@ -8,6 +8,8 @@ const DEFAULT_SITE_SETTINGS: PublicSiteSettings = {
   site_title: "Image Studio",
   site_icon: "/favicon.ico",
   site_background: "",
+  default_image_model: "gpt-image-2",
+  default_text_model: "gpt-5.5",
 };
 
 type SiteSettingsStore = {
@@ -23,6 +25,12 @@ function normalizeSiteSettings(settings?: Partial<PublicSiteSettings> | null): P
       String(settings?.site_title || DEFAULT_SITE_SETTINGS.site_title).trim() || DEFAULT_SITE_SETTINGS.site_title,
     site_icon: String(settings?.site_icon || DEFAULT_SITE_SETTINGS.site_icon).trim() || DEFAULT_SITE_SETTINGS.site_icon,
     site_background: String(settings?.site_background || DEFAULT_SITE_SETTINGS.site_background).trim(),
+    default_image_model:
+      String(settings?.default_image_model || DEFAULT_SITE_SETTINGS.default_image_model).trim() ||
+      DEFAULT_SITE_SETTINGS.default_image_model,
+    default_text_model:
+      String(settings?.default_text_model || DEFAULT_SITE_SETTINGS.default_text_model).trim() ||
+      DEFAULT_SITE_SETTINGS.default_text_model,
   };
 }
 
