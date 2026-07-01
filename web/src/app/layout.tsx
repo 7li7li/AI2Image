@@ -37,13 +37,16 @@ export default function RootLayout({
                 var settings = JSON.parse(raw);
                 if (settings.site_title) document.title = settings.site_title;
                 if (settings.site_icon) {
-                  var icon = document.querySelector("link[rel='icon'], link[rel='shortcut icon']");
-                  if (!icon) {
-                    icon = document.createElement("link");
-                    icon.rel = "icon";
-                    document.head.appendChild(icon);
+                  document.querySelectorAll("link[rel='icon'], link[rel='shortcut icon'], link[rel='apple-touch-icon']").forEach(function(item) {
+                    item.remove();
+                  });
+                  var icon = document.createElement("link");
+                  icon.rel = "icon";
+                  if (String(settings.site_icon).toLowerCase().split("?", 1)[0].endsWith(".png")) {
+                    icon.type = "image/png";
                   }
                   icon.href = settings.site_icon;
+                  document.head.appendChild(icon);
                 }
                 if (settings.site_background) {
                   document.documentElement.style.setProperty("--yan-site-background-image", "url('" + settings.site_background + "')");

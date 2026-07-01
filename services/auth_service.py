@@ -755,6 +755,8 @@ class AuthService:
         if len(next_password) < 6:
             raise ValueError("password must be at least 6 characters")
         normalized_id = self._clean(user_id)
+        if not normalized_id:
+            return None
         with self._lock:
             index = self._find_user_index_by_id(normalized_id)
             if index < 0:
@@ -763,7 +765,13 @@ class AuthService:
             user["password_hash"] = _hash_password(next_password)
             user["updated_at"] = _now_iso()
             self._users[index] = user
+            self._sessions = [
+                session
+                for session in self._sessions
+                if self._clean(session.get("user_id")) != normalized_id
+            ]
             self._save_users()
+            self._save_sessions()
             return self._public_user(user), next_password
 
     def adjust_user_quota(

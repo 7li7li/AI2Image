@@ -107,6 +107,17 @@ def resolve_web_asset(requested_path: str) -> Path | None:
         return None
     clean_path = requested_path.strip("/")
     base_dir = WEB_DIST_DIR.resolve()
+    if clean_path == "favicon.ico":
+        site_icon = str(config.site_icon or "").strip()
+        if site_icon.startswith("/") and "://" not in site_icon:
+            icon_path = site_icon.split("?", 1)[0].lstrip("/")
+            candidate = base_dir / Path(icon_path)
+            try:
+                candidate.resolve().relative_to(base_dir)
+            except ValueError:
+                candidate = None
+            if candidate is not None and candidate.is_file():
+                return candidate
     candidates = [base_dir / "index.html"] if not clean_path else [
         base_dir / Path(clean_path),
         base_dir / clean_path / "index.html",

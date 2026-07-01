@@ -86,14 +86,15 @@ export function applySiteSettings(settings: PublicSiteSettings) {
 
   document.title = settings.site_title;
 
-  const selector = "link[rel='icon'], link[rel='shortcut icon']";
-  let icon = document.head.querySelector<HTMLLinkElement>(selector);
-  if (!icon) {
-    icon = document.createElement("link");
-    icon.rel = "icon";
-    document.head.appendChild(icon);
+  const selector = "link[rel='icon'], link[rel='shortcut icon'], link[rel='apple-touch-icon']";
+  document.head.querySelectorAll<HTMLLinkElement>(selector).forEach((item) => item.remove());
+  const icon = document.createElement("link");
+  icon.rel = "icon";
+  if (settings.site_icon.toLowerCase().split("?", 1)[0]?.endsWith(".png")) {
+    icon.type = "image/png";
   }
   icon.href = settings.site_icon;
+  document.head.appendChild(icon);
 
   const background = settings.site_background.trim();
   if (background) {

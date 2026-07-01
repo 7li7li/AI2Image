@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { addMonths, format, parseISO } from "date-fns";
-import { AlertTriangle, CalendarIcon, Copy, LoaderCircle, Plus, RefreshCw, Search, Trash2, UserRound } from "lucide-react";
+import { AlertTriangle, CalendarIcon, Copy, KeyRound, LoaderCircle, Plus, RefreshCw, Search, Trash2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -137,6 +137,10 @@ function UsersPageContent() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<AdminUser[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
+  const [resetPasswordInput, setResetPasswordInput] = useState("");
+  const [resetPasswordResult, setResetPasswordResult] = useState("");
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
 
   const activeCount = useMemo(() => items.filter((item) => item.status === "active").length, [items]);
   const totalQuota = useMemo(() => items.reduce((sum, item) => sum + Number(item.quota || 0), 0), [items]);
@@ -215,13 +219,40 @@ function UsersPageContent() {
     }
   };
 
-  const handleResetPassword = async (user: AdminUser) => {
+  const openResetPassword = (user: AdminUser) => {
+    setResetTarget(user);
+    setResetPasswordInput("");
+    setResetPasswordResult("");
+  };
+
+  const handleCopyPassword = async (password: string) => {
     try {
-      const data = await resetAdminUserPassword(user.id);
-      await navigator.clipboard.writeText(data.password);
-      toast.success(`新密码已复制：${data.password}`);
+      await navigator.clipboard.writeText(password);
+      toast.success("新密码已复制");
+    } catch {
+      toast.error("复制失败，请手动复制新密码");
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetTarget) return;
+    setIsResettingPassword(true);
+    try {
+      const data = await resetAdminUserPassword(resetTarget.id, resetPasswordInput.trim() || undefined);
+      setItems((current) => current.map((item) => (item.id === data.item.id ? data.item : item)));
+      setResetTarget(data.item);
+      setResetPasswordInput("");
+      setResetPasswordResult(data.password);
+      try {
+        await navigator.clipboard.writeText(data.password);
+        toast.success("密码已重置并复制");
+      } catch {
+        toast.success("密码已重置，请手动复制新密码");
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "重置密码失败");
+    } finally {
+      setIsResettingPassword(false);
     }
   };
 
@@ -338,7 +369,7 @@ function UsersPageContent() {
               </span>
             ) : null}
           </div>
-          <div className="grid grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_400px] border-b border-rose-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-stone-400">
+          <div className="grid grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_470px] border-b border-rose-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-stone-400">
             <Checkbox
               checked={allSelected}
               onCheckedChange={(checked) => toggleSelectAll(Boolean(checked))}
@@ -360,7 +391,7 @@ function UsersPageContent() {
             <div className="px-6 py-14 text-center text-sm text-stone-500">暂无用户</div>
           ) : (
             items.map((user) => (
-              <div key={user.id} className="grid grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_400px] items-center border-b border-rose-50 px-5 py-4 text-sm last:border-0">
+              <div key={user.id} className="grid grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_470px] items-center border-b border-rose-50 px-5 py-4 text-sm last:border-0">
                 <Checkbox
                   checked={selectedIds.includes(user.id)}
                   onCheckedChange={(checked) => {
@@ -401,8 +432,14 @@ function UsersPageContent() {
                   <Button variant="outline" size="sm" className="h-8 rounded-lg border-rose-100 bg-white" onClick={() => void handleToggleStatus(user)}>
                     {user.status === "active" ? "禁用" : "启用"}
                   </Button>
-                  <Button variant="ghost" size="icon" className="size-8 text-stone-500" onClick={() => void handleResetPassword(user)}>
-                    <Copy className="size-4" />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-lg border-rose-100 bg-white"
+                    onClick={() => openResetPassword(user)}
+                  >
+                    <KeyRound className="size-4" />
+                    重置密码
                   </Button>
                   <Button
                     variant="ghost"
@@ -420,6 +457,84 @@ function UsersPageContent() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(resetTarget)}
+        onOpenChange={(open) => {
+          if (!open && !isResettingPassword) {
+            setResetTarget(null);
+            setResetPasswordInput("");
+            setResetPasswordResult("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <div className="mb-1 flex size-10 items-center justify-center rounded-full bg-rose-50 text-rose-500">
+              <KeyRound className="size-5" />
+            </div>
+            <DialogTitle>重置用户密码</DialogTitle>
+            <DialogDescription>
+              为 {resetTarget?.email || "当前用户"} 设置新密码。留空会自动生成密码；重置后该用户已有登录会话会失效。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-stone-700" htmlFor="reset-password-input">
+                新密码
+              </label>
+              <Input
+                id="reset-password-input"
+                type="text"
+                value={resetPasswordInput}
+                onChange={(event) => setResetPasswordInput(event.target.value)}
+                placeholder="至少 6 位，留空自动生成"
+                className="h-10 rounded-xl border-rose-100 bg-white"
+                disabled={isResettingPassword}
+              />
+            </div>
+            {resetPasswordResult ? (
+              <div className="rounded-lg border border-rose-100 bg-rose-50/50 p-3">
+                <div className="mb-2 text-xs font-medium text-stone-500">新密码</div>
+                <div className="flex gap-2">
+                  <Input
+                    readOnly
+                    value={resetPasswordResult}
+                    className="h-9 rounded-lg border-rose-100 bg-white font-mono text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 rounded-lg border-rose-100 bg-white"
+                    onClick={() => void handleCopyPassword(resetPasswordResult)}
+                  >
+                    <Copy className="size-4" />
+                    复制
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="rounded-xl border-stone-200 bg-white"
+              onClick={() => {
+                setResetTarget(null);
+                setResetPasswordInput("");
+                setResetPasswordResult("");
+              }}
+              disabled={isResettingPassword}
+            >
+              取消
+            </Button>
+            <Button className="rounded-xl bg-rose-500 text-white hover:bg-rose-600" onClick={() => void handleResetPassword()} disabled={isResettingPassword}>
+              {isResettingPassword ? <LoaderCircle className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
+              重置并复制
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>

@@ -497,7 +497,7 @@ def create_router() -> APIRouter:
 
     @router.post("/api/admin/users/{user_id}/reset-password")
     async def admin_reset_password(user_id: str, body: ResetPasswordRequest, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
+        admin = require_admin(authorization)
         try:
             result = auth_service.reset_password(user_id, body.password)
         except ValueError as exc:
@@ -505,6 +505,16 @@ def create_router() -> APIRouter:
         if result is None:
             raise HTTPException(status_code=404, detail={"error": "user not found"})
         user, password = result
+        audit_service.add(
+            actor=admin,
+            action="users.password.reset",
+            resource="user",
+            target_id=user_id,
+            detail={
+                "email": user.get("email"),
+                "generated": not bool(body.password.strip()),
+            },
+        )
         return {"item": user, "password": password}
 
     @router.get("/api/admin/redeem-codes")

@@ -54,7 +54,15 @@ export function TopNav() {
   const router = useRouter();
   const [session, setSession] = useState<StoredAuthSession | null | undefined>(undefined);
   const siteTitle = useSiteSettingsStore((state) => state.settings.site_title);
+  const siteIcon = useSiteSettingsStore((state) => state.settings.site_icon);
+  const [iconFailed, setIconFailed] = useState(false);
+  const normalizedSiteIcon = siteIcon.trim();
+  const showSiteIcon = Boolean(normalizedSiteIcon && !iconFailed);
   const brandMark = siteTitle.trim().slice(0, 1) || "颜";
+
+  useEffect(() => {
+    setIconFailed(false);
+  }, [normalizedSiteIcon]);
 
   useEffect(() => {
     let active = true;
@@ -90,8 +98,18 @@ export function TopNav() {
     <header className="border-b border-rose-100/80 bg-white/48 backdrop-blur-xl">
       <div className="flex min-h-16 items-center justify-between gap-3 px-3 sm:px-5">
         <Link href="/image" className="group flex shrink-0 items-center gap-2.5 whitespace-nowrap">
-          <span className="yan-mark-gradient grid size-10 place-items-center rounded-lg text-sm font-black text-white shadow-[0_14px_30px_rgba(243,111,159,0.22)] transition group-hover:brightness-105">
-            {brandMark}
+          <span
+            className={cn(
+              "grid size-10 place-items-center overflow-hidden rounded-lg shadow-[0_14px_30px_rgba(243,111,159,0.22)] transition group-hover:brightness-105",
+              showSiteIcon ? "border border-white/70 bg-white p-1" : "yan-mark-gradient text-sm font-black text-white",
+            )}
+          >
+            {showSiteIcon ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={normalizedSiteIcon} alt="" className="size-full object-contain" onError={() => setIconFailed(true)} />
+            ) : (
+              brandMark
+            )}
           </span>
           <span className="hidden leading-tight sm:block">
             <span className="block text-[17px] font-bold tracking-tight text-stone-950">{siteTitle}</span>
