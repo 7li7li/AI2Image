@@ -369,7 +369,7 @@ function UsersPageContent() {
               </span>
             ) : null}
           </div>
-          <div className="grid grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_470px] border-b border-rose-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-stone-400">
+          <div className="hidden grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_470px] border-b border-rose-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-stone-400 2xl:grid">
             <Checkbox
               checked={allSelected}
               onCheckedChange={(checked) => toggleSelectAll(Boolean(checked))}
@@ -391,30 +391,47 @@ function UsersPageContent() {
             <div className="px-6 py-14 text-center text-sm text-stone-500">暂无用户</div>
           ) : (
             items.map((user) => (
-              <div key={user.id} className="grid grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_470px] items-center border-b border-rose-50 px-5 py-4 text-sm last:border-0">
-                <Checkbox
-                  checked={selectedIds.includes(user.id)}
-                  onCheckedChange={(checked) => {
-                    setSelectedIds((current) =>
-                      checked
-                        ? Array.from(new Set([...current, user.id]))
-                        : current.filter((id) => id !== user.id),
-                    );
-                  }}
-                  aria-label={`选择用户 ${user.email}`}
-                />
-                <div className="min-w-0">
-                  <div className="truncate font-medium text-stone-900">{user.name}</div>
-                  <div className="truncate text-xs text-stone-500">{user.email}</div>
+              <div key={user.id} className="grid gap-3 border-b border-rose-50 px-5 py-4 text-sm last:border-0 2xl:grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_470px] 2xl:items-center 2xl:gap-0">
+                <div className="flex min-w-0 items-start gap-3 2xl:contents">
+                  <Checkbox
+                    checked={selectedIds.includes(user.id)}
+                    onCheckedChange={(checked) => {
+                      setSelectedIds((current) =>
+                        checked
+                          ? Array.from(new Set([...current, user.id]))
+                          : current.filter((id) => id !== user.id),
+                      );
+                    }}
+                    aria-label={`选择用户 ${user.email}`}
+                  />
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-stone-900">{user.name}</div>
+                    <div className="truncate text-xs text-stone-500">{user.email}</div>
+                  </div>
                 </div>
-                <Badge variant={user.status === "active" ? "success" : "secondary"}>
-                  {user.status === "active" ? "正常" : "禁用"}
-                </Badge>
-                <div className="font-semibold text-rose-600">{user.quota}</div>
-                <div className="text-stone-600">{user.image_count || 0} / {user.spent_quota || user.quota_used || 0}</div>
-                <div className="text-stone-500">{formatTime(user.last_login_at)}</div>
-                <div className="text-xs text-stone-500">{user.quota_expires_at ? formatTime(user.quota_expires_at) : "不限期"}</div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center justify-between gap-3 2xl:block">
+                  <span className="text-xs font-medium text-stone-400 2xl:hidden">状态</span>
+                  <Badge variant={user.status === "active" ? "success" : "secondary"}>
+                    {user.status === "active" ? "正常" : "禁用"}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between gap-3 2xl:block">
+                  <span className="text-xs font-medium text-stone-400 2xl:hidden">额度</span>
+                  <span className="font-semibold text-rose-600">{user.quota}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 2xl:block">
+                  <span className="text-xs font-medium text-stone-400 2xl:hidden">图片/消耗</span>
+                  <span className="text-stone-600">{user.image_count || 0} / {user.spent_quota || user.quota_used || 0}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 2xl:block">
+                  <span className="text-xs font-medium text-stone-400 2xl:hidden">最后登录</span>
+                  <span className="text-stone-500">{formatTime(user.last_login_at)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 2xl:block">
+                  <span className="text-xs font-medium text-stone-400 2xl:hidden">额度到期</span>
+                  <span className="text-xs text-stone-500">{user.quota_expires_at ? formatTime(user.quota_expires_at) : "不限期"}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 border-t border-rose-50 pt-3 2xl:border-t-0 2xl:pt-0">
                   <Input
                     type="number"
                     value={quotaInputs[user.id] ?? String(user.quota)}

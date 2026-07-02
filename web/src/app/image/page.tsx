@@ -68,11 +68,11 @@ const IMAGE_MODERATION_STORAGE_KEY = "chatgpt2api:image_last_moderation";
 const IMAGE_TRANSPARENT_BACKGROUND_STORAGE_KEY = "chatgpt2api:image_last_transparent_background";
 const COMPOSER_PANEL_WIDTH_STORAGE_KEY = "chatgpt2api:image_composer_panel_width";
 const COMPOSER_PANEL_DEFAULT_WIDTH = 520;
-const COMPOSER_PANEL_MIN_WIDTH = 420;
+const COMPOSER_PANEL_MIN_WIDTH = 380;
 const COMPOSER_PANEL_MAX_WIDTH = 820;
-const COMPOSER_GRID_LEFT_WIDTH = 300;
+const COMPOSER_GRID_LEFT_WIDTH = 280;
 const COMPOSER_GRID_GAP_WIDTH = 12;
-const COMPOSER_RESULTS_MIN_WIDTH = 480;
+const COMPOSER_RESULTS_MIN_WIDTH = 440;
 const SUPPORTED_IMAGE_SIZES = new Set(["", "1:1", "3:2", "2:3", "16:9", "4:3", "3:4", "9:16"]);
 const activeConversationQueueIds = new Set<string>();
 let isImageGenerationQueueRunning = false;
@@ -1409,9 +1409,9 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
       <section
         ref={imageStudioGridRef}
         style={imageStudioGridStyle}
-        className="grid h-full min-h-0 w-full grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[300px_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[300px_minmax(0,1fr)_var(--image-composer-panel-width)]"
+        className="grid h-full min-h-0 w-full min-w-0 grid-cols-1 gap-3 overflow-y-auto xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.78fr)] xl:overflow-hidden 2xl:grid-cols-[280px_minmax(0,1fr)_var(--image-composer-panel-width)]"
       >
-        <div className="yan-panel hidden min-h-0 overflow-hidden rounded-lg lg:row-span-2 lg:flex xl:row-span-1">
+        <div className="yan-panel hidden min-h-0 overflow-hidden rounded-lg 2xl:flex">
           <ImageStudioSidebar
             conversations={filteredConversations}
             isLoadingHistory={isLoadingHistory}
@@ -1448,8 +1448,8 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
           </DialogContent>
         </Dialog>
 
-        <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
-          <div className="flex items-center justify-between gap-2 lg:hidden">
+        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
+          <div className="flex items-center justify-between gap-2 2xl:hidden">
             <Button
               variant="outline"
               className="h-10 flex-1 rounded-lg border-rose-100 bg-white/75 text-stone-700 shadow-sm"
@@ -1490,7 +1490,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             </label>
           </header>
 
-          <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <WorkspaceMetric label="今日生成" value={workspaceStats.todayGenerated} />
             <WorkspaceMetric label="成功率" value={workspaceStats.successRate} />
             <WorkspaceMetric label="处理中" value={workspaceStats.active} />
@@ -1525,7 +1525,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
         </div>
 
         <aside
-          className={`yan-panel relative min-h-0 overflow-hidden rounded-lg lg:col-span-2 xl:col-span-1 ${
+          className={`yan-panel relative min-h-0 min-w-0 overflow-hidden rounded-lg ${
             isComposerPanelResizing ? "ring-2 ring-rose-100" : ""
           }`}
         >
@@ -1533,7 +1533,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             type="button"
             aria-label="调整 Prompt 面板宽度"
             onPointerDown={handleComposerPanelResizeStart}
-            className="group absolute top-0 bottom-0 left-0 z-20 hidden w-3 cursor-col-resize items-center justify-center outline-none xl:flex"
+            className="group absolute top-0 bottom-0 left-0 z-20 hidden w-3 cursor-col-resize items-center justify-center outline-none 2xl:flex"
           >
             <span className="h-14 w-1 rounded-full bg-rose-200/70 opacity-70 transition group-hover:bg-rose-300 group-hover:opacity-100 group-focus-visible:bg-rose-400 group-focus-visible:opacity-100" />
           </button>

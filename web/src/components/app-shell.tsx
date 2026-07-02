@@ -19,10 +19,10 @@ export function AppShell({ children }: AppShellProps) {
   }
 
   return (
-    <main className="yan-soft-grid h-screen overflow-hidden px-3 py-3 text-stone-900 sm:px-4 lg:px-5">
-      <div className="yan-app-surface mx-auto flex h-[calc(100dvh-1.5rem)] max-w-[1800px] flex-col overflow-hidden rounded-lg">
+    <main className="yan-soft-grid h-dvh overflow-hidden px-2 py-2 text-stone-900 sm:px-3 sm:py-3 lg:px-4">
+      <div className="yan-app-surface mx-auto flex h-[calc(100dvh-1rem)] max-w-[1800px] flex-col overflow-hidden rounded-lg sm:h-[calc(100dvh-1.5rem)]">
         <TopNav />
-        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-5 lg:px-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 py-3 sm:px-4 sm:py-4 lg:px-5">{children}</div>
       </div>
     </main>
   );
