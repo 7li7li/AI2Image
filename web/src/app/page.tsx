@@ -1,23 +1,35 @@
 "use client";
 
-import { useEffect } from "react";
+import { LoaderCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
-import { getRouteHref } from "@/lib/routes";
+import { LoginForm } from "@/app/login/login-form";
 import { getDefaultRouteForRole, getStoredAuthSession } from "@/store/auth";
 
 export default function HomePage() {
   const router = useRouter();
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   useEffect(() => {
     let active = true;
 
     const redirect = async () => {
-      const session = await getStoredAuthSession();
+      let session: Awaited<ReturnType<typeof getStoredAuthSession>> = null;
+      try {
+        session = await getStoredAuthSession();
+      } catch {
+        session = null;
+      }
+
       if (!active) {
         return;
       }
-      router.replace(session ? getDefaultRouteForRole(session.role) : getRouteHref("/login"));
+      if (session) {
+        router.replace(getDefaultRouteForRole(session.role));
+        return;
+      }
+      setIsCheckingAuth(false);
     };
 
     void redirect();
@@ -26,5 +38,13 @@ export default function HomePage() {
     };
   }, [router]);
 
-  return null;
+  if (isCheckingAuth) {
+    return (
+      <div className="grid min-h-[calc(100vh-1rem)] w-full place-items-center px-4 py-6">
+        <LoaderCircle className="size-5 animate-spin text-rose-400" />
+      </div>
+    );
+  }
+
+  return <LoginForm />;
 }

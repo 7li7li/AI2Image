@@ -14,7 +14,7 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const normalizedPathname = normalizeAppPath(pathname);
 
-  if (normalizedPathname === "/login") {
+  if (normalizedPathname === "/" || normalizedPathname === "/login") {
     return <main className="min-h-screen text-stone-900">{children}</main>;
   }
 

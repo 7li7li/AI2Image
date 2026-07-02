@@ -7,10 +7,17 @@ services:
     container_name: imagestudio
     restart: unless-stopped
     ports:
-      - "${IMAGESTUDIO_PORT:-9001}:9001"
+      - "127.0.0.1:${IMAGESTUDIO_PORT:-9001}:9001"
     volumes:
       - ./data:/app/data
       - ./config.json:/app/config.json
     environment:
       - STORAGE_BACKEND=postgres
       - DATABASE_URL=postgresql://user:password@host:5432/dbname
+    networks:
+      - 1panel-network
+
+networks:
+  1panel-network:
+    external: true
+    name: 1panel-network
