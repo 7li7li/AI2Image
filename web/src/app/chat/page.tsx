@@ -663,6 +663,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
     setSelectedConversationId(null);
     resetComposer();
     textareaRef.current?.focus();
+    toast.success("已新建空白对话");
   };
 
   const handleDeleteConversation = async (id: string) => {

@@ -202,4 +202,24 @@
   .hide-scrollbar::-webkit-scrollbar {
     display: none;
   }
+
+  .image-empty-state {
+    min-height: 520px;
+  }
+
+  .image-empty-examples-grid {
+    max-width: 620px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (min-width: 1280px) and (max-height: 1099px) {
+    .image-empty-state {
+      min-height: 360px;
+    }
+
+    .image-empty-examples-grid {
+      max-width: 900px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
 }

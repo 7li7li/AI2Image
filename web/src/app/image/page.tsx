@@ -893,6 +893,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     setSelectedConversationId(null);
     resetComposer();
     textareaRef.current?.focus();
+    toast.success("已新建空白创作");
   };
 
   const handleDeleteConversation = async (id: string) => {
