@@ -241,6 +241,84 @@ export type ImageRequestOptions = {
   background?: string;
 };
 
+const IMAGE_RATIO_SIZE_ALIASES: Record<string, string> = {
+  "1:1": "1024x1024",
+  "3:2": "1536x1024",
+  "2:3": "1024x1536",
+  "16:9": "1536x1024",
+  "4:3": "1536x1024",
+  "9:16": "1024x1536",
+  "3:4": "1024x1536",
+  "21:9": "1536x658",
+};
+
+const IMAGE_RATIO_DIMENSIONS: Record<string, [number, number]> = {
+  "1:1": [1, 1],
+  "3:2": [3, 2],
+  "2:3": [2, 3],
+  "16:9": [16, 9],
+  "4:3": [4, 3],
+  "9:16": [9, 16],
+  "3:4": [3, 4],
+  "21:9": [21, 9],
+};
+
+const IMAGE_RESOLUTION_SIZE_PRESETS: Record<string, Record<"square" | "landscape" | "portrait", string>> = {
+  "1k": {
+    square: "1024x1024",
+    landscape: "1536x1024",
+    portrait: "1024x1536",
+  },
+  "2k": {
+    square: "2048x2048",
+    landscape: "2560x1440",
+    portrait: "1440x2560",
+  },
+  "4k": {
+    square: "2880x2880",
+    landscape: "3840x2160",
+    portrait: "2160x3840",
+  },
+};
+
+function isExplicitImageSize(value: string) {
+  const [width, height] = value.toLowerCase().split("x");
+  return Boolean(width && height && /^\d+$/.test(width) && /^\d+$/.test(height));
+}
+
+function resolveImageOrientation(width: number, height: number): "square" | "landscape" | "portrait" {
+  if (width > height) {
+    return "landscape";
+  }
+  if (height > width) {
+    return "portrait";
+  }
+  return "square";
+}
+
+export function resolveImageRequestSize(size?: string, resolution?: string) {
+  const normalizedSize = String(size || "").trim().toLowerCase();
+  const normalizedResolution = String(resolution || "").trim().toLowerCase();
+  const resolutionPreset = IMAGE_RESOLUTION_SIZE_PRESETS[normalizedResolution];
+
+  if (resolutionPreset) {
+    if (isExplicitImageSize(normalizedSize)) {
+      const [width, height] = normalizedSize.split("x").map(Number);
+      return resolutionPreset[resolveImageOrientation(width, height)];
+    }
+    const [width, height] = IMAGE_RATIO_DIMENSIONS[normalizedSize] || IMAGE_RATIO_DIMENSIONS["1:1"];
+    return resolutionPreset[resolveImageOrientation(width, height)];
+  }
+
+  if (!normalizedSize || normalizedSize === "auto") {
+    return undefined;
+  }
+  if (isExplicitImageSize(normalizedSize)) {
+    return normalizedSize;
+  }
+  return IMAGE_RATIO_SIZE_ALIASES[normalizedSize] || normalizedSize;
+}
+
 export type LoginResponse = {
   ok: boolean;
   version: string;
@@ -356,11 +434,9 @@ export async function redeemMyCode(code: string) {
 
 function normalizeImageRequestOptions(options: ImageRequestOptions = {}) {
   const payload: Record<string, string | number> = {};
-  if (options.size) {
-    payload.size = options.size;
-  }
-  if (options.resolution && options.resolution !== "auto") {
-    payload.resolution = options.resolution;
+  const resolvedSize = resolveImageRequestSize(options.size, options.resolution);
+  if (resolvedSize) {
+    payload.size = resolvedSize;
   }
   if (options.quality) {
     payload.quality = options.quality;

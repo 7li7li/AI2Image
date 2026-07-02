@@ -73,6 +73,7 @@ const COMPOSER_PANEL_MAX_WIDTH = 820;
 const COMPOSER_GRID_LEFT_WIDTH = 300;
 const COMPOSER_GRID_GAP_WIDTH = 12;
 const COMPOSER_RESULTS_MIN_WIDTH = 480;
+const SUPPORTED_IMAGE_SIZES = new Set(["", "1:1", "3:2", "2:3", "16:9", "4:3", "3:4", "9:16"]);
 const activeConversationQueueIds = new Set<string>();
 let isImageGenerationQueueRunning = false;
 
@@ -200,13 +201,18 @@ function normalizeOutputCompression(value: number | string | null | undefined) {
   return Math.max(0, Math.min(100, Math.round(normalized)));
 }
 
+function normalizeImageSize(value: string | null | undefined) {
+  const normalized = String(value || "").trim();
+  return SUPPORTED_IMAGE_SIZES.has(normalized) ? normalized : "";
+}
+
 function buildImageRequestOptions(turn: Pick<
   ImageTurn,
   "size" | "resolution" | "quality" | "outputFormat" | "outputCompression" | "moderation" | "transparentBackground"
 >): ImageRequestOptions {
   const outputFormat = turn.transparentBackground ? "png" : turn.outputFormat || DEFAULT_IMAGE_OUTPUT_FORMAT;
   return {
-    size: turn.size,
+    size: normalizeImageSize(turn.size),
     resolution: turn.resolution,
     quality: turn.quality || DEFAULT_IMAGE_QUALITY,
     output_format: outputFormat,
@@ -598,7 +604,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             typeof window !== "undefined" ? window.localStorage.getItem(imageModerationStorageKey) : null;
           const storedTransparentBackground =
             typeof window !== "undefined" ? window.localStorage.getItem(imageTransparentBackgroundStorageKey) : null;
-          setImageSize(storedSize || "");
+          setImageSize(normalizeImageSize(storedSize));
           setImageResolution(storedResolution || "auto");
           if (storedQuality === "auto" || storedQuality === "low" || storedQuality === "medium" || storedQuality === "high") {
             setImageQuality(storedQuality);
@@ -1551,7 +1557,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             onModeChange={setImageMode}
             onPromptChange={setImagePrompt}
             onImageCountChange={setImageCount}
-            onImageSizeChange={setImageSize}
+            onImageSizeChange={(value) => setImageSize(normalizeImageSize(value))}
             onImageResolutionChange={setImageResolution}
             onImageQualityChange={setImageQuality}
             onImageOutputFormatChange={setImageOutputFormat}

@@ -167,10 +167,22 @@ EXTERNAL_IMAGE_RATIO_PROMPT_HINTS = {
     "21:9": "输出为 21:9 超宽幅构图，适合电影感场景和横向展示。",
 }
 
-EXTERNAL_IMAGE_RESOLUTION_LONG_SIDE = {
-    "1k": 1024,
-    "2k": 2048,
-    "4k": 4096,
+EXTERNAL_IMAGE_RESOLUTION_SIZE_PRESETS = {
+    "1k": {
+        "square": "1024x1024",
+        "landscape": "1536x1024",
+        "portrait": "1024x1536",
+    },
+    "2k": {
+        "square": "2048x2048",
+        "landscape": "2560x1440",
+        "portrait": "1440x2560",
+    },
+    "4k": {
+        "square": "2880x2880",
+        "landscape": "3840x2160",
+        "portrait": "2160x3840",
+    },
 }
 
 EXTERNAL_IMAGE_RATIO_DIMENSIONS = {
@@ -206,12 +218,20 @@ def _is_explicit_image_size(value: str) -> bool:
     return bool(separator and width.isdigit() and height.isdigit())
 
 
+def _image_orientation(width: int, height: int) -> str:
+    if width > height:
+        return "landscape"
+    if height > width:
+        return "portrait"
+    return "square"
+
+
 def _resolve_image_resolution_size(size: str, resolution: str) -> str | None:
     normalized_resolution = resolution.lower()
     if normalized_resolution in {"", "auto"}:
         return None
-    long_side = EXTERNAL_IMAGE_RESOLUTION_LONG_SIDE.get(normalized_resolution)
-    if not long_side:
+    preset = EXTERNAL_IMAGE_RESOLUTION_SIZE_PRESETS.get(normalized_resolution)
+    if not preset:
         return None
     if _is_explicit_image_size(size):
         width, _, height = size.lower().partition("x")
@@ -219,22 +239,10 @@ def _resolve_image_resolution_size(size: str, resolution: str) -> str | None:
         height_value = int(height)
         if width_value <= 0 or height_value <= 0:
             return None
-        if width_value >= height_value:
-            resolved_width = long_side
-            resolved_height = round(long_side * height_value / width_value)
-        else:
-            resolved_width = round(long_side * width_value / height_value)
-            resolved_height = long_side
-        return f"{resolved_width}x{resolved_height}"
+        return preset[_image_orientation(width_value, height_value)]
     ratio = EXTERNAL_IMAGE_RATIO_DIMENSIONS.get(size) or EXTERNAL_IMAGE_RATIO_DIMENSIONS["1:1"]
     width_ratio, height_ratio = ratio
-    if width_ratio >= height_ratio:
-        resolved_width = long_side
-        resolved_height = round(long_side * height_ratio / width_ratio)
-    else:
-        resolved_width = round(long_side * width_ratio / height_ratio)
-        resolved_height = long_side
-    return f"{resolved_width}x{resolved_height}"
+    return preset[_image_orientation(width_ratio, height_ratio)]
 
 
 def _normalize_external_image_request(prompt: object, size: object, resolution: object = None) -> tuple[str | None, str | None]:

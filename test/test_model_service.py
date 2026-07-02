@@ -697,7 +697,7 @@ class ModelServiceTest(unittest.TestCase):
 
         self.assertIsNotNone(routed)
         body = calls["kwargs"]["json"]
-        self.assertEqual(body["size"], "2048x1152")
+        self.assertEqual(body["size"], "2560x1440")
         self.assertEqual(body["quality"], "high")
         self.assertEqual(body["output_format"], "webp")
         self.assertEqual(body["output_compression"], 82)
@@ -1044,7 +1044,7 @@ class ModelServiceTest(unittest.TestCase):
         self.assertIsNotNone(routed)
         self.assertEqual(calls["url"], "https://a.example/v1/images/edits")
         parts = mime_instances[0].parts
-        self.assertIn({"name": "size", "data": b"3072x4096"}, parts)
+        self.assertIn({"name": "size", "data": b"2160x3840"}, parts)
         prompt_part = next(part for part in parts if part["name"] == "prompt")
         self.assertIn("3:4", prompt_part["data"].decode("utf-8"))
 

@@ -36,6 +36,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import {
   fetchPromptLibrary,
+  resolveImageRequestSize,
   type ImageModeration,
   type ImageOutputFormat,
   type ImageQuality,
@@ -219,6 +220,8 @@ const PHOTO_PORTRAIT_V1_PROMPT = `
 5.  **随机确定画面比例**：从以下常用比例中随机选择一个：
     * 3:4
     * 4:3
+    * 2:3
+    * 3:2
     * 9:16
     * 16:9
 
@@ -238,7 +241,7 @@ const PHOTO_PORTRAIT_V1_PROMPT = `
 
 # 示例和指导（Examples and Guidance）
 * **高质量范例1 (细腻质感风):** 采用细腻皮肤真实质感的风格，画面中展现了一个少女的脸部特写，通过略微俯视的镜头角度进行呈现。背景营造出清醒系且阳光的场景氛围，少女有着散乱的头发随风飘动，眼神闪闪发光，其中带着阳光和魅惑的情绪，尽显高冷气质。画面着重勾勒了少女的面部细节，高光处理十分讲究，同时画面呈现出带有摄影机噪点的画质，并且有着蓝白色通透效果。比例3:4。【不改变人脸比例和形象，原比例！原比例！原比例！】
-* **高质量范例2 (时尚人像风):** 水后时尚人像，面部大特写，极近距离拍摄，眼神直视镜头，神态自然松弛，清透水感妆容。人物和数尾迷你热带小鱼在鱼缸前景缓缓穿梭，尾鳍透明灵动。水面折射出晃动光纹，碎光斑点在脸庞跳跃，水下漂浮粒子环绕。整体氛围梦幻安静，棕黑色系暗调，高级感浓厚，漂浮失焦、动态模糊与细腻胶片颗粒交错。比例9:16。【不改变人脸比例和形象，原比例！原比例！原比例！】
+* **高质量范例2 (时尚人像风):** 水后时尚人像，面部大特写，极近距离拍摄，眼神直视镜头，神态自然松弛，清透水感妆容。人物和数尾迷你热带小鱼在鱼缸前景缓缓穿梭，尾鳍透明灵动。水面折射出晃动光纹，碎光斑点在脸庞跳跃，水下漂浮粒子环绕。整体氛围梦幻安静，棕黑色系暗调，高级感浓厚，漂浮失焦、动态模糊与细腻胶片颗粒交错。比例2:3。【不改变人脸比例和形象，原比例！原比例！原比例！】
 * **高质量范例3 (快照抓拍风):** 看起来像用拍立得相机偶然拍到的漫不经心的情侣快照。照片要有轻微的晃动感，暗处照相机闪光灯发出的照明扩散到整个照片上。男生女生脸贴脸亲密地看着镜头，前置摄像头的自拍视角。照片不能太清晰，要有胶片拍立得的质感。比例4:3。【不改变人脸比例和形象，原比例！原比例！原比例！】
 `.trim();
 
@@ -644,11 +647,10 @@ export function ImageComposer({
     { value: "1:1", label: "1:1 (正方形)" },
     { value: "3:2", label: "3:2 (横版)" },
     { value: "2:3", label: "2:3 (竖版)" },
-    { value: "16:9", label: "16:9 (横版)" },
     { value: "4:3", label: "4:3 (横版)" },
     { value: "3:4", label: "3:4 (竖版)" },
     { value: "9:16", label: "9:16 (竖版)" },
-    { value: "21:9", label: "21:9 (超宽)" },
+    { value: "16:9", label: "16:9 (横版)" },
   ];
   const imageSizeLabel = imageSizeOptions.find((option) => option.value === imageSize)?.label || "自动";
   const imageResolutionOptions = [
@@ -658,6 +660,7 @@ export function ImageComposer({
     { value: "4k", label: "4k" },
   ];
   const imageResolutionLabel = imageResolutionOptions.find((option) => option.value === imageResolution)?.label || "自动";
+  const actualImageResolution = resolveImageRequestSize(imageSize, imageResolution) || "模型自动";
   const imageQualityOptions: Array<{ value: ImageQuality; label: string }> = [
     { value: "auto", label: "自动" },
     { value: "low", label: "低" },
@@ -953,6 +956,10 @@ export function ImageComposer({
                   })}
                 </div>
               ) : null}
+            </div>
+            <div className="col-span-2 flex h-9 items-center justify-between rounded-lg border border-rose-100 bg-white/60 px-3 text-sm">
+              <span className="font-medium text-stone-600">实际分辨率</span>
+              <span className="font-bold text-stone-900">{actualImageResolution}</span>
             </div>
             <SettingSelect
               label="质量"
