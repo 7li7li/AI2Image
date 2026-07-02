@@ -1448,7 +1448,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
           </DialogContent>
         </Dialog>
 
-        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
           <div className="flex items-center justify-between gap-2 2xl:hidden">
             <Button
               variant="outline"
@@ -1472,9 +1472,9 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             </Button>
           </div>
 
-          <header className="yan-panel flex min-h-16 flex-col gap-3 rounded-lg px-4 py-3 md:flex-row md:items-center">
+          <header className="yan-panel flex min-h-14 flex-col gap-3 rounded-lg px-4 py-2.5 md:flex-row md:items-center">
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-2xl font-bold tracking-tight text-stone-950">AI影像创作台</h1>
+              <h1 className="truncate text-xl font-bold tracking-tight text-stone-950">AI影像创作台</h1>
               <p className="mt-1 truncate text-sm text-stone-500">
                 {defaultImageModel} · 创作队列 {workspaceStats.active} · 当前空间 Image Studio
               </p>
@@ -1485,7 +1485,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
                 value={workspaceSearch}
                 onChange={(event) => setWorkspaceSearch(event.target.value)}
                 placeholder="搜索作品、提示词、会话"
-                className="h-10 w-full rounded-lg border border-[var(--yan-border)] bg-white/72 pl-9 pr-3 text-sm text-stone-700 outline-none transition placeholder:text-stone-400 focus:border-rose-200 focus:bg-white focus:ring-4 focus:ring-rose-100/60"
+                className="h-9 w-full rounded-lg border border-[var(--yan-border)] bg-white/72 pl-9 pr-3 text-sm text-stone-700 outline-none transition placeholder:text-stone-400 focus:border-rose-200 focus:bg-white focus:ring-4 focus:ring-rose-100/60"
               />
             </label>
           </header>
@@ -1499,7 +1499,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
 
           <div className="min-h-0 flex-1 overflow-hidden">
             <div ref={resultsViewportRef} className="yan-panel h-full min-h-0 overflow-y-auto rounded-lg">
-              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-rose-100/70 bg-white/72 px-4 py-3 backdrop-blur-xl">
+              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-rose-100/70 bg-white/72 px-4 py-2.5 backdrop-blur-xl">
                 <div className="min-w-0">
                   <h2 className="text-base font-bold text-stone-950">生成画面</h2>
                   <p className="truncate text-sm text-stone-500">
@@ -1511,7 +1511,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
                   <span>{workspaceStats.running} 运行中</span>
                 </div>
               </div>
-              <div className="px-3 py-4 sm:px-4">
+              <div className="px-3 py-3 sm:px-4">
                 <ImageResults
                   selectedConversation={selectedConversation}
                   onOpenLightbox={openLightbox}
@@ -1662,9 +1662,9 @@ function ImageStudioSidebar({
 
 function WorkspaceMetric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="yan-panel-strong rounded-lg px-4 py-3">
+    <div className="yan-panel-strong rounded-lg px-4 py-2.5">
       <div className="text-xs font-medium text-stone-500">{label}</div>
-      <div className="mt-2 text-2xl font-bold tracking-tight text-stone-950">{value}</div>
+      <div className="mt-1 text-xl font-bold tracking-tight text-stone-950">{value}</div>
     </div>
   );
 }

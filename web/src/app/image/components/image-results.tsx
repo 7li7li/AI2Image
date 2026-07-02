@@ -180,7 +180,7 @@ export function ImageResults({
 
   if (!selectedConversation) {
     return (
-      <div className="grid min-h-[520px] content-center gap-4">
+      <div className="grid min-h-[360px] content-center gap-3">
         <div className="rounded-lg border border-white/70 bg-white/58 p-5 text-center">
           <div className="mx-auto grid size-12 place-items-center rounded-lg bg-gradient-to-br from-rose-100 to-fuchsia-100 text-rose-500">
             <ImageIcon className="size-5" />
@@ -190,7 +190,7 @@ export function ImageResults({
             支持文生图、图生图、参考图上传和粘贴、提示词库、队列恢复、灯箱预览与继续编辑。
           </p>
         </div>
-        <div className="mx-auto grid w-full max-w-[620px] grid-cols-2 gap-3">
+        <div className="mx-auto grid w-full max-w-[900px] grid-cols-2 gap-3 xl:grid-cols-4">
           {emptyStateExamples.map((item) => (
             <div key={item.label} className="overflow-hidden rounded-lg border border-white/70 bg-white/58 shadow-sm">
               <div className="aspect-[4/3] bg-rose-50">

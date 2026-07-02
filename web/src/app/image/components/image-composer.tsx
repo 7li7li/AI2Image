@@ -804,12 +804,12 @@ export function ImageComposer({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-rose-100/70 px-4 py-4">
+      <div className="border-b border-rose-100/70 px-4 py-3">
         <div className="text-base font-bold text-stone-950">Prompt 创作台</div>
         <div className="mt-1 text-sm text-stone-500">图像生成 · 参考图编辑</div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {mode === "edit" && (
           <input
             ref={fileInputRef}
@@ -823,7 +823,7 @@ export function ImageComposer({
           />
         )}
 
-        <div className="mb-4 grid grid-cols-2 gap-2">
+        <div className="mb-3 grid grid-cols-2 gap-2">
           <ModeButton active={mode === "generate"} onClick={() => onModeChange("generate")}>
             文生图
           </ModeButton>
@@ -832,7 +832,7 @@ export function ImageComposer({
           </ModeButton>
         </div>
 
-        <div className="mb-4 grid grid-cols-2 gap-3 rounded-lg bg-white/45 p-3">
+        <div className="mb-3 grid grid-cols-2 gap-2 rounded-lg bg-white/45 p-2.5 xl:grid-cols-4">
           <div>
             <div className="text-xs text-stone-500">模型</div>
             <div className="mt-1 truncate text-sm font-bold text-stone-950">{defaultImageModel}</div>
@@ -851,8 +851,8 @@ export function ImageComposer({
           </div>
         </div>
 
-        <div className="mb-4 rounded-lg border border-rose-100 bg-white/72 p-3">
-          <div className="mb-3 flex items-center gap-2 text-xs font-bold text-stone-500">
+        <div className="mb-3 rounded-lg border border-rose-100 bg-white/72 p-2.5">
+          <div className="mb-2 flex items-center gap-2 text-xs font-bold text-stone-500">
             <span className="h-px flex-1 bg-rose-100" />
             <span>生成设置</span>
             <span className="h-px flex-1 bg-rose-100" />
@@ -1056,7 +1056,7 @@ export function ImageComposer({
             <button
               type="button"
               onClick={() => setIsPromptLibraryOpen(true)}
-              className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2.5 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white"
+              className="inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2.5 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white"
             >
               <Images className="size-4" />
               更多提示词
@@ -1065,7 +1065,7 @@ export function ImageComposer({
               type="button"
               onClick={() => void onPolishPrompt()}
               disabled={!prompt.trim() || isPolishingPrompt}
-              className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2.5 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
+              className="inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2.5 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
               aria-label="AI 润色当前提示词"
               title="AI 润色会扣除 1 点额度"
             >
@@ -1076,7 +1076,7 @@ export function ImageComposer({
               type="button"
               onClick={() => void handleCopyPrompt()}
               disabled={!prompt}
-              className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
+              className="inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
               aria-label="复制当前提示词"
             >
               <Copy className="size-4" />
@@ -1086,7 +1086,7 @@ export function ImageComposer({
               type="button"
               onClick={handleClearPrompt}
               disabled={!prompt}
-              className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
+              className="inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
             >
               <X className="size-4" />
               清空
@@ -1266,16 +1266,16 @@ export function ImageComposer({
                   void onSubmit();
                 }
               }}
-              className="min-h-[170px] resize-y rounded-lg border-0 bg-transparent px-4 pt-4 pb-4 text-[15px] leading-7 text-stone-900 shadow-none placeholder:text-stone-400 focus-visible:ring-0"
+              className="min-h-[128px] resize-y rounded-lg border-0 bg-transparent px-4 pt-4 pb-4 text-[15px] leading-7 text-stone-900 shadow-none placeholder:text-stone-400 focus-visible:ring-0"
             />
 
-            <div className="border-t border-rose-100 bg-white/80 px-3 py-3">
+            <div className="border-t border-rose-100 bg-white/80 px-3 py-2.5">
               <div className="flex flex-col gap-3">
                 <button
                   type="button"
                   onClick={() => void onSubmit()}
                   disabled={!prompt.trim() || (mode === "edit" && referenceImages.length === 0)}
-                  className="yan-gradient inline-flex h-11 w-full shrink-0 items-center justify-center rounded-lg text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:brightness-100"
+                  className="yan-gradient inline-flex h-10 w-full shrink-0 items-center justify-center rounded-lg text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:brightness-100"
                   aria-label={mode === "edit" ? "编辑图片" : "生成图片"}
                 >
                   <ArrowUp className="size-4" />
