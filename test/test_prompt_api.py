@@ -22,7 +22,6 @@ class PromptApiTests(unittest.TestCase):
             root = Path(tmp_dir)
             service = PromptLibraryService(
                 JSONStorageBackend(root / "storage.json"),
-                bootstrap_paths=(),
                 assets_dir=root / "assets",
             )
             original_service = prompts_api.prompt_library_service
@@ -73,7 +72,6 @@ class PromptApiTests(unittest.TestCase):
             root = Path(tmp_dir)
             service = PromptLibraryService(
                 JSONStorageBackend(root / "storage.json"),
-                bootstrap_paths=(),
                 assets_dir=root / "assets",
             )
             original_service = prompts_api.prompt_library_service

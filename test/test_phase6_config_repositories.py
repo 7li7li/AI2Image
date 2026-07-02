@@ -97,7 +97,6 @@ class Phase6ConfigRepositoryTest(unittest.TestCase):
             storage = DatabaseStorageBackend(f"sqlite:///{db_path.as_posix()}")
             service = PromptLibraryService(
                 storage.repository_provider,
-                bootstrap_paths=(),
                 assets_dir=Path(tmp_dir) / "assets",
             )
 

@@ -58,6 +58,7 @@ import {
 } from "@/store/chat-conversations";
 
 const ACTIVE_CHAT_CONVERSATION_STORAGE_KEY = "chatgpt2api:chat_active_conversation_id";
+const CHAT_CONTEXT_TURN_LIMIT = 4;
 const MAX_CHAT_ATTACHMENTS = 4;
 const MAX_CHAT_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const READABLE_ATTACHMENT_TYPES = new Set([
@@ -297,13 +298,35 @@ async function recoverChatHistory(items: ChatConversation[], ownerKey: string) {
 }
 
 function toApiMessages(messages: StoredChatMessage[]): ChatCompletionMessage[] {
-  return messages
-    .filter(
-      (message) =>
-        message.status !== "sending" &&
-        message.status !== "error" &&
-        (String(message.content || "").trim() || (message.attachments?.length ?? 0) > 0),
-    )
+  const eligibleMessages = messages.filter(
+    (message) =>
+      message.status !== "sending" &&
+      message.status !== "error" &&
+      (String(message.content || "").trim() || (message.attachments?.length ?? 0) > 0),
+  );
+  let userTurnCount = 0;
+  let windowStartIndex = 0;
+
+  for (let index = eligibleMessages.length - 1; index >= 0; index -= 1) {
+    if (eligibleMessages[index].role !== "user") {
+      continue;
+    }
+    userTurnCount += 1;
+    if (userTurnCount >= CHAT_CONTEXT_TURN_LIMIT) {
+      windowStartIndex = index;
+      break;
+    }
+  }
+
+  const contextMessages =
+    userTurnCount >= CHAT_CONTEXT_TURN_LIMIT
+      ? [
+          ...eligibleMessages.slice(0, windowStartIndex).filter((message) => message.role === "system"),
+          ...eligibleMessages.slice(windowStartIndex),
+        ]
+      : eligibleMessages;
+
+  return contextMessages
     .map((message) => {
       let content: ChatCompletionContent = String(message.content || "");
       if (message.attachments && message.attachments.length > 0) {

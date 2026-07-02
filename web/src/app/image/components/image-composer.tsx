@@ -45,11 +45,8 @@ import { resolveApiAssetUrl } from "@/lib/assets";
 import type { ImageConversationMode } from "@/store/image-conversations";
 import { cn } from "@/lib/utils";
 
-const BANANA_PROMPTS_SNAPSHOT_VERSION = "2026-05-27-sfw";
-const BANANA_PROMPTS_URL = `/banana-prompt-quicker/prompts.json?v=${BANANA_PROMPTS_SNAPSHOT_VERSION}`;
 const BANANA_PROMPTS_ASSET_BASE_URL = "/banana-prompt-quicker/";
 const PROMPT_LIBRARY_API_TIMEOUT_MS = 2200;
-const QUICK_PROMPT_COUNT = 3;
 
 const GLASSES_PROMPT = `
 不知道自己适合佩戴什么样式的眼镜？
@@ -396,122 +393,6 @@ User Settings (to be defined before image generation):
 Once parameters are set, generate notes in the chosen language adhering strictly to the selected formatting and visual guidelines.
 `.trim();
 
-type ImagePromptPreset = {
-  id: string;
-  title: string;
-  description: string;
-  prompt: string;
-  mode: ImageConversationMode;
-  imageSize?: string;
-  imageCount?: string;
-  icon: LucideIcon;
-};
-
-const promptPresetOptions: ImagePromptPreset[] = [
-  {
-    id: "glasses",
-    title: "不知道适合什么眼镜？",
-    description: "面部特征分析 + 眼镜搭配指南",
-    prompt: GLASSES_PROMPT,
-    mode: "edit",
-    imageCount: "1",
-    icon: Glasses,
-  },
-  {
-    id: "hairstyle",
-    title: "不知道适合什么发型？",
-    description: "AI发型美学升级报告",
-    prompt: HAIRSTYLE_PROMPT,
-    mode: "edit",
-    imageSize: "4:3",
-    imageCount: "1",
-    icon: Scissors,
-  },
-  {
-    id: "natural-beauty",
-    title: "自然美颜精修",
-    description: "保留本人五官 + 轻度肤质优化",
-    prompt: NATURAL_BEAUTY_PROMPT,
-    mode: "edit",
-    imageCount: "1",
-    icon: Sparkles,
-  },
-  {
-    id: "photo-portrait-v1",
-    title: "写真随机风格 V1",
-    description: "随机组合真人写真提示词",
-    prompt: PHOTO_PORTRAIT_V1_PROMPT,
-    mode: "edit",
-    imageCount: "1",
-    icon: Aperture,
-  },
-  {
-    id: "photo-portrait-v2",
-    title: "写真随机风格 V2",
-    description: "商业摄影感真人写真描述",
-    prompt: PHOTO_PORTRAIT_V2_PROMPT,
-    mode: "edit",
-    imageCount: "1",
-    icon: Clapperboard,
-  },
-  {
-    id: "cutie-3d-style",
-    title: "3D Cutie 风格",
-    description: "圆润软萌 + 极简3D插画",
-    prompt: CUTIE_3D_STYLE_PROMPT,
-    mode: "generate",
-    imageSize: "1:1",
-    imageCount: "1",
-    icon: Box,
-  },
-  {
-    id: "xiaohongshu-poster",
-    title: "小红书风格海报",
-    description: "先问参数 + 输出海报 JSON",
-    prompt: XIAOHONGSHU_POSTER_PROMPT,
-    mode: "generate",
-    imageSize: "3:4",
-    imageCount: "1",
-    icon: Newspaper,
-  },
-  {
-    id: "handwritten-notes",
-    title: "手写笔记风格",
-    description: "结构化笔记 + 手绘批注",
-    prompt: HANDWRITTEN_NOTES_PROMPT,
-    mode: "generate",
-    imageCount: "1",
-    icon: NotebookPen,
-  },
-  {
-    id: "photo-enhance",
-    title: "照片质感优化",
-    description: "曝光色彩 + 清晰度整体增强",
-    prompt: PHOTO_ENHANCE_PROMPT,
-    mode: "edit",
-    imageCount: "1",
-    icon: Camera,
-  },
-  {
-    id: "backlight-repair",
-    title: "暗光逆光修复",
-    description: "自然补光 + 高光阴影恢复",
-    prompt: BACKLIGHT_REPAIR_PROMPT,
-    mode: "edit",
-    imageCount: "1",
-    icon: SunMedium,
-  },
-  {
-    id: "detail-restore",
-    title: "高清细节修复",
-    description: "去糊去噪 + 保留真实纹理",
-    prompt: DETAIL_RESTORE_PROMPT,
-    mode: "edit",
-    imageCount: "1",
-    icon: WandSparkles,
-  },
-];
-
 type PromptPickerItem = Omit<PromptLibraryItem, "id"> & { id?: string };
 
 const promptIconMap: Record<string, LucideIcon> = {
@@ -541,20 +422,6 @@ const defaultPromptIconById: Record<string, string> = {
   "backlight-repair": "sun-medium",
   "detail-restore": "wand-sparkles",
 };
-
-const defaultPromptItems: PromptPickerItem[] = promptPresetOptions.map((preset, index) => ({
-  id: preset.id,
-  title: preset.title,
-  description: preset.description,
-  prompt: preset.prompt,
-  mode: preset.mode,
-  image_size: preset.imageSize || "",
-  image_count: preset.imageCount || "",
-  icon: defaultPromptIconById[preset.id],
-  quick_access: index < QUICK_PROMPT_COUNT,
-  sort_order: (index + 1) * 10,
-  category: "内置快捷",
-}));
 
 type BananaPromptStatus = "idle" | "loading" | "success" | "error";
 
@@ -639,20 +506,6 @@ function getPromptIdentityKey(item: PromptPickerItem) {
 
 function getPromptSortOrder(item: PromptPickerItem, index: number) {
   return typeof item.sort_order === "number" ? item.sort_order : 10000 + index;
-}
-
-function mergePromptItems(primaryItems: PromptPickerItem[], secondaryItems: PromptPickerItem[]) {
-  const secondaryById = new Map(secondaryItems.filter((item) => item.id).map((item) => [item.id, item]));
-  const merged = primaryItems.map((item) => (item.id && secondaryById.has(item.id) ? secondaryById.get(item.id)! : item));
-  const seen = new Set(merged.map(getPromptIdentityKey));
-  secondaryItems.forEach((item) => {
-    const key = getPromptIdentityKey(item);
-    if (!seen.has(key)) {
-      seen.add(key);
-      merged.push(item);
-    }
-  });
-  return merged;
 }
 
 function uniquePromptItems(items: PromptPickerItem[]) {
@@ -776,7 +629,7 @@ export function ImageComposer({
   const [isPromptLibraryOpen, setIsPromptLibraryOpen] = useState(false);
   const [bananaPromptStatus, setBananaPromptStatus] = useState<BananaPromptStatus>("idle");
   const [bananaPromptError, setBananaPromptError] = useState("");
-  const [bananaPrompts, setBananaPrompts] = useState<PromptPickerItem[]>(defaultPromptItems);
+  const [bananaPrompts, setBananaPrompts] = useState<PromptPickerItem[]>([]);
   const [bananaPromptQuery, setBananaPromptQuery] = useState("");
   const [bananaPromptCategory, setBananaPromptCategory] = useState("全部");
   const [bananaPromptRetryKey, setBananaPromptRetryKey] = useState(0);
@@ -821,7 +674,7 @@ export function ImageComposer({
     { value: "low", label: "低限制" },
   ];
   const morePromptItems = useMemo(
-    () => uniquePromptItems([...defaultPromptItems, ...bananaPrompts]),
+    () => uniquePromptItems(bananaPrompts),
     [bananaPrompts],
   );
   const bananaPromptCategories = useMemo(() => {
@@ -879,30 +732,12 @@ export function ImageComposer({
       setBananaPromptStatus("loading");
       setBananaPromptError("");
       try {
-        let items: PromptPickerItem[] = [];
-        let apiErrorMessage = "";
-        try {
-          const payload = await withTimeout(fetchPromptLibrary(), PROMPT_LIBRARY_API_TIMEOUT_MS);
-          items = normalizeBananaPromptsPayload(payload);
-        } catch (error) {
-          apiErrorMessage = error instanceof Error ? error.message : "";
-          items = [];
+        const payload = await withTimeout(fetchPromptLibrary(), PROMPT_LIBRARY_API_TIMEOUT_MS);
+        const items = normalizeBananaPromptsPayload(payload);
+        if (controller.signal.aborted) {
+          return;
         }
-        if (items.length === 0) {
-          const response = await fetch(BANANA_PROMPTS_URL, {
-            signal: controller.signal,
-            cache: "no-store",
-          });
-          if (!response.ok) {
-            throw new Error(`本地资源返回 ${response.status}`);
-          }
-          items = normalizeBananaPromptsPayload(await response.json());
-        }
-        if (items.length === 0) {
-          throw new Error("未读取到可用提示词");
-        }
-        setBananaPrompts(sortPromptItems(mergePromptItems(defaultPromptItems, items)));
-        setBananaPromptError(apiErrorMessage);
+        setBananaPrompts(sortPromptItems(items));
         setBananaPromptStatus("success");
       } catch (error) {
         if (controller.signal.aborted) {
@@ -910,7 +745,7 @@ export function ImageComposer({
         }
         const message = error instanceof Error ? error.message : "提示词加载失败";
         setBananaPromptError(message);
-        setBananaPrompts(defaultPromptItems);
+        setBananaPrompts([]);
         setBananaPromptStatus("error");
       }
     };

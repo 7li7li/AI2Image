@@ -1,4 +1,3 @@
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,38 +7,13 @@ from services.storage.json_storage import JSONStorageBackend
 
 
 class PromptLibraryServiceTests(unittest.TestCase):
-    def test_bootstrap_create_update_delete_and_upload(self) -> None:
+    def test_create_update_delete_and_upload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            seed_path = root / "seed.json"
-            seed_path.write_text(
-                json.dumps(
-                    {
-                        "prompts": [
-                            {
-                                "title": "Legacy prompt",
-                                "description": "Legacy description",
-                                "prompt": "Generate a poster",
-                                "mode": "generate",
-                                "image_size": "4:3",
-                                "image_count": "1",
-                                "quick_access": True,
-                                "category": "Work",
-                            }
-                        ]
-                    },
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
             storage = JSONStorageBackend(root / "storage.json")
-            service = PromptLibraryService(storage, bootstrap_paths=(seed_path,), assets_dir=root / "assets")
+            service = PromptLibraryService(storage, assets_dir=root / "assets")
 
-            self.assertEqual(len(service.list_prompts()), 1)
-            original = service.list_prompts()[0]
-            self.assertEqual(original["description"], "Legacy description")
-            self.assertEqual(original["image_size"], "4:3")
-            self.assertTrue(original["quick_access"])
+            self.assertEqual(service.list_prompts(), [])
 
             created = service.create_prompt(
                 {
@@ -52,7 +26,7 @@ class PromptLibraryServiceTests(unittest.TestCase):
             )
 
             self.assertEqual(created["mode"], "edit")
-            self.assertEqual(len(storage.load_prompt_library()), 2)
+            self.assertEqual(len(storage.load_prompt_library()), 1)
 
             updated = service.update_prompt(
                 created["id"],
@@ -67,51 +41,22 @@ class PromptLibraryServiceTests(unittest.TestCase):
             self.assertTrue(list((root / "assets").rglob("*.png")))
 
             self.assertTrue(service.delete_prompt(created["id"]))
-            self.assertEqual(len(service.list_prompts()), 1)
+            self.assertEqual(service.list_prompts(), [])
 
-    def test_default_prompts_are_added_to_existing_legacy_library(self) -> None:
+    def test_empty_storage_does_not_load_bootstrap_prompts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            seed_path = root / "seed.json"
-            seed_path.write_text(
-                json.dumps(
-                    {
-                        "prompts": [
-                            {
-                                "id": "quick",
-                                "title": "Quick prompt",
-                                "prompt": "Generate quick content",
-                                "quick_access": True,
-                                "category": "Built in",
-                            }
-                        ]
-                    },
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
             storage = JSONStorageBackend(root / "storage.json")
-            storage.save_prompt_library(
-                [
-                    {
-                        "id": "legacy",
-                        "title": "Legacy library prompt",
-                        "prompt": "Generate legacy content",
-                        "category": "Work",
-                    }
-                ]
-            )
+            service = PromptLibraryService(storage, assets_dir=root / "assets")
 
-            service = PromptLibraryService(storage, bootstrap_paths=(seed_path,), assets_dir=root / "assets")
-            items = service.list_prompts()
-
-            self.assertEqual([item["id"] for item in items], ["quick", "legacy"])
+            self.assertEqual(service.list_prompts(), [])
+            self.assertEqual(storage.load_prompt_library(), [])
 
     def test_user_submission_review_share_and_import(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             storage = JSONStorageBackend(root / "storage.json")
-            service = PromptLibraryService(storage, bootstrap_paths=(), assets_dir=root / "assets")
+            service = PromptLibraryService(storage, assets_dir=root / "assets")
             user = {"id": "user-1", "name": "User One", "role": "user"}
             admin = {"id": "admin", "name": "Admin", "role": "admin"}
 

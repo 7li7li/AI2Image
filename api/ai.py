@@ -17,6 +17,9 @@ from services.log_service import LOG_TYPE_CALL, log_service
 from services.observability import request_id_from_request
 
 
+PUBLIC_CHANNEL_ERROR = "服务暂时不可用，请稍后重试"
+
+
 class ImageGenerationRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
     model: str | None = None
@@ -136,7 +139,7 @@ def create_router() -> APIRouter:
     def require_channel_success(payload: dict[str, object]) -> None:
         channel_error = str(payload.get("_channel_error") or "").strip()
         if channel_error:
-            raise HTTPException(status_code=502, detail={"error": channel_error})
+            raise HTTPException(status_code=502, detail={"error": PUBLIC_CHANNEL_ERROR})
         raise HTTPException(status_code=503, detail={"error": "no enabled image channel supports this request"})
 
     def log_channel_failure(
@@ -152,7 +155,7 @@ def create_router() -> APIRouter:
             return
         log_service.add(
             LOG_TYPE_CALL,
-            "image channel call failed",
+            "channel call failed",
             endpoint=endpoint,
             model=model,
             status="error",
@@ -460,10 +463,19 @@ def create_router() -> APIRouter:
                     routed = await run_in_threadpool(channel_service.call_chat_completion_stream, payload)
                     if routed is None:
                         channel_error = str(payload.get("_channel_error") or "").strip()
+                        log_channel_failure(
+                            identity=identity,
+                            endpoint="/api/chat/completions",
+                            model=str(payload.get("model") or ""),
+                            payload=payload,
+                            request_id=request_id,
+                        )
+                        if quota_request_id:
+                            auth_service.release_quota(quota_request_id)
                         yield sse_event(
                             "error",
                             {
-                                "error": channel_error or "no enabled text channel supports this request",
+                                "error": PUBLIC_CHANNEL_ERROR if channel_error else "no enabled text channel supports this request",
                                 "request_id": request_id,
                             },
                         )
@@ -511,7 +523,19 @@ def create_router() -> APIRouter:
                     if quota_request_id:
                         auth_service.release_quota(quota_request_id)
                     message = str(exc).strip() or exc.__class__.__name__
-                    yield sse_event("error", {"error": message, "request_id": request_id})
+                    log_service.add(
+                        LOG_TYPE_CALL,
+                        "text chat channel stream failed",
+                        endpoint="/api/chat/completions",
+                        model=str(payload.get("model") or ""),
+                        status="error",
+                        error=message,
+                        request_id=request_id,
+                        user_id=str(identity.get("id") or ""),
+                        user_name=str(identity.get("name") or ""),
+                        user_email=str(identity.get("email") or ""),
+                    )
+                    yield sse_event("error", {"error": PUBLIC_CHANNEL_ERROR, "request_id": request_id})
 
             return StreamingResponse(
                 stream_events(),
@@ -524,7 +548,14 @@ def create_router() -> APIRouter:
             if routed is None:
                 channel_error = str(payload.get("_channel_error") or "").strip()
                 if channel_error:
-                    raise HTTPException(status_code=502, detail={"error": channel_error})
+                    log_channel_failure(
+                        identity=identity,
+                        endpoint="/api/chat/completions",
+                        model=str(payload.get("model") or ""),
+                        payload=payload,
+                        request_id=request_id,
+                    )
+                    raise HTTPException(status_code=502, detail={"error": PUBLIC_CHANNEL_ERROR})
                 raise HTTPException(status_code=503, detail={"error": "no enabled text channel supports this request"})
             result, channel_name = routed
             count = 1 if isinstance(result, dict) and result.get("choices") else 0

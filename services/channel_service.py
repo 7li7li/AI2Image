@@ -833,11 +833,7 @@ class ChannelService:
                 for channel in channels
                 if self._resolve_external_model_for_channel(channel, model)
             ]
-        weighted: list[dict[str, object]] = []
-        for channel in sorted(channels, key=lambda item: int(item.get("priority") or 0), reverse=True):
-            weighted.extend([channel] * max(1, int(channel.get("weight") or 1)))
-        random.shuffle(weighted)
-        return weighted
+        return self._weighted_distinct_channels(channels)
 
     def _enabled_external_chat_channels(self, model: str | None = None) -> list[dict[str, object]]:
         with self._lock:
@@ -852,11 +848,23 @@ class ChannelService:
                 for channel in channels
                 if self._resolve_chat_model_for_channel(channel, model)
             ]
+        return self._weighted_distinct_channels(channels)
+
+    @staticmethod
+    def _weighted_distinct_channels(channels: list[dict[str, object]]) -> list[dict[str, object]]:
         weighted: list[dict[str, object]] = []
         for channel in sorted(channels, key=lambda item: int(item.get("priority") or 0), reverse=True):
             weighted.extend([channel] * max(1, int(channel.get("weight") or 1)))
         random.shuffle(weighted)
-        return weighted
+        selected: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for channel in weighted:
+            channel_id = _clean(channel.get("id"))
+            if channel_id in seen:
+                continue
+            seen.add(channel_id)
+            selected.append(dict(channel))
+        return selected
 
     def has_external_channels(self, model: str | None = None) -> bool:
         return bool(self._enabled_external_channels(model))
@@ -1075,17 +1083,21 @@ class ChannelService:
     def _call_chat_completion_stream(self, channel: dict[str, object], payload: dict[str, Any]):
         body = self._chat_completion_body(channel, {**payload, "stream": True})
         session = self._session(channel)
+        try:
+            response = session.post(
+                self._openai_compatible_url(channel, "/v1/chat/completions"),
+                json=body,
+                timeout=int(channel.get("timeout") or 60),
+                stream=True,
+            )
+            if not response.ok:
+                raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
+        except Exception:
+            session.close()
+            raise
 
         def chunks():
             try:
-                response = session.post(
-                    self._openai_compatible_url(channel, "/v1/chat/completions"),
-                    json=body,
-                    timeout=int(channel.get("timeout") or 60),
-                    stream=True,
-                )
-                if not response.ok:
-                    raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
                 pending = b""
                 for chunk in response.iter_content():
                     if not chunk:

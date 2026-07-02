@@ -43,28 +43,28 @@ const emptyStateHeroSource: EmptyStatePromptSource = {
 
 const emptyStateExampleSources: EmptyStatePromptSource[] = [
   {
-    title: "中国神话角色Q版组合插画",
-    label: "国风插画",
-    fallbackTitle: "中国神话角色Q版组合插画",
-    fallbackPreview: "/banana-prompt-quicker/images/chinese_mythology_characters.jpg",
+    title: "包装贴合效果",
+    label: "包装贴合效果",
+    fallbackTitle: "包装贴合效果",
+    fallbackPreview: "/banana-prompt-quicker/external/pbs.twimg.com/83fb94b764edcbdfce00f78f.jpg",
   },
   {
-    title: "生成商业促销海报",
-    label: "产品海报",
-    fallbackTitle: "生成商业促销海报",
-    fallbackPreview: "/banana-prompt-quicker/images/promo_poster.jpg",
+    title: "时尚杂志封面风格",
+    label: "时尚杂志封面风格",
+    fallbackTitle: "时尚杂志封面风格",
+    fallbackPreview: "/banana-prompt-quicker/external/bibigpt-apps.chatvid.ai/081ec7325039543b79c27572.png",
   },
   {
-    id: "handwritten-notes",
-    label: "手写笔记风格",
-    fallbackTitle: "手写笔记风格",
-    fallbackPreview: "https://cdn3.ldstatic.com/optimized/4X/a/7/c/a7c6e18b0b22cd9f305cedec8aa55aecc8fae4d4_2_499x750.jpeg",
+    title: "产品原型图",
+    label: "产品原型图",
+    fallbackTitle: "产品原型图",
+    fallbackPreview: "/banana-prompt-quicker/external/pbs.twimg.com/0e65471a02a977f41b998482.jpg",
   },
   {
-    id: "photo-portrait-v1",
-    label: "写真随机风格 V1",
-    fallbackTitle: "写真随机风格 V1",
-    fallbackPreview: "/banana-prompt-quicker/images/film_portrait.jpg",
+    title: "时尚心情板拼贴",
+    label: "时尚心情板拼贴",
+    fallbackTitle: "时尚心情板拼贴",
+    fallbackPreview: "/banana-prompt-quicker/external/pbs.twimg.com/36faf385d4541ff7c5ab41b0.jpg",
   },
 ];
 

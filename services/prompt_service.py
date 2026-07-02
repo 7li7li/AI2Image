@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
-import json
 from pathlib import Path
 from threading import RLock
 import uuid
@@ -12,14 +11,6 @@ from services.config import config
 from services.repositories.base import RepositoryProvider
 from services.repositories.storage_adapter import RepositoryStorageAdapter
 from services.storage.base import StorageBackend
-
-BASE_DIR = Path(__file__).resolve().parents[1]
-BOOTSTRAP_PROMPT_PATHS = (
-    BASE_DIR / "services" / "default_prompt_library.json",
-    BASE_DIR / "data" / "prompt_library.seed.json",
-    BASE_DIR / "web" / "public" / "banana-prompt-quicker" / "prompts.json",
-    BASE_DIR / "web_dist" / "banana-prompt-quicker" / "prompts.json",
-)
 
 ALLOWED_IMAGE_EXTENSIONS = {
     ".gif",
@@ -266,12 +257,10 @@ class PromptLibraryService:
         self,
         storage: StorageBackend | RepositoryProvider,
         *,
-        bootstrap_paths: tuple[Path, ...] = BOOTSTRAP_PROMPT_PATHS,
         assets_dir: Path | None = None,
     ):
         self.repositories = storage if isinstance(storage, RepositoryProvider) else None
         self.storage = RepositoryStorageAdapter(storage) if isinstance(storage, RepositoryProvider) else storage
-        self.bootstrap_paths = bootstrap_paths
         self.assets_dir = assets_dir or config.prompt_assets_dir
         self._lock = RLock()
         self._items = self._load_items()
@@ -283,52 +272,7 @@ class PromptLibraryService:
             stored = []
         items = [_normalize_prompt(item) for item in stored if isinstance(item, dict)]
         normalized = [item for item in items if item is not None]
-        if normalized:
-            return self._merge_default_prompts(normalized)
-        return self._load_bootstrap_items()
-
-    def _merge_default_prompts(self, stored_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        bootstrap_items = self._load_bootstrap_items()
-        default_items = [
-            item for item in bootstrap_items
-            if item.get("quick_access") or item.get("category") == "内置快捷"
-        ]
-        if not default_items:
-            return stored_items
-
-        stored_ids = {_clean(item.get("id")) for item in stored_items}
-        default_ids = {_clean(item.get("id")) for item in default_items}
-        if stored_ids & default_ids:
-            return stored_items
-
-        return [*default_items, *stored_items]
-
-    def _load_bootstrap_items(self) -> list[dict[str, Any]]:
-        merged: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for path in self.bootstrap_paths:
-            if not path.exists():
-                continue
-            try:
-                data = json.loads(path.read_text(encoding="utf-8-sig"))
-            except Exception:
-                continue
-            if isinstance(data, dict):
-                raw_items = data.get("prompts") or data.get("items")
-            else:
-                raw_items = data
-            if not isinstance(raw_items, list):
-                continue
-            items = [_normalize_prompt(item) for item in raw_items if isinstance(item, dict)]
-            normalized = [item for item in items if item is not None]
-            if normalized:
-                for item in normalized:
-                    item_id = _clean(item.get("id"))
-                    if item_id in seen:
-                        continue
-                    seen.add(item_id)
-                    merged.append(item)
-        return merged
+        return normalized
 
     def _save(self) -> None:
         self.storage.save_prompt_library(self._items)

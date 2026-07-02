@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
@@ -13,7 +12,6 @@ import {
 import {
   LoaderCircle,
   Menu,
-  MessagesSquare,
   Plus,
   Search,
   Trash2,
@@ -1632,16 +1630,6 @@ function ImageStudioSidebar({
               <div className="text-xs font-bold text-stone-500">最近会话</div>
               <div className="mt-1 text-[11px] text-stone-400">{conversations.length} 条记录</div>
             </div>
-            <Button
-              asChild
-              variant="outline"
-              className="h-8 rounded-lg border-rose-100 bg-white/75 px-2.5 text-xs text-stone-600 hover:bg-white"
-            >
-              <Link href="/chat">
-                <MessagesSquare className="size-3.5" />
-                对话
-              </Link>
-            </Button>
           </div>
           <ImageSidebar
             conversations={conversations}

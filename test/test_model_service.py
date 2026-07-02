@@ -202,6 +202,55 @@ class ModelServiceTest(unittest.TestCase):
             self.assertEqual(seen["model"], "gpt-image-2")
             self.assertEqual(routed[1], "A")
 
+    def test_generation_retries_next_distinct_supported_channel_after_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            storage.save_channels(
+                [
+                    {
+                        "id": "channel-a",
+                        "name": "A",
+                        "base_url": "https://a.example",
+                        "api_key": "sk-a",
+                        "models": ["gpt-image-2"],
+                        "weight": 3,
+                    },
+                    {
+                        "id": "channel-b",
+                        "name": "B",
+                        "base_url": "https://b.example",
+                        "api_key": "sk-b",
+                        "models": ["gpt-image-2"],
+                    },
+                    {
+                        "id": "channel-c",
+                        "name": "C",
+                        "base_url": "https://c.example",
+                        "api_key": "sk-c",
+                        "models": ["other-image-model"],
+                    },
+                ]
+            )
+            service = ChannelService(storage, FakeConfigStore())
+            calls: list[tuple[str, object]] = []
+            payload = {"prompt": "draw", "model": "gpt-image-2", "n": 1}
+
+            def fake_generation(channel, routed_payload):
+                channel_id = str(channel.get("id"))
+                calls.append((channel_id, routed_payload.get("model")))
+                if channel_id == "channel-a":
+                    raise RuntimeError("upstream timeout")
+                return {"created": 1, "data": [{"url": "https://b.example/image.png"}]}
+
+            service._call_generation = fake_generation  # type: ignore[method-assign]
+            with mock.patch.object(channel_service_module.random, "shuffle", lambda items: None):
+                routed = service.call_generation(payload)
+
+            self.assertIsNotNone(routed)
+            self.assertEqual(calls, [("channel-a", "gpt-image-2"), ("channel-b", "gpt-image-2")])
+            self.assertEqual(routed[1], "B")
+            self.assertNotIn("_channel_error", payload)
+
     def test_chat_uses_text_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
@@ -246,6 +295,141 @@ class ModelServiceTest(unittest.TestCase):
             self.assertEqual(seen["channel"], "channel-a")
             self.assertEqual(seen["model"], "gpt-5.5")
             self.assertEqual(routed[1], "A")
+
+    def test_chat_retries_next_distinct_supported_channel_after_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            storage.save_channels(
+                [
+                    {
+                        "id": "channel-a",
+                        "name": "A",
+                        "base_url": "https://a.example",
+                        "api_key": "sk-a",
+                        "models": ["gpt-5.5"],
+                        "weight": 4,
+                    },
+                    {
+                        "id": "channel-b",
+                        "name": "B",
+                        "base_url": "https://b.example",
+                        "api_key": "sk-b",
+                        "models": ["gpt-5.5"],
+                    },
+                    {
+                        "id": "channel-c",
+                        "name": "C",
+                        "base_url": "https://c.example",
+                        "api_key": "sk-c",
+                        "models": ["other-text-model"],
+                    },
+                ]
+            )
+            service = ChannelService(storage, FakeConfigStore())
+            calls: list[tuple[str, object]] = []
+            payload = {
+                "model": "gpt-5.5",
+                "messages": [{"role": "user", "content": "hello"}],
+            }
+
+            def fake_chat_completion(channel, routed_payload):
+                channel_id = str(channel.get("id"))
+                calls.append((channel_id, routed_payload.get("model")))
+                if channel_id == "channel-a":
+                    raise RuntimeError("HTTP 500: upstream error")
+                return {
+                    "id": "chatcmpl-test",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": routed_payload.get("model"),
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "ok"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+
+            service._call_chat_completion = fake_chat_completion  # type: ignore[method-assign]
+            with mock.patch.object(channel_service_module.random, "shuffle", lambda items: None):
+                routed = service.call_chat_completion(payload)
+
+            self.assertIsNotNone(routed)
+            self.assertEqual(calls, [("channel-a", "gpt-5.5"), ("channel-b", "gpt-5.5")])
+            self.assertEqual(routed[1], "B")
+            self.assertNotIn("_channel_error", payload)
+
+    def test_chat_stream_retries_next_supported_channel_after_initial_request_failure(self) -> None:
+        class FakeResponse:
+            ok = True
+            status_code = 200
+            text = ""
+
+            def iter_content(self):
+                yield b'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
+                yield b"data: [DONE]\n\n"
+
+        class FakeSession:
+            def __init__(self, channel_id: str):
+                self.channel_id = channel_id
+                self.closed = False
+
+            def post(self, url, **kwargs):
+                calls.append((self.channel_id, kwargs["json"]["model"], kwargs["json"]["stream"]))
+                if self.channel_id == "channel-a":
+                    raise RuntimeError("connect timeout")
+                return FakeResponse()
+
+            def close(self):
+                self.closed = True
+                closed.append(self.channel_id)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            storage.save_channels(
+                [
+                    {
+                        "id": "channel-a",
+                        "name": "A",
+                        "base_url": "https://a.example",
+                        "api_key": "sk-a",
+                        "models": ["gpt-5.5"],
+                        "weight": 2,
+                    },
+                    {
+                        "id": "channel-b",
+                        "name": "B",
+                        "base_url": "https://b.example",
+                        "api_key": "sk-b",
+                        "models": ["gpt-5.5"],
+                    },
+                    {
+                        "id": "channel-c",
+                        "name": "C",
+                        "base_url": "https://c.example",
+                        "api_key": "sk-c",
+                        "models": ["other-text-model"],
+                    },
+                ]
+            )
+            service = ChannelService(storage, FakeConfigStore())
+            calls: list[tuple[str, object, object]] = []
+            closed: list[str] = []
+            service._session = lambda channel: FakeSession(str(channel.get("id")))  # type: ignore[method-assign]
+
+            with mock.patch.object(channel_service_module.random, "shuffle", lambda items: None):
+                routed = service.call_chat_completion_stream({
+                    "model": "gpt-5.5",
+                    "messages": [{"role": "user", "content": "hello"}],
+                })
+
+            self.assertIsNotNone(routed)
+            chunks, channel_name = routed
+            self.assertEqual(channel_name, "B")
+            self.assertEqual(list(chunks), ["ok"])
+            self.assertEqual(calls, [("channel-a", "gpt-5.5", True), ("channel-b", "gpt-5.5", True)])
+            self.assertEqual(closed, ["channel-a", "channel-b"])
 
     def test_chat_prefers_channel_model_alias_before_image_mapping(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

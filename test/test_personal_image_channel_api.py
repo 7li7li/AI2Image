@@ -13,6 +13,9 @@ import api.ai as api_ai
 import api.support as api_support
 
 
+FAKE_UPSTREAM_ERROR = "Global: upstream timeout at https://api.global.example/v1/images/generations"
+
+
 class FakeAuthService:
     def __init__(self) -> None:
         self.identity = {
@@ -93,21 +96,21 @@ class FakeChannelService:
         self.calls.append(dict(payload))
         if self.generation_result is not None:
             return self.generation_result
-        payload["_channel_error"] = "Global: upstream timeout"
+        payload["_channel_error"] = FAKE_UPSTREAM_ERROR
         return None
 
     def call_edit(self, payload: dict[str, object]):
         self.edit_calls.append(dict(payload))
         if self.edit_result is not None:
             return self.edit_result
-        payload["_channel_error"] = "Global: upstream timeout"
+        payload["_channel_error"] = FAKE_UPSTREAM_ERROR
         return None
 
     def call_chat_completion(self, payload: dict[str, object]):
         self.chat_calls.append(dict(payload))
         if self.chat_result is not None:
             return self.chat_result
-        payload["_channel_error"] = "Global: upstream timeout"
+        payload["_channel_error"] = FAKE_UPSTREAM_ERROR
         return None
 
     def call_chat_completion_stream(self, payload: dict[str, object]):
@@ -115,7 +118,7 @@ class FakeChannelService:
         if self.chat_stream_result is not None:
             chunks, channel = self.chat_stream_result
             return iter(chunks), channel
-        payload["_channel_error"] = "Global: upstream timeout"
+        payload["_channel_error"] = FAKE_UPSTREAM_ERROR
         return None
 
 
@@ -195,7 +198,9 @@ class PersonalImageChannelApiTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 502)
-        self.assertIn("Global: upstream timeout", response.text)
+        self.assertIn(api_ai.PUBLIC_CHANNEL_ERROR, response.text)
+        self.assertNotIn("api.global.example", response.text)
+        self.assertNotIn("Global: upstream timeout", response.text)
         self.assertEqual(len(auth.reserved), 1)
         self.assertEqual(auth.confirmed, [])
         self.assertEqual(auth.released, [auth.reserved[0][2]])
@@ -203,7 +208,7 @@ class PersonalImageChannelApiTests(unittest.TestCase):
         self.assertEqual(log_calls[0]["endpoint"], "/v1/images/generations")
         self.assertEqual(log_calls[0]["model"], "gpt-image-2")
         self.assertEqual(log_calls[0]["status"], "error")
-        self.assertEqual(log_calls[0]["error"], "Global: upstream timeout")
+        self.assertEqual(log_calls[0]["error"], FAKE_UPSTREAM_ERROR)
         self.assertEqual(log_calls[0]["user_id"], "user-a")
 
     def test_edit_ignores_legacy_personal_channel_config_and_charges_quota(self) -> None:
@@ -310,18 +315,65 @@ class PersonalImageChannelApiTests(unittest.TestCase):
         self.assertEqual(auth.confirmed, [(auth.reserved[0][2], 1)])
         self.assertEqual(auth.released, [])
 
+    def test_chat_completion_stream_failure_hides_channel_error_and_releases_quota(self) -> None:
+        app = FastAPI()
+        app.include_router(api_ai.create_router())
+        auth = FakeAuthService()
+        channels = FakeChannelService()
+        channels.chat_stream_result = None
+        log_calls: list[dict[str, object]] = []
+
+        def fake_log_add(type_name: str, summary: str = "", detail: dict[str, object] | None = None, **data: object):
+            log_calls.append({"type": type_name, "summary": summary, **(detail or data)})
+
+        with (
+            mock.patch.object(api_support, "auth_service", auth),
+            mock.patch.object(api_ai, "auth_service", auth),
+            mock.patch.object(api_ai, "channel_service", channels),
+            mock.patch.object(api_ai.log_service, "add", fake_log_add),
+        ):
+            with TestClient(app).stream(
+                "POST",
+                "/api/chat/completions",
+                headers={"Authorization": "Bearer user-token"},
+                json={
+                    "model": "gpt-5.5",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "stream": True,
+                },
+            ) as response:
+                text = "".join(response.iter_text())
+
+        self.assertEqual(response.status_code, 200, text)
+        self.assertIn("event: error", text)
+        self.assertIn(api_ai.PUBLIC_CHANNEL_ERROR, text)
+        self.assertNotIn("api.global.example", text)
+        self.assertNotIn("Global: upstream timeout", text)
+        self.assertEqual(len(channels.chat_stream_calls), 1)
+        self.assertEqual(len(auth.reserved), 1)
+        self.assertEqual(auth.confirmed, [])
+        self.assertEqual(auth.released, [auth.reserved[0][2]])
+        self.assertEqual(len(log_calls), 1)
+        self.assertEqual(log_calls[0]["endpoint"], "/api/chat/completions")
+        self.assertEqual(log_calls[0]["status"], "error")
+        self.assertEqual(log_calls[0]["error"], FAKE_UPSTREAM_ERROR)
+
     def test_chat_completion_failure_releases_reserved_quota(self) -> None:
         app = FastAPI()
         app.include_router(api_ai.create_router())
         auth = FakeAuthService()
         channels = FakeChannelService()
         channels.chat_result = None
+        log_calls: list[dict[str, object]] = []
+
+        def fake_log_add(type_name: str, summary: str = "", detail: dict[str, object] | None = None, **data: object):
+            log_calls.append({"type": type_name, "summary": summary, **(detail or data)})
 
         with (
             mock.patch.object(api_support, "auth_service", auth),
             mock.patch.object(api_ai, "auth_service", auth),
             mock.patch.object(api_ai, "channel_service", channels),
-            mock.patch.object(api_ai.log_service, "add", lambda *args, **kwargs: None),
+            mock.patch.object(api_ai.log_service, "add", fake_log_add),
         ):
             response = TestClient(app).post(
                 "/api/chat/completions",
@@ -333,11 +385,17 @@ class PersonalImageChannelApiTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 502, response.text)
-        self.assertIn("Global: upstream timeout", response.text)
+        self.assertIn(api_ai.PUBLIC_CHANNEL_ERROR, response.text)
+        self.assertNotIn("api.global.example", response.text)
+        self.assertNotIn("Global: upstream timeout", response.text)
         self.assertEqual(len(auth.reserved), 1)
         self.assertEqual(auth.confirmed, [])
         self.assertEqual(auth.released, [auth.reserved[0][2]])
         self.assertEqual(len(channels.chat_calls), 1)
+        self.assertEqual(len(log_calls), 1)
+        self.assertEqual(log_calls[0]["endpoint"], "/api/chat/completions")
+        self.assertEqual(log_calls[0]["status"], "error")
+        self.assertEqual(log_calls[0]["error"], FAKE_UPSTREAM_ERROR)
 
     def test_generation_uses_configured_default_model_when_omitted(self) -> None:
         app = FastAPI()
