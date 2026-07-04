@@ -4,7 +4,6 @@ import {
   Aperture,
   Box,
   Camera,
-  Check,
   ChevronDown,
   Clapperboard,
   Copy,
@@ -17,13 +16,14 @@ import {
   NotebookPen,
   Search,
   Scissors,
+  SlidersHorizontal,
   Sparkles,
   SunMedium,
   WandSparkles,
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type RefObject } from "react";
+import { useEffect, useMemo, useState, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { toast } from "sonner";
 
 import { ImageLightbox } from "@/components/image-lightbox";
@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -568,8 +569,6 @@ type ImageComposerProps = {
   imageModeration: ImageModeration;
   imageTransparentBackground: boolean;
   defaultImageModel: string;
-  availableQuota: string;
-  activeTaskCount: number;
   referenceImages: Array<{ name: string; dataUrl: string }>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -603,8 +602,6 @@ export function ImageComposer({
   imageModeration,
   imageTransparentBackground,
   defaultImageModel,
-  availableQuota,
-  activeTaskCount,
   referenceImages,
   textareaRef,
   fileInputRef,
@@ -627,8 +624,6 @@ export function ImageComposer({
 }: ImageComposerProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
-  const [isSizeMenuOpen, setIsSizeMenuOpen] = useState(false);
-  const [isResolutionMenuOpen, setIsResolutionMenuOpen] = useState(false);
   const [isPromptLibraryOpen, setIsPromptLibraryOpen] = useState(false);
   const [bananaPromptStatus, setBananaPromptStatus] = useState<BananaPromptStatus>("idle");
   const [bananaPromptError, setBananaPromptError] = useState("");
@@ -636,8 +631,6 @@ export function ImageComposer({
   const [bananaPromptQuery, setBananaPromptQuery] = useState("");
   const [bananaPromptCategory, setBananaPromptCategory] = useState("全部");
   const [bananaPromptRetryKey, setBananaPromptRetryKey] = useState(0);
-  const sizeMenuRef = useRef<HTMLDivElement>(null);
-  const resolutionMenuRef = useRef<HTMLDivElement>(null);
   const lightboxImages = useMemo(
     () => referenceImages.map((image, index) => ({ id: `${image.name}-${index}`, src: image.dataUrl })),
     [referenceImages],
@@ -652,7 +645,6 @@ export function ImageComposer({
     { value: "9:16", label: "9:16 (竖版)" },
     { value: "16:9", label: "16:9 (横版)" },
   ];
-  const imageSizeLabel = imageSizeOptions.find((option) => option.value === imageSize)?.label || "自动";
   const imageResolutionOptions = [
     { value: "auto", label: "自动" },
     { value: "1k", label: "1k" },
@@ -759,39 +751,6 @@ export function ImageComposer({
     };
   }, [bananaPromptRetryKey]);
 
-  useEffect(() => {
-    if (!isSizeMenuOpen) {
-      return;
-    }
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!sizeMenuRef.current?.contains(event.target as Node)) {
-        setIsSizeMenuOpen(false);
-      }
-      if (!resolutionMenuRef.current?.contains(event.target as Node)) {
-        setIsResolutionMenuOpen(false);
-      }
-    };
-    window.addEventListener("mousedown", handlePointerDown);
-    return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
-    };
-  }, [isSizeMenuOpen]);
-
-  useEffect(() => {
-    if (!isResolutionMenuOpen) {
-      return;
-    }
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!resolutionMenuRef.current?.contains(event.target as Node)) {
-        setIsResolutionMenuOpen(false);
-      }
-    };
-    window.addEventListener("mousedown", handlePointerDown);
-    return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
-    };
-  }, [isResolutionMenuOpen]);
-
   const handleTextareaPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const imageFiles = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
     if (imageFiles.length === 0) {
@@ -802,222 +761,46 @@ export function ImageComposer({
     void onReferenceImageChange(imageFiles);
   };
 
+  const imageCountValue = String(Math.max(1, Math.min(10, Number(imageCount) || 1)));
+  const imageSizeCompactLabel = imageSize || "自动";
+  const imageResolutionCompactLabel = imageResolution === "auto" ? "自动" : imageResolution.toUpperCase();
+  const imageQualityLabel = imageQualityOptions.find((option) => option.value === imageQuality)?.label || "自动";
+  const canSubmit = Boolean(prompt.trim()) && (mode !== "edit" || referenceImages.length > 0);
+  const promptPlaceholder =
+    mode === "edit" ? "描述你希望如何修改这张参考图，可直接粘贴图片" : "畅想你想要的画面，可直接粘贴图片";
+  const settingsSummaryLabel = `${imageQualityLabel} · ${imageResolutionCompactLabel} · ${imageSizeCompactLabel} · ${imageCountValue}张`;
+
+  const handlePickReferenceImage = () => {
+    if (mode !== "edit") {
+      onModeChange("edit");
+    }
+    window.requestAnimationFrame(() => onPickReferenceImage());
+  };
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-rose-100/70 px-4 py-3">
-        <div className="text-base font-bold text-stone-950">Prompt 创作台</div>
-        <div className="mt-1 text-sm text-stone-500">图像生成 · 参考图编辑</div>
-      </div>
+    <div className="flex max-h-[min(58vh,560px)] min-h-0 shrink-0 flex-col">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          void onReferenceImageChange(Array.from(event.target.files || []));
+        }}
+      />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        {mode === "edit" && (
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={(event) => {
-              void onReferenceImageChange(Array.from(event.target.files || []));
-            }}
-          />
-        )}
+      <ImageLightbox
+        images={lightboxImages}
+        currentIndex={lightboxIndex}
+        open={lightboxOpen}
+        onOpenChange={setLightboxOpen}
+        onIndexChange={setLightboxIndex}
+      />
 
-        <div className="mb-3 grid grid-cols-2 gap-2">
-          <ModeButton active={mode === "generate"} onClick={() => onModeChange("generate")}>
-            文生图
-          </ModeButton>
-          <ModeButton active={mode === "edit"} onClick={() => onModeChange("edit")}>
-            图生图
-          </ModeButton>
-        </div>
-
-        <div className="mb-3 grid grid-cols-2 gap-2 rounded-lg bg-white/45 p-2.5 xl:grid-cols-4">
-          <div>
-            <div className="text-xs text-stone-500">模型</div>
-            <div className="mt-1 truncate text-sm font-bold text-stone-950">{defaultImageModel}</div>
-          </div>
-          <div>
-            <div className="text-xs text-stone-500">生成张数</div>
-            <div className="mt-1 text-sm font-bold text-stone-950">{Math.max(1, Math.min(10, Number(imageCount) || 1))} / 最多 10</div>
-          </div>
-          <div>
-            <div className="text-xs text-stone-500">本地额度</div>
-            <div className="mt-1 text-sm font-bold text-stone-950">{availableQuota}</div>
-          </div>
-          <div>
-            <div className="text-xs text-stone-500">活动任务</div>
-            <div className="mt-1 text-sm font-bold text-stone-950">{activeTaskCount} 个处理中</div>
-          </div>
-        </div>
-
-        <div className="mb-3 rounded-lg border border-rose-100 bg-white/72 p-2.5">
-          <div className="mb-2 flex items-center gap-2 text-xs font-bold text-stone-500">
-            <span className="h-px flex-1 bg-rose-100" />
-            <span>生成设置</span>
-            <span className="h-px flex-1 bg-rose-100" />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {mode === "edit" && (
-              <Button
-                type="button"
-                variant="outline"
-                className="col-span-2 h-10 rounded-lg border-rose-100 bg-white/85 px-3 text-sm font-medium text-stone-700 shadow-none"
-                onClick={onPickReferenceImage}
-              >
-                <ImagePlus className="size-4" />
-                <span>{referenceImages.length > 0 ? "继续添加参考图" : "上传参考图"}</span>
-              </Button>
-            )}
-            <div className="flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3">
-              <span className="text-sm font-medium text-stone-700">张数</span>
-              <Input
-                type="number"
-                min="1"
-                max="10"
-                step="1"
-                value={imageCount}
-                onChange={(event) => onImageCountChange(event.target.value)}
-                className="h-7 w-[44px] border-0 bg-transparent px-0 text-center text-sm font-medium text-stone-700 shadow-none focus-visible:ring-0"
-              />
-            </div>
-            <div
-              ref={sizeMenuRef}
-              className="relative flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm"
-            >
-              <span className="font-medium text-stone-700">比例</span>
-              <button
-                type="button"
-                className="flex h-7 min-w-0 flex-1 items-center justify-between bg-transparent text-left text-sm font-bold text-stone-700"
-                onClick={() => setIsSizeMenuOpen((open) => !open)}
-              >
-                <span className="truncate">{imageSizeLabel}</span>
-                <ChevronDown className={cn("size-4 shrink-0 opacity-60 transition", isSizeMenuOpen && "rotate-180")} />
-              </button>
-              {isSizeMenuOpen ? (
-                <div className="absolute top-[calc(100%+8px)] left-0 z-50 w-full overflow-hidden rounded-lg border border-white/80 bg-white p-2 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.35)]">
-                  {imageSizeOptions.map((option) => {
-                    const active = option.value === imageSize;
-                    return (
-                      <button
-                        key={option.label}
-                        type="button"
-                        className={cn(
-                          "flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-stone-700 transition hover:bg-rose-50",
-                          active && "bg-rose-50 font-medium text-stone-950",
-                        )}
-                        onClick={() => {
-                          onImageSizeChange(option.value);
-                          setIsSizeMenuOpen(false);
-                        }}
-                      >
-                        <span>{option.label}</span>
-                        {active ? <Check className="size-4" /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
-            <div
-              ref={resolutionMenuRef}
-              className="relative col-span-2 flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm"
-            >
-              <span className="font-medium text-stone-700">分辨率</span>
-              <button
-                type="button"
-                className="flex h-7 min-w-0 flex-1 items-center justify-between bg-transparent text-left text-sm font-bold text-stone-700"
-                onClick={() => setIsResolutionMenuOpen((open) => !open)}
-              >
-                <span className="truncate">{imageResolutionLabel}</span>
-                <ChevronDown className={cn("size-4 shrink-0 opacity-60 transition", isResolutionMenuOpen && "rotate-180")} />
-              </button>
-              {isResolutionMenuOpen ? (
-                <div className="absolute top-[calc(100%+8px)] left-0 z-50 w-full overflow-hidden rounded-lg border border-white/80 bg-white p-2 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.35)]">
-                  {imageResolutionOptions.map((option) => {
-                    const active = option.value === imageResolution;
-                    return (
-                      <button
-                        key={option.label}
-                        type="button"
-                        className={cn(
-                          "flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-stone-700 transition hover:bg-rose-50",
-                          active && "bg-rose-50 font-medium text-stone-950",
-                        )}
-                        onClick={() => {
-                          onImageResolutionChange(option.value);
-                          setIsResolutionMenuOpen(false);
-                        }}
-                      >
-                        <span>{option.label}</span>
-                        {active ? <Check className="size-4" /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
-            <div className="col-span-2 flex h-9 items-center justify-between rounded-lg border border-rose-100 bg-white/60 px-3 text-sm">
-              <span className="font-medium text-stone-600">实际分辨率</span>
-              <span className="font-bold text-stone-900">{actualImageResolution}</span>
-            </div>
-            <SettingSelect
-              label="质量"
-              value={imageQuality}
-              options={imageQualityOptions}
-              onChange={(value) => onImageQualityChange(value as ImageQuality)}
-            />
-            <SettingSelect
-              label="格式"
-              value={imageOutputFormat}
-              options={imageOutputFormatOptions}
-              onChange={(value) => {
-                const nextFormat = value as ImageOutputFormat;
-                onImageOutputFormatChange(nextFormat);
-                if (nextFormat !== "png") {
-                  onImageTransparentBackgroundChange(false);
-                }
-              }}
-            />
-            {imageOutputFormat === "png" ? (
-              <label className="col-span-2 flex h-9 items-center justify-between gap-3 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm">
-                <span className="font-medium text-stone-700">透明背景</span>
-                <span className="flex items-center gap-2 text-xs font-medium text-stone-500">
-                  <Checkbox
-                    checked={imageTransparentBackground}
-                    onCheckedChange={(checked) => onImageTransparentBackgroundChange(checked === true)}
-                    className="border-rose-200 data-[state=checked]:border-rose-500 data-[state=checked]:bg-rose-500"
-                  />
-                  PNG
-                </span>
-              </label>
-            ) : (
-              <div className="col-span-2 flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm">
-                <span className="font-medium text-stone-700">压缩率</span>
-                <Input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={imageOutputCompression}
-                  onChange={(event) => onImageOutputCompressionChange(event.target.value)}
-                  placeholder="自动"
-                  className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 text-right text-sm font-bold text-stone-700 shadow-none placeholder:text-stone-400 focus-visible:ring-0"
-                />
-              </div>
-            )}
-            <SettingSelect
-              label="审核"
-              value={imageModeration}
-              options={imageModerationOptions}
-              onChange={(value) => onImageModerationChange(value as ImageModeration)}
-              className="col-span-2"
-            />
-          </div>
-        </div>
-
-        {mode === "edit" && referenceImages.length > 0 ? (
-          <div className="mb-3 flex flex-wrap gap-2 px-1">
+      {mode === "edit" && referenceImages.length > 0 ? (
+        <div className="min-h-0 shrink-0 overflow-y-auto px-4 py-3">
+          <div className="flex flex-wrap gap-2 px-1">
             {referenceImages.map((image, index) => (
               <div key={`${image.name}-${index}`} className="relative size-16">
                 <button
@@ -1049,237 +832,373 @@ export function ImageComposer({
               </div>
             ))}
           </div>
-        ) : null}
-
-        <div className="mb-3 space-y-2 px-1">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(118px,1.35fr)_minmax(104px,1.15fr)_72px_72px]">
-            <button
-              type="button"
-              onClick={() => setIsPromptLibraryOpen(true)}
-              className="inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2.5 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white"
-            >
-              <Images className="size-4" />
-              更多提示词
-            </button>
-            <button
-              type="button"
-              onClick={() => void onPolishPrompt()}
-              disabled={!prompt.trim() || isPolishingPrompt}
-              className="inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2.5 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
-              aria-label="AI 润色当前提示词"
-              title="AI 润色会扣除 1 点额度"
-            >
-              {isPolishingPrompt ? <LoaderCircle className="size-4 animate-spin" /> : <WandSparkles className="size-4" />}
-              AI 润色
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleCopyPrompt()}
-              disabled={!prompt}
-              className="inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
-              aria-label="复制当前提示词"
-            >
-              <Copy className="size-4" />
-              复制
-            </button>
-            <button
-              type="button"
-              onClick={handleClearPrompt}
-              disabled={!prompt}
-              className="inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-100 bg-white/75 px-2 text-sm font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
-            >
-              <X className="size-4" />
-              清空
-            </button>
-          </div>
         </div>
+      ) : null}
 
-        <Dialog open={isPromptLibraryOpen} onOpenChange={setIsPromptLibraryOpen}>
-          <DialogContent className="flex h-[84vh] w-[min(94vw,1040px)] max-w-none flex-col overflow-hidden rounded-lg p-0">
-            <DialogHeader className="border-b border-rose-100 px-5 pt-5 pb-4 sm:px-6">
-              <div className="flex flex-col gap-3 pr-10 sm:flex-row sm:items-start sm:justify-between sm:pr-12">
-                <div className="min-w-0">
-                  <DialogTitle className="text-xl font-semibold text-stone-950">更多提示词</DialogTitle>
-                  <DialogDescription className="mt-2 leading-6 text-stone-500">
-                    {morePromptItems.length > 0 ? `已加载 ${morePromptItems.length} 条提示词，` : ""}
-                    点击使用会填入提示词并自动切换文生图或图生图模式。
-                  </DialogDescription>
-                </div>
-                <Button
-                  type="button"
-                  asChild
-                  variant="outline"
-                  className="h-9 shrink-0 rounded-lg border-rose-100 bg-white/75 text-stone-700"
-                >
-                  <a href="/prompt-manager">
-                    <ExternalLink className="size-4" />
-                    管理提示词
-                  </a>
-                </Button>
+      <Dialog open={isPromptLibraryOpen} onOpenChange={setIsPromptLibraryOpen}>
+        <DialogContent className="flex h-[84vh] w-[min(94vw,1040px)] max-w-none flex-col overflow-hidden rounded-lg p-0">
+          <DialogHeader className="border-b border-rose-100 px-5 pt-5 pb-4 sm:px-6">
+            <div className="flex flex-col gap-3 pr-10 sm:flex-row sm:items-start sm:justify-between sm:pr-12">
+              <div className="min-w-0">
+                <DialogTitle className="text-xl font-semibold text-stone-950">更多提示词</DialogTitle>
+                <DialogDescription className="mt-2 leading-6 text-stone-500">
+                  {morePromptItems.length > 0 ? `已加载 ${morePromptItems.length} 条提示词，` : ""}
+                  点击使用会填入提示词并自动切换文生图或图生图模式。
+                </DialogDescription>
               </div>
-              <div className="mt-4 flex flex-col gap-3">
-                <div className="relative min-w-0 flex-1">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" />
-                  <Input
-                    value={bananaPromptQuery}
-                    onChange={(event) => setBananaPromptQuery(event.target.value)}
-                    placeholder="搜索标题、作者、分类或提示词内容"
-                    className="h-10 rounded-lg border-rose-100 bg-white/70 pl-9 text-sm shadow-none focus-visible:bg-white"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {bananaPromptCategories.map((category) => (
-                    <button
-                      key={category}
-                      type="button"
-                      onClick={() => setBananaPromptCategory(category)}
-                      className={cn(
-                        "h-9 shrink-0 rounded-lg border px-3 text-xs font-medium transition",
-                        category === bananaPromptCategory
-                          ? "border-rose-100 bg-[#2d1d26] text-white"
-                          : "border-rose-100 bg-white/75 text-stone-600 hover:border-rose-200 hover:text-stone-900",
-                      )}
-                    >
-                      {category}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </DialogHeader>
-
-            <div className="min-h-0 flex-1 overflow-y-auto bg-rose-50/35 px-4 py-4 sm:px-6">
-              {bananaPromptStatus === "loading" || bananaPromptStatus === "idle" ? (
-                <div className="flex h-full min-h-[260px] items-center justify-center">
-                  <div className="flex items-center gap-2 text-sm text-stone-500">
-                    <LoaderCircle className="size-4 animate-spin" />
-                    正在读取提示词库
-                  </div>
-                </div>
-              ) : bananaPromptStatus === "error" ? (
-                <div className="flex h-full min-h-[260px] items-center justify-center text-center">
-                  <div className="max-w-sm">
-                    <div className="text-base font-semibold text-stone-900">提示词库加载失败</div>
-                    <p className="mt-2 text-sm leading-6 text-stone-500">{bananaPromptError || "请稍后重试。"}</p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="mt-4 rounded-lg border-rose-100 bg-white"
-                      onClick={() => {
-                        setBananaPromptStatus("idle");
-                        setBananaPromptRetryKey((key) => key + 1);
-                      }}
-                    >
-                      重新加载
-                    </Button>
-                  </div>
-                </div>
-              ) : filteredBananaPrompts.length === 0 ? (
-                <div className="flex h-full min-h-[260px] items-center justify-center text-sm text-stone-500">
-                  没有匹配的提示词
-                </div>
-              ) : (
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {filteredBananaPrompts.map((item, index) => {
-                    const previewUrl = getBananaPromptPreviewUrl(item);
-                    return (
-                      <article
-                        key={`${item.title}-${item.created || index}`}
-                        className="overflow-hidden rounded-lg border border-rose-100 bg-white/85 shadow-sm"
-                      >
-                        <div className="aspect-[4/3] bg-stone-100">
-                          {previewUrl ? (
-                            <img
-                              src={previewUrl}
-                              alt={`${item.title} 示例图`}
-                              loading="lazy"
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-full items-center justify-center text-stone-400">
-                              <Images className="size-8" />
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex min-h-[214px] flex-col gap-3 p-4">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant={normalizePromptMode(item.mode) === "edit" ? "info" : "success"}>
-                              {getPromptModeLabel(item.mode)}
-                            </Badge>
-                            <Badge variant="outline">{getPromptCategoryLabel(item)}</Badge>
-                          </div>
-                          <div className="min-w-0">
-                            <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-stone-950">
-                              {item.title}
-                            </h3>
-                            <p className="mt-2 line-clamp-3 text-xs leading-5 text-stone-500">
-                              {getPromptDescription(item)}
-                            </p>
-                          </div>
-                          <div className="mt-auto flex items-center justify-between gap-3">
-                            <div className="min-w-0 truncate text-xs text-stone-400">
-                              {item.author ? `作者 ${item.author}` : "提示词管理"}
-                            </div>
-                            <Button
-                              type="button"
-                              size="sm"
-                            className="h-8 shrink-0 rounded-lg text-white"
-                              onClick={() => handleBananaPromptSelect(item)}
-                            >
-                              使用
-                            </Button>
-                          </div>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              )}
+              <Button
+                type="button"
+                asChild
+                variant="outline"
+                className="h-9 shrink-0 rounded-lg border-rose-100 bg-white/75 text-stone-700"
+              >
+                <a href="/prompt-manager">
+                  <ExternalLink className="size-4" />
+                  管理提示词
+                </a>
+              </Button>
             </div>
-          </DialogContent>
-        </Dialog>
+            <div className="mt-4 flex flex-col gap-3">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" />
+                <Input
+                  value={bananaPromptQuery}
+                  onChange={(event) => setBananaPromptQuery(event.target.value)}
+                  placeholder="搜索标题、作者、分类或提示词内容"
+                  className="h-10 rounded-lg border-rose-100 bg-white/70 pl-9 text-sm shadow-none focus-visible:bg-white"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {bananaPromptCategories.map((category) => (
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() => setBananaPromptCategory(category)}
+                    className={cn(
+                      "h-9 shrink-0 rounded-lg border px-3 text-xs font-medium transition",
+                      category === bananaPromptCategory
+                        ? "border-rose-100 bg-[#2d1d26] text-white"
+                        : "border-rose-100 bg-white/75 text-stone-600 hover:border-rose-200 hover:text-stone-900",
+                    )}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </DialogHeader>
 
-        <div className="yan-panel-strong rounded-lg">
-          <div
-            className="relative cursor-text"
-            onClick={() => {
-              textareaRef.current?.focus();
-            }}
-          >
-            <ImageLightbox
-              images={lightboxImages}
-              currentIndex={lightboxIndex}
-              open={lightboxOpen}
-              onOpenChange={setLightboxOpen}
-              onIndexChange={setLightboxIndex}
-            />
+          <div className="min-h-0 flex-1 overflow-y-auto bg-rose-50/35 px-4 py-4 sm:px-6">
+            {bananaPromptStatus === "loading" || bananaPromptStatus === "idle" ? (
+              <div className="flex h-full min-h-[260px] items-center justify-center">
+                <div className="flex items-center gap-2 text-sm text-stone-500">
+                  <LoaderCircle className="size-4 animate-spin" />
+                  正在读取提示词库
+                </div>
+              </div>
+            ) : bananaPromptStatus === "error" ? (
+              <div className="flex h-full min-h-[260px] items-center justify-center text-center">
+                <div className="max-w-sm">
+                  <div className="text-base font-semibold text-stone-900">提示词库加载失败</div>
+                  <p className="mt-2 text-sm leading-6 text-stone-500">{bananaPromptError || "请稍后重试。"}</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-4 rounded-lg border-rose-100 bg-white"
+                    onClick={() => {
+                      setBananaPromptStatus("idle");
+                      setBananaPromptRetryKey((key) => key + 1);
+                    }}
+                  >
+                    重新加载
+                  </Button>
+                </div>
+              </div>
+            ) : filteredBananaPrompts.length === 0 ? (
+              <div className="flex h-full min-h-[260px] items-center justify-center text-sm text-stone-500">
+                没有匹配的提示词
+              </div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {filteredBananaPrompts.map((item, index) => {
+                  const previewUrl = getBananaPromptPreviewUrl(item);
+                  return (
+                    <article
+                      key={`${item.title}-${item.created || index}`}
+                      className="overflow-hidden rounded-lg border border-rose-100 bg-white/85 shadow-sm"
+                    >
+                      <div className="aspect-[4/3] bg-stone-100">
+                        {previewUrl ? (
+                          <img
+                            src={previewUrl}
+                            alt={`${item.title} 示例图`}
+                            loading="lazy"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-stone-400">
+                            <Images className="size-8" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex min-h-[214px] flex-col gap-3 p-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={normalizePromptMode(item.mode) === "edit" ? "info" : "success"}>
+                            {getPromptModeLabel(item.mode)}
+                          </Badge>
+                          <Badge variant="outline">{getPromptCategoryLabel(item)}</Badge>
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-stone-950">
+                            {item.title}
+                          </h3>
+                          <p className="mt-2 line-clamp-3 text-xs leading-5 text-stone-500">
+                            {getPromptDescription(item)}
+                          </p>
+                        </div>
+                        <div className="mt-auto flex items-center justify-between gap-3">
+                          <div className="min-w-0 truncate text-xs text-stone-400">
+                            {item.author ? `作者 ${item.author}` : "提示词管理"}
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-8 shrink-0 rounded-lg text-white"
+                            onClick={() => handleBananaPromptSelect(item)}
+                          >
+                            使用
+                          </Button>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <div className="shrink-0 border-t border-rose-100/70 bg-white/58 p-3 backdrop-blur-xl">
+        <div className="rounded-lg border border-rose-100 bg-white/86 shadow-sm">
+          <div className="flex items-start gap-2 px-3 pt-3">
+            <button
+              type="button"
+              onClick={handlePickReferenceImage}
+              className="mt-1 grid size-8 shrink-0 place-items-center rounded-lg border border-rose-100 bg-white/85 text-stone-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+              aria-label="上传参考图"
+              title="上传参考图"
+            >
+              <ImagePlus className="size-4" />
+            </button>
             <Textarea
               ref={textareaRef}
               value={prompt}
               onChange={(event) => onPromptChange(event.target.value)}
               onPaste={handleTextareaPaste}
-              placeholder={
-                mode === "edit" ? "描述你希望如何修改这张参考图，可直接粘贴图片" : "输入你想要生成的画面，也可直接粘贴图片"
-              }
+              placeholder={promptPlaceholder}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   void onSubmit();
                 }
               }}
-              className="min-h-[128px] resize-y rounded-lg border-0 bg-transparent px-4 pt-4 pb-4 text-[15px] leading-7 text-stone-900 shadow-none placeholder:text-stone-400 focus-visible:ring-0"
+              className="max-h-56 min-h-28 resize-none rounded-lg border-0 bg-transparent px-1 py-1 text-[15px] leading-7 text-stone-900 shadow-none placeholder:text-stone-400 focus-visible:ring-0"
             />
+          </div>
 
-            <div className="border-t border-rose-100 bg-white/80 px-3 py-2.5">
-              <div className="flex flex-col gap-3">
+          <div className="border-t border-rose-100/70 px-3 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <div className="flex h-9 items-center gap-1 rounded-lg border border-rose-100 bg-white/72 p-1">
+                  <ModeButton active={mode === "generate"} onClick={() => onModeChange("generate")}>
+                    文生图
+                  </ModeButton>
+                  <ModeButton active={mode === "edit"} onClick={() => onModeChange("edit")}>
+                    图生图
+                  </ModeButton>
+                </div>
+                <div className="inline-flex h-9 max-w-[190px] items-center gap-2 rounded-lg border border-rose-100 bg-white/72 px-3 text-xs font-medium text-stone-600">
+                  <Sparkles className="size-3.5 shrink-0 text-rose-500" />
+                  <span className="truncate">{defaultImageModel}</span>
+                </div>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex h-9 max-w-full items-center gap-2 rounded-lg border border-rose-100 bg-white/72 px-3 text-xs font-bold text-stone-700 transition hover:border-rose-200 hover:bg-white"
+                    >
+                      <SlidersHorizontal className="size-3.5 shrink-0 text-stone-500" />
+                      <span className="truncate">{settingsSummaryLabel}</span>
+                      <ChevronDown className="size-3.5 shrink-0 text-stone-400" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="top"
+                    align="start"
+                    sideOffset={10}
+                    className="w-[min(360px,calc(100vw-2rem))] border-rose-100 bg-white/95 p-4 text-stone-700 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.28)]"
+                  >
+                    <div className="space-y-4">
+                      <SettingSection label="质量">
+                        <div className="flex flex-wrap gap-2">
+                          {imageQualityOptions.map((option) => (
+                            <SettingChip
+                              key={option.value}
+                              active={option.value === imageQuality}
+                              onClick={() => onImageQualityChange(option.value)}
+                            >
+                              {option.label}
+                            </SettingChip>
+                          ))}
+                        </div>
+                      </SettingSection>
+
+                      <SettingSection label="清晰度">
+                        <div className="flex flex-wrap gap-2">
+                          {imageResolutionOptions.map((option) => (
+                            <SettingChip
+                              key={option.value}
+                              active={option.value === imageResolution}
+                              onClick={() => onImageResolutionChange(option.value)}
+                            >
+                              {option.label}
+                            </SettingChip>
+                          ))}
+                        </div>
+                      </SettingSection>
+
+                      <SettingSection label="比例">
+                        <div className="grid grid-cols-4 gap-2">
+                          {imageSizeOptions.map((option) => (
+                            <AspectRatioOption
+                              key={option.label}
+                              value={option.value}
+                              label={option.value || "自动"}
+                              active={option.value === imageSize}
+                              onClick={() => onImageSizeChange(option.value)}
+                            />
+                          ))}
+                        </div>
+                      </SettingSection>
+
+                      <SettingSection label="图片张数">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {["1", "2", "3", "4"].map((count) => (
+                            <SettingChip
+                              key={count}
+                              active={imageCountValue === count}
+                              onClick={() => onImageCountChange(count)}
+                            >
+                              {count}张
+                            </SettingChip>
+                          ))}
+                          <Input
+                            type="number"
+                            min="1"
+                            max="10"
+                            step="1"
+                            value={imageCount}
+                            onChange={(event) => onImageCountChange(event.target.value)}
+                            className="h-9 w-20 rounded-lg border-rose-100 bg-white/85 px-2 text-center text-sm font-bold text-stone-700 shadow-none focus-visible:ring-rose-100"
+                            aria-label="图片张数"
+                          />
+                        </div>
+                      </SettingSection>
+
+                      <div className="rounded-lg border border-rose-100 bg-rose-50/35 p-3">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <SettingSelect
+                            label="格式"
+                            value={imageOutputFormat}
+                            options={imageOutputFormatOptions}
+                            onChange={(value) => {
+                              const nextFormat = value as ImageOutputFormat;
+                              onImageOutputFormatChange(nextFormat);
+                              if (nextFormat !== "png") {
+                                onImageTransparentBackgroundChange(false);
+                              }
+                            }}
+                          />
+                          <SettingSelect
+                            label="审核"
+                            value={imageModeration}
+                            options={imageModerationOptions}
+                            onChange={(value) => onImageModerationChange(value as ImageModeration)}
+                          />
+                        </div>
+                        {imageOutputFormat === "png" ? (
+                          <label className="mt-2 flex h-9 items-center justify-between gap-3 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm">
+                            <span className="font-medium text-stone-700">透明背景</span>
+                            <span className="flex items-center gap-2 text-xs font-medium text-stone-500">
+                              <Checkbox
+                                checked={imageTransparentBackground}
+                                onCheckedChange={(checked) => onImageTransparentBackgroundChange(checked === true)}
+                                className="border-rose-200 data-[state=checked]:border-rose-500 data-[state=checked]:bg-rose-500"
+                              />
+                              PNG
+                            </span>
+                          </label>
+                        ) : (
+                          <div className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm">
+                            <span className="font-medium text-stone-700">压缩率</span>
+                            <Input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={imageOutputCompression}
+                              onChange={(event) => onImageOutputCompressionChange(event.target.value)}
+                              placeholder="自动"
+                              className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 text-right text-sm font-bold text-stone-700 shadow-none placeholder:text-stone-400 focus-visible:ring-0"
+                            />
+                          </div>
+                        )}
+                        <div className="mt-2 flex h-9 items-center justify-between rounded-lg border border-rose-100 bg-white/85 px-3 text-sm">
+                          <span className="font-medium text-stone-600">实际分辨率</span>
+                          <span className="font-bold text-stone-900">{actualImageResolution}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPromptLibraryOpen(true)}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-rose-100 bg-white/72 px-2.5 text-xs font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white"
+                >
+                  <Images className="size-4" />
+                  <span>提示词</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onPolishPrompt()}
+                  disabled={!prompt.trim() || isPolishingPrompt}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-rose-100 bg-white/72 px-2.5 text-xs font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
+                  aria-label="AI 润色当前提示词"
+                  title="AI 润色会扣除 1 点额度"
+                >
+                  {isPolishingPrompt ? <LoaderCircle className="size-4 animate-spin" /> : <WandSparkles className="size-4" />}
+                  <span>润色</span>
+                </button>
+                <IconToolButton onClick={() => void handleCopyPrompt()} disabled={!prompt} label="复制当前提示词">
+                  <Copy className="size-4" />
+                </IconToolButton>
+                <IconToolButton onClick={handleClearPrompt} disabled={!prompt} label="清空提示词">
+                  <X className="size-4" />
+                </IconToolButton>
                 <button
                   type="button"
                   onClick={() => void onSubmit()}
-                  disabled={!prompt.trim() || (mode === "edit" && referenceImages.length === 0)}
-                  className="yan-gradient inline-flex h-10 w-full shrink-0 items-center justify-center rounded-lg text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:brightness-100"
+                  disabled={!canSubmit}
+                  className="yan-gradient grid size-10 shrink-0 place-items-center rounded-lg text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:brightness-100"
                   aria-label={mode === "edit" ? "编辑图片" : "生成图片"}
+                  title={mode === "edit" ? "编辑图片" : "生成图片"}
                 >
                   <ArrowUp className="size-4" />
-                  <span>{mode === "edit" ? "编辑图片" : "生成图片"}</span>
                 </button>
               </div>
             </div>
@@ -1304,9 +1223,120 @@ function ModeButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-lg px-2.5 py-1.5 text-xs font-medium transition sm:px-4 sm:py-2 sm:text-sm",
-        active ? "bg-[#2d1d26] text-white" : "bg-rose-50 text-stone-600 hover:bg-rose-100",
+        "inline-flex h-7 items-center rounded-md px-2.5 text-xs font-medium transition",
+        active ? "bg-[#2d1d26] text-white" : "text-stone-600 hover:bg-rose-50",
       )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SettingSection({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <div className="text-xs font-medium text-stone-500">{label}</div>
+      {children}
+    </section>
+  );
+}
+
+function SettingChip({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-9 items-center justify-center rounded-full border px-3 text-sm font-medium transition",
+        active
+          ? "border-[#2d1d26] bg-[#2d1d26] text-white shadow-sm"
+          : "border-rose-100 bg-white/75 text-stone-600 hover:border-rose-200 hover:bg-rose-50 hover:text-stone-900",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function AspectRatioOption({
+  value,
+  label,
+  active,
+  onClick,
+}: {
+  value: string;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2 text-xs font-medium transition",
+        active
+          ? "border-[#2d1d26] bg-[#2d1d26] text-white shadow-sm"
+          : "border-rose-100 bg-white/75 text-stone-600 hover:border-rose-200 hover:bg-rose-50 hover:text-stone-900",
+      )}
+    >
+      {value ? (
+        <AspectRatioIcon value={value} active={active} />
+      ) : (
+        <span className={cn("grid size-5 place-items-center rounded-md border", active ? "border-white/80" : "border-stone-300")}>
+          A
+        </span>
+      )}
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function AspectRatioIcon({ value, active }: { value: string; active: boolean }) {
+  const [widthRatio, heightRatio] = value.split(":").map((part) => Number(part) || 1);
+  const maxWidth = 22;
+  const maxHeight = 16;
+  const scale = Math.min(maxWidth / widthRatio, maxHeight / heightRatio);
+  const width = Math.max(6, Math.round(widthRatio * scale));
+  const height = Math.max(6, Math.round(heightRatio * scale));
+
+  return (
+    <span className="grid h-5 w-6 place-items-center">
+      <span
+        className={cn("rounded-[2px] border", active ? "border-white/85" : "border-stone-400")}
+        style={{ width, height }}
+      />
+    </span>
+  );
+}
+
+function IconToolButton({
+  label,
+  children,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  children: ReactNode;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className="grid size-9 place-items-center rounded-lg border border-rose-100 bg-white/72 text-stone-600 transition hover:border-rose-200 hover:bg-white hover:text-rose-600 disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
     >
       {children}
     </button>

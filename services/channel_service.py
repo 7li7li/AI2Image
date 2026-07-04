@@ -860,18 +860,22 @@ class ChannelService:
 
     @staticmethod
     def _weighted_distinct_channels(channels: list[dict[str, object]]) -> list[dict[str, object]]:
-        weighted: list[dict[str, object]] = []
-        for channel in sorted(channels, key=lambda item: int(item.get("priority") or 0), reverse=True):
-            weighted.extend([channel] * max(1, int(channel.get("weight") or 1)))
-        random.shuffle(weighted)
         selected: list[dict[str, object]] = []
         seen: set[str] = set()
-        for channel in weighted:
-            channel_id = _clean(channel.get("id"))
-            if channel_id in seen:
-                continue
-            seen.add(channel_id)
-            selected.append(dict(channel))
+        priorities = sorted({int(channel.get("priority") or 0) for channel in channels}, reverse=True)
+        for priority in priorities:
+            weighted: list[dict[str, object]] = []
+            for channel in channels:
+                if int(channel.get("priority") or 0) != priority:
+                    continue
+                weighted.extend([channel] * max(1, int(channel.get("weight") or 1)))
+            random.shuffle(weighted)
+            for channel in weighted:
+                channel_id = _clean(channel.get("id"))
+                if channel_id in seen:
+                    continue
+                seen.add(channel_id)
+                selected.append(dict(channel))
         return selected
 
     def has_external_channels(self, model: str | None = None) -> bool:

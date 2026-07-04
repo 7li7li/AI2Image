@@ -185,7 +185,7 @@ export function ImageResults({
           <div className="mx-auto grid size-12 place-items-center rounded-lg bg-gradient-to-br from-rose-100 to-fuchsia-100 text-rose-500">
             <ImageIcon className="size-5" />
           </div>
-          <h1 className="mt-4 text-2xl font-bold tracking-tight text-stone-950">从右侧创作台开始</h1>
+          <h1 className="mt-4 text-2xl font-bold tracking-tight text-stone-950">从下方创作台开始</h1>
           <p className="mt-2 text-sm leading-6 text-stone-500">
             支持文生图、图生图、参考图上传和粘贴、提示词库、队列恢复、灯箱预览与继续编辑。
           </p>

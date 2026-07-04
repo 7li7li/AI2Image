@@ -120,7 +120,7 @@ export function TopNav() {
           </span>
         </a>
 
-        <nav className="hide-scrollbar flex flex-1 justify-start gap-1.5 overflow-x-auto sm:justify-center sm:gap-2">
+        <nav className="hide-scrollbar flex min-w-0 flex-1 justify-start gap-1.5 overflow-x-auto sm:justify-center sm:gap-2">
           {navItems.map((item) => {
             const active = normalizedPathname === item.href;
             const Icon = item.icon;

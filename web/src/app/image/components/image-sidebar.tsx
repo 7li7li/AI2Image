@@ -1,6 +1,6 @@
 "use client";
 
-import { LoaderCircle, MessageSquarePlus, Trash2 } from "lucide-react";
+import { LoaderCircle, MessageSquarePlus, Search, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,9 @@ type ImageSidebarProps = {
   conversations: ImageConversation[];
   isLoadingHistory: boolean;
   selectedConversationId: string | null;
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
+  searchPlaceholder?: string;
   onCreateDraft: () => void;
   onClearHistory: () => void | Promise<void>;
   onSelectConversation: (id: string) => void;
@@ -22,6 +25,9 @@ export function ImageSidebar({
   conversations,
   isLoadingHistory,
   selectedConversationId,
+  searchValue,
+  onSearchChange,
+  searchPlaceholder = "搜索会话",
   onCreateDraft,
   onClearHistory,
   onSelectConversation,
@@ -49,6 +55,19 @@ export function ImageSidebar({
             </Button>
           </div>
         )}
+
+        {typeof searchValue === "string" && onSearchChange ? (
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" />
+            <input
+              value={searchValue}
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
+              className="h-10 w-full rounded-lg border border-[var(--yan-border)] bg-white/72 pl-9 pr-3 text-sm text-stone-700 outline-none transition placeholder:text-stone-400 focus:border-rose-200 focus:bg-white focus:ring-4 focus:ring-rose-100/60"
+            />
+          </label>
+        ) : null}
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 [scrollbar-color:rgba(244,114,182,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-rose-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
           {isLoadingHistory ? (

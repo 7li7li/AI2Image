@@ -172,6 +172,51 @@ class ModelServiceTest(unittest.TestCase):
 
             self.assertFalse(service.has_external_channels("gpt-image-2"))
 
+    def test_channel_order_honors_priority_before_weight(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            storage.save_channels(
+                [
+                    {
+                        "id": "low-priority-heavy",
+                        "name": "Low",
+                        "base_url": "https://low.example",
+                        "api_key": "sk-low",
+                        "models": ["gpt-image-2", "gpt-5.5"],
+                        "priority": 0,
+                        "weight": 100,
+                    },
+                    {
+                        "id": "high-priority-a",
+                        "name": "High A",
+                        "base_url": "https://high-a.example",
+                        "api_key": "sk-high-a",
+                        "models": ["gpt-image-2", "gpt-5.5"],
+                        "priority": 10,
+                        "weight": 1,
+                    },
+                    {
+                        "id": "high-priority-b",
+                        "name": "High B",
+                        "base_url": "https://high-b.example",
+                        "api_key": "sk-high-b",
+                        "models": ["gpt-image-2", "gpt-5.5"],
+                        "priority": 10,
+                        "weight": 1,
+                    },
+                ]
+            )
+            service = ChannelService(storage, FakeConfigStore())
+
+            with mock.patch.object(channel_service_module.random, "shuffle", lambda items: items.reverse()):
+                image_order = [channel["id"] for channel in service._enabled_external_channels("gpt-image-2")]
+                chat_order = [channel["id"] for channel in service._enabled_external_chat_channels("gpt-5.5")]
+
+            self.assertEqual(image_order[-1], "low-priority-heavy")
+            self.assertEqual(chat_order[-1], "low-priority-heavy")
+            self.assertEqual(set(image_order[:2]), {"high-priority-a", "high-priority-b"})
+            self.assertEqual(set(chat_order[:2]), {"high-priority-a", "high-priority-b"})
+
     def test_generation_uses_requested_image_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")

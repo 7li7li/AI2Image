@@ -17,7 +17,6 @@ import {
   Menu,
   MessageSquare,
   MessageSquarePlus,
-  Paperclip,
   Plus,
   Search,
   Send,
@@ -871,7 +870,10 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
             conversations={filteredConversations}
             isLoadingHistory={isLoadingHistory}
             selectedConversationId={selectedConversationId}
+            searchValue={workspaceSearch}
+            onSearchChange={setWorkspaceSearch}
             availableQuota={availableQuota}
+            workspaceStats={workspaceStats}
             formatConversationTime={formatConversationTime}
             onCreateDraft={handleCreateDraft}
             onClearHistory={openClearHistoryConfirm}
@@ -887,7 +889,10 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
               conversations={filteredConversations}
               isLoadingHistory={isLoadingHistory}
               selectedConversationId={selectedConversationId}
+              searchValue={workspaceSearch}
+              onSearchChange={setWorkspaceSearch}
               availableQuota={availableQuota}
+              workspaceStats={workspaceStats}
               formatConversationTime={formatConversationTime}
               onCreateDraft={() => {
                 handleCreateDraft();
@@ -927,49 +932,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
             </Button>
           </div>
 
-          <header className="yan-panel flex min-h-16 flex-col gap-3 rounded-lg px-4 py-3 md:flex-row md:items-center">
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate text-2xl font-bold tracking-tight text-stone-950">AI 文本对话</h1>
-              <p className="mt-1 truncate text-sm text-stone-500">
-                {defaultTextModel} · 本地额度 {availableQuota} · Text Chat
-              </p>
-            </div>
-            <label className="relative w-full md:max-w-[360px]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" />
-              <input
-                value={workspaceSearch}
-                onChange={(event) => setWorkspaceSearch(event.target.value)}
-                placeholder="搜索对话、消息"
-                className="h-10 w-full rounded-lg border border-[var(--yan-border)] bg-white/72 pl-9 pr-3 text-sm text-stone-700 outline-none transition placeholder:text-stone-400 focus:border-rose-200 focus:bg-white focus:ring-4 focus:ring-rose-100/60"
-              />
-            </label>
-          </header>
-
-          <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-            <WorkspaceMetric label="今日发送" value={workspaceStats.todaySent} />
-            <WorkspaceMetric label="回复数" value={workspaceStats.assistantReplies} />
-            <WorkspaceMetric label="处理中" value={workspaceStats.sending} />
-            <WorkspaceMetric label="对话数" value={workspaceStats.conversations} />
-          </div>
-
           <div className="yan-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-rose-100/70 bg-white/72 px-4 py-3 backdrop-blur-xl">
-              <div className="min-w-0">
-                <h2 className="truncate text-base font-bold text-stone-950">
-                  {selectedConversation ? selectedConversation.title : "新对话"}
-                </h2>
-                <p className="truncate text-sm text-stone-500">
-                  {selectedConversation
-                    ? `${selectedConversation.messages.filter((message) => message.role === "user").length} 轮 · ${formatConversationTime(selectedConversation.updatedAt)}`
-                    : "输入消息后会创建对话"}
-                </p>
-              </div>
-              <div className="hidden items-center gap-2 text-xs font-medium text-stone-400 sm:flex">
-                <span>{selectedConversation?.model || defaultTextModel}</span>
-                {selectedConversationSending ? <span className="text-rose-500">回复中</span> : null}
-              </div>
-            </div>
-
             <div
               ref={messagesViewportRef}
               className="min-h-0 flex-1 overflow-y-auto px-3 py-4 [scrollbar-color:rgba(244,114,182,.45)_transparent] [scrollbar-width:thin] sm:px-5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-rose-300/55 [&::-webkit-scrollbar-track]:bg-transparent"
@@ -1012,33 +975,42 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                   ))}
                 </div>
               ) : null}
-              <div className="flex items-end gap-2">
-                <div className="relative flex-1">
+              <div className="rounded-[22px] border border-rose-100 bg-white/90 p-3 shadow-sm">
+                <Textarea
+                  ref={textareaRef}
+                  value={messageDraft}
+                  onChange={(event) => setMessageDraft(event.target.value)}
+                  onKeyDown={handleDraftKeyDown}
+                  onPaste={handleDraftPaste}
+                  placeholder="输入消息..."
+                  className="max-h-44 min-h-20 resize-none rounded-none border-0 bg-transparent px-0 py-0 text-sm leading-6 shadow-none focus-visible:border-transparent focus-visible:ring-0"
+                />
+                <div className="mt-3 flex min-h-9 items-center gap-2">
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="icon"
-                    className="absolute left-2 top-2 z-10 size-8 rounded-lg border-rose-100 bg-white/85 text-stone-500 shadow-sm"
+                    className="size-8 rounded-full text-stone-500 hover:bg-stone-100"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isSending || selectedConversationSending || pendingAttachments.length >= MAX_CHAT_ATTACHMENTS}
                     aria-label="上传附件"
                   >
-                    <Paperclip className="size-4" />
+                    <Plus className="size-4" />
                   </Button>
-                  <Textarea
-                    ref={textareaRef}
-                    value={messageDraft}
-                    onChange={(event) => setMessageDraft(event.target.value)}
-                    onKeyDown={handleDraftKeyDown}
-                    onPaste={handleDraftPaste}
-                    placeholder="输入消息..."
-                    className="max-h-44 min-h-24 resize-none rounded-lg border-rose-100 bg-white/86 pl-12 text-sm leading-6"
-                  />
-                </div>
-                <div className="flex shrink-0 flex-col gap-2">
+                  <div className="min-w-0 flex-1" />
+                  {selectedConversationSending ? (
+                    <span className="hidden items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-600 sm:inline-flex">
+                      <LoaderCircle className="size-3.5 animate-spin" />
+                      回复中
+                    </span>
+                  ) : null}
+                  <div className="inline-flex min-w-0 max-w-[42vw] items-center gap-1.5 text-xs font-medium text-stone-600 sm:max-w-[260px]">
+                    <Bot className="size-3.5 shrink-0 text-stone-300" />
+                    <span className="truncate">{selectedConversation?.model || defaultTextModel}</span>
+                  </div>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="icon"
-                    className="size-10 rounded-lg border-rose-100 bg-white/75 text-stone-500"
+                    className="size-8 rounded-full text-stone-500 hover:bg-stone-100"
                     onClick={resetComposer}
                     disabled={!messageDraft && pendingAttachments.length === 0}
                     aria-label="清空输入"
@@ -1047,7 +1019,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                   </Button>
                   <Button
                     size="icon"
-                    className="size-10 rounded-lg text-white"
+                    className="size-9 rounded-full bg-stone-700 text-white shadow-none hover:bg-stone-800"
                     onClick={() => void handleSubmit()}
                     disabled={(!messageDraft.trim() && pendingAttachments.length === 0) || isSending || selectedConversationSending}
                     aria-label="发送消息"
@@ -1093,7 +1065,10 @@ function ChatStudioSidebar({
   conversations,
   isLoadingHistory,
   selectedConversationId,
+  searchValue,
+  onSearchChange,
   availableQuota,
+  workspaceStats,
   formatConversationTime,
   onCreateDraft,
   onClearHistory,
@@ -1103,7 +1078,10 @@ function ChatStudioSidebar({
   conversations: ChatConversation[];
   isLoadingHistory: boolean;
   selectedConversationId: string | null;
+  searchValue: string;
+  onSearchChange: (value: string) => void;
   availableQuota: string;
+  workspaceStats: ReturnType<typeof getWorkspaceStats>;
   formatConversationTime: (value: string) => string;
   onCreateDraft: () => void;
   onClearHistory: () => void | Promise<void>;
@@ -1137,6 +1115,17 @@ function ChatStudioSidebar({
                 <Trash2 className="size-4" />
               </Button>
             </div>
+
+            <label className="relative block">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" />
+              <input
+                value={searchValue}
+                onChange={(event) => onSearchChange(event.target.value)}
+                placeholder="搜索对话、消息"
+                aria-label="搜索对话、消息"
+                className="h-10 w-full rounded-lg border border-[var(--yan-border)] bg-white/72 pl-9 pr-3 text-sm text-stone-700 outline-none transition placeholder:text-stone-400 focus:border-rose-200 focus:bg-white focus:ring-4 focus:ring-rose-100/60"
+              />
+            </label>
 
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               {isLoadingHistory ? (
@@ -1203,9 +1192,12 @@ function ChatStudioSidebar({
       </div>
 
       <div className="border-t border-rose-100/70 p-3">
-        <div className="rounded-lg bg-gradient-to-br from-white/80 to-rose-50/80 p-3">
-          <div className="text-sm text-stone-500">本地额度</div>
-          <div className="mt-1 text-3xl font-bold tracking-tight text-stone-950">{availableQuota}</div>
+        <div className="grid grid-cols-2 gap-2">
+          <SidebarMetric className="col-span-2" label="本地额度" value={availableQuota} prominent />
+          <SidebarMetric label="今日发送" value={workspaceStats.todaySent} />
+          <SidebarMetric label="回复数" value={workspaceStats.assistantReplies} />
+          <SidebarMetric label="处理中" value={workspaceStats.sending} />
+          <SidebarMetric label="对话数" value={workspaceStats.conversations} />
         </div>
       </div>
     </aside>
@@ -1631,11 +1623,28 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-function WorkspaceMetric({ label, value }: { label: string; value: string | number }) {
+function SidebarMetric({
+  label,
+  value,
+  prominent = false,
+  className,
+}: {
+  label: string;
+  value: string | number;
+  prominent?: boolean;
+  className?: string;
+}) {
   return (
-    <div className="yan-panel-strong rounded-lg px-4 py-3">
-      <div className="text-xs font-medium text-stone-500">{label}</div>
-      <div className="mt-2 text-2xl font-bold tracking-tight text-stone-950">{value}</div>
+    <div className={cn("rounded-lg bg-gradient-to-br from-white/82 to-rose-50/82 p-2.5", className)}>
+      <div className={cn("font-medium text-stone-500", prominent ? "text-sm" : "text-[11px]")}>{label}</div>
+      <div
+        className={cn(
+          "mt-1 truncate font-bold tracking-tight text-stone-950",
+          prominent ? "text-3xl" : "text-lg",
+        )}
+      >
+        {value}
+      </div>
     </div>
   );
 }

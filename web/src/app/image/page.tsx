@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -13,7 +11,6 @@ import {
   LoaderCircle,
   Menu,
   Plus,
-  Search,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -35,6 +32,7 @@ import { editImage, fetchMe, generateImage, polishImagePrompt, type ImageRequest
 import { resolveApiAssetUrl } from "@/lib/assets";
 import { useSiteSettingsStore } from "@/lib/site-settings";
 import { useAuthGuard } from "@/lib/use-auth-guard";
+import { cn } from "@/lib/utils";
 import {
   clearImageConversations,
   deleteImageConversation,
@@ -66,13 +64,6 @@ const IMAGE_OUTPUT_FORMAT_STORAGE_KEY = "chatgpt2api:image_last_output_format";
 const IMAGE_OUTPUT_COMPRESSION_STORAGE_KEY = "chatgpt2api:image_last_output_compression";
 const IMAGE_MODERATION_STORAGE_KEY = "chatgpt2api:image_last_moderation";
 const IMAGE_TRANSPARENT_BACKGROUND_STORAGE_KEY = "chatgpt2api:image_last_transparent_background";
-const COMPOSER_PANEL_WIDTH_STORAGE_KEY = "chatgpt2api:image_composer_panel_width";
-const COMPOSER_PANEL_DEFAULT_WIDTH = 520;
-const COMPOSER_PANEL_MIN_WIDTH = 380;
-const COMPOSER_PANEL_MAX_WIDTH = 820;
-const COMPOSER_GRID_LEFT_WIDTH = 280;
-const COMPOSER_GRID_GAP_WIDTH = 12;
-const COMPOSER_RESULTS_MIN_WIDTH = 440;
 const SUPPORTED_IMAGE_SIZES = new Set(["", "1:1", "3:2", "2:3", "16:9", "4:3", "3:4", "9:16"]);
 const activeConversationQueueIds = new Set<string>();
 let isImageGenerationQueueRunning = false;
@@ -371,12 +362,9 @@ async function recoverConversationHistory(
 function ImagePageContent({ session }: { session: StoredAuthSession }) {
   const didLoadQuotaRef = useRef(false);
   const conversationsRef = useRef<ImageConversation[]>([]);
-  const imageStudioGridRef = useRef<HTMLElement>(null);
   const resultsViewportRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const composerPanelWidthRef = useRef(COMPOSER_PANEL_DEFAULT_WIDTH);
-  const composerPanelDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const [workspaceSearch, setWorkspaceSearch] = useState("");
   const [imagePrompt, setImagePrompt] = useState("");
@@ -400,8 +388,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: "one"; id: string } | { type: "all" } | null>(null);
-  const [composerPanelWidth, setComposerPanelWidth] = useState(COMPOSER_PANEL_DEFAULT_WIDTH);
-  const [isComposerPanelResizing, setIsComposerPanelResizing] = useState(false);
   const [isPolishingPrompt, setIsPolishingPrompt] = useState(false);
 
   const defaultImageModel = useSiteSettingsStore((state) => state.settings.default_image_model || "gpt-image-2");
@@ -445,14 +431,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     () => conversations.find((item) => item.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId],
   );
-  const activeTaskCount = useMemo(
-    () =>
-      conversations.reduce((sum, conversation) => {
-        const stats = getImageConversationStats(conversation);
-        return sum + stats.queued + stats.running;
-      }, 0),
-    [conversations],
-  );
   const filteredConversations = useMemo(
     () => conversations.filter((conversation) => conversationMatchesQuery(conversation, workspaceSearch)),
     [conversations, workspaceSearch],
@@ -466,117 +444,9 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
         ? "确认删除这条图片对话吗？删除后无法恢复。"
         : "";
 
-  const getComposerPanelWidthBounds = useCallback(() => {
-    const gridWidth =
-      imageStudioGridRef.current?.getBoundingClientRect().width ??
-      (typeof window !== "undefined" ? window.innerWidth : 0);
-    const maxByGrid =
-      gridWidth - COMPOSER_GRID_LEFT_WIDTH - COMPOSER_GRID_GAP_WIDTH * 2 - COMPOSER_RESULTS_MIN_WIDTH;
-    const maxWidth =
-      Number.isFinite(maxByGrid) && maxByGrid > 0
-        ? Math.min(COMPOSER_PANEL_MAX_WIDTH, Math.max(COMPOSER_PANEL_MIN_WIDTH, maxByGrid))
-        : COMPOSER_PANEL_MAX_WIDTH;
-
-    return {
-      min: COMPOSER_PANEL_MIN_WIDTH,
-      max: maxWidth,
-    };
-  }, []);
-
-  const clampComposerPanelWidth = useCallback(
-    (nextWidth: number) => {
-      const { min, max } = getComposerPanelWidthBounds();
-      return Math.round(Math.min(max, Math.max(min, nextWidth)));
-    },
-    [getComposerPanelWidthBounds],
-  );
-
-  const updateComposerPanelWidth = useCallback(
-    (nextWidth: number) => {
-      const clampedWidth = clampComposerPanelWidth(nextWidth);
-      composerPanelWidthRef.current = clampedWidth;
-      setComposerPanelWidth(clampedWidth);
-      return clampedWidth;
-    },
-    [clampComposerPanelWidth],
-  );
-
-  const imageStudioGridStyle = useMemo(
-    () =>
-      ({
-        "--image-composer-panel-width": `${composerPanelWidth}px`,
-      }) as CSSProperties,
-    [composerPanelWidth],
-  );
-
-  const handleComposerPanelResizeStart = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    composerPanelDragRef.current = {
-      startX: event.clientX,
-      startWidth: composerPanelWidthRef.current,
-    };
-    setIsComposerPanelResizing(true);
-  }, []);
-
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
-
-  useEffect(() => {
-    const storedWidth = Number(window.localStorage.getItem(COMPOSER_PANEL_WIDTH_STORAGE_KEY));
-    if (Number.isFinite(storedWidth) && storedWidth > 0) {
-      updateComposerPanelWidth(storedWidth);
-    }
-  }, [updateComposerPanelWidth]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      updateComposerPanelWidth(composerPanelWidthRef.current);
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [updateComposerPanelWidth]);
-
-  useEffect(() => {
-    if (!isComposerPanelResizing) {
-      return;
-    }
-
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    const handlePointerMove = (event: PointerEvent) => {
-      const dragState = composerPanelDragRef.current;
-      if (!dragState) {
-        return;
-      }
-
-      updateComposerPanelWidth(dragState.startWidth - (event.clientX - dragState.startX));
-    };
-
-    const handlePointerEnd = () => {
-      setIsComposerPanelResizing(false);
-      composerPanelDragRef.current = null;
-      window.localStorage.setItem(COMPOSER_PANEL_WIDTH_STORAGE_KEY, String(composerPanelWidthRef.current));
-    };
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerEnd);
-    window.addEventListener("pointercancel", handlePointerEnd);
-
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerEnd);
-      window.removeEventListener("pointercancel", handlePointerEnd);
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-    };
-  }, [isComposerPanelResizing, updateComposerPanelWidth]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1407,17 +1277,16 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
 
   return (
     <>
-      <section
-        ref={imageStudioGridRef}
-        style={imageStudioGridStyle}
-        className="grid h-full min-h-0 w-full min-w-0 grid-cols-1 gap-3 overflow-y-auto xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.78fr)] xl:overflow-hidden 2xl:grid-cols-[280px_minmax(0,1fr)_var(--image-composer-panel-width)]"
-      >
-        <div className="yan-panel hidden min-h-0 overflow-hidden rounded-lg 2xl:flex">
+      <section className="grid h-full min-h-0 w-full min-w-0 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[300px_minmax(0,1fr)] lg:overflow-hidden">
+        <div className="yan-panel hidden min-h-0 overflow-hidden rounded-lg lg:flex">
           <ImageStudioSidebar
             conversations={filteredConversations}
             isLoadingHistory={isLoadingHistory}
             selectedConversationId={selectedConversationId}
+            searchValue={workspaceSearch}
+            onSearchChange={setWorkspaceSearch}
             availableQuota={availableQuota}
+            workspaceStats={workspaceStats}
             onCreateDraft={handleCreateDraft}
             onClearHistory={openClearHistoryConfirm}
             onSelectConversation={setSelectedConversationId}
@@ -1433,7 +1302,10 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
               conversations={filteredConversations}
               isLoadingHistory={isLoadingHistory}
               selectedConversationId={selectedConversationId}
+              searchValue={workspaceSearch}
+              onSearchChange={setWorkspaceSearch}
               availableQuota={availableQuota}
+              workspaceStats={workspaceStats}
               onCreateDraft={() => {
                 handleCreateDraft();
                 setIsHistoryOpen(false);
@@ -1449,8 +1321,8 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
           </DialogContent>
         </Dialog>
 
-        <div className="flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
-          <div className="flex items-center justify-between gap-2 2xl:hidden">
+        <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
+          <div className="flex items-center justify-between gap-2 lg:hidden">
             <Button
               variant="outline"
               className="h-10 flex-1 rounded-lg border-rose-100 bg-white/75 text-stone-700 shadow-sm"
@@ -1473,106 +1345,54 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             </Button>
           </div>
 
-          <header className="yan-panel flex min-h-14 flex-col gap-3 rounded-lg px-4 py-2.5 md:flex-row md:items-center">
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate text-xl font-bold tracking-tight text-stone-950">AI影像创作台</h1>
-              <p className="mt-1 truncate text-sm text-stone-500">
-                {defaultImageModel} · 创作队列 {workspaceStats.active} · 当前空间 Image Studio
-              </p>
-            </div>
-            <label className="relative w-full md:max-w-[360px]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" />
-              <input
-                value={workspaceSearch}
-                onChange={(event) => setWorkspaceSearch(event.target.value)}
-                placeholder="搜索作品、提示词、会话"
-                className="h-9 w-full rounded-lg border border-[var(--yan-border)] bg-white/72 pl-9 pr-3 text-sm text-stone-700 outline-none transition placeholder:text-stone-400 focus:border-rose-200 focus:bg-white focus:ring-4 focus:ring-rose-100/60"
+          <div className="yan-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
+            <div
+              ref={resultsViewportRef}
+              className="min-h-0 flex-1 overflow-y-auto px-3 py-3 [scrollbar-color:rgba(244,114,182,.45)_transparent] [scrollbar-width:thin] sm:px-4 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-rose-300/55 [&::-webkit-scrollbar-track]:bg-transparent"
+            >
+              <ImageResults
+                selectedConversation={selectedConversation}
+                onOpenLightbox={openLightbox}
+                onContinueEdit={handleContinueEdit}
+                onRegenerate={handleRegenerateTurn}
+                formatConversationTime={formatConversationTime}
               />
-            </label>
-          </header>
-
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <WorkspaceMetric label="今日生成" value={workspaceStats.todayGenerated} />
-            <WorkspaceMetric label="成功率" value={workspaceStats.successRate} />
-            <WorkspaceMetric label="处理中" value={workspaceStats.active} />
-            <WorkspaceMetric label="历史作品" value={workspaceStats.successImages} />
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <div ref={resultsViewportRef} className="yan-panel h-full min-h-0 overflow-y-auto rounded-lg">
-              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-rose-100/70 bg-white/72 px-4 py-2.5 backdrop-blur-xl">
-                <div className="min-w-0">
-                  <h2 className="text-base font-bold text-stone-950">生成画面</h2>
-                  <p className="truncate text-sm text-stone-500">
-                    {selectedConversation ? `${selectedConversation.turns.length} 轮创作 · 精选结果` : "选择会话或新建创作"}
-                  </p>
-                </div>
-                <div className="hidden items-center gap-2 text-xs font-medium text-stone-400 sm:flex">
-                  <span>{workspaceStats.queued} 排队</span>
-                  <span>{workspaceStats.running} 运行中</span>
-                </div>
-              </div>
-              <div className="px-3 py-3 sm:px-4">
-                <ImageResults
-                  selectedConversation={selectedConversation}
-                  onOpenLightbox={openLightbox}
-                  onContinueEdit={handleContinueEdit}
-                  onRegenerate={handleRegenerateTurn}
-                  formatConversationTime={formatConversationTime}
-                />
-              </div>
             </div>
+
+            <ImageComposer
+              mode={imageMode}
+              prompt={imagePrompt}
+              imageCount={imageCount}
+              imageSize={imageSize}
+              imageResolution={imageResolution}
+              imageQuality={imageQuality}
+              imageOutputFormat={imageOutputFormat}
+              imageOutputCompression={imageOutputCompression}
+              imageModeration={imageModeration}
+              imageTransparentBackground={imageTransparentBackground}
+              defaultImageModel={defaultImageModel}
+              referenceImages={referenceImages}
+              textareaRef={textareaRef}
+              fileInputRef={fileInputRef}
+              onModeChange={setImageMode}
+              onPromptChange={setImagePrompt}
+              onImageCountChange={setImageCount}
+              onImageSizeChange={(value) => setImageSize(normalizeImageSize(value))}
+              onImageResolutionChange={setImageResolution}
+              onImageQualityChange={setImageQuality}
+              onImageOutputFormatChange={setImageOutputFormat}
+              onImageOutputCompressionChange={setImageOutputCompression}
+              onImageModerationChange={setImageModeration}
+              onImageTransparentBackgroundChange={setImageTransparentBackground}
+              onSubmit={handleSubmit}
+              onPolishPrompt={handlePolishPrompt}
+              isPolishingPrompt={isPolishingPrompt}
+              onPickReferenceImage={() => fileInputRef.current?.click()}
+              onReferenceImageChange={handleReferenceImageChange}
+              onRemoveReferenceImage={handleRemoveReferenceImage}
+            />
           </div>
         </div>
-
-        <aside
-          className={`yan-panel relative min-h-0 min-w-0 overflow-hidden rounded-lg ${
-            isComposerPanelResizing ? "ring-2 ring-rose-100" : ""
-          }`}
-        >
-          <button
-            type="button"
-            aria-label="调整 Prompt 面板宽度"
-            onPointerDown={handleComposerPanelResizeStart}
-            className="group absolute top-0 bottom-0 left-0 z-20 hidden w-3 cursor-col-resize items-center justify-center outline-none 2xl:flex"
-          >
-            <span className="h-14 w-1 rounded-full bg-rose-200/70 opacity-70 transition group-hover:bg-rose-300 group-hover:opacity-100 group-focus-visible:bg-rose-400 group-focus-visible:opacity-100" />
-          </button>
-          <ImageComposer
-            mode={imageMode}
-            prompt={imagePrompt}
-            imageCount={imageCount}
-            imageSize={imageSize}
-            imageResolution={imageResolution}
-            imageQuality={imageQuality}
-            imageOutputFormat={imageOutputFormat}
-            imageOutputCompression={imageOutputCompression}
-            imageModeration={imageModeration}
-            imageTransparentBackground={imageTransparentBackground}
-            defaultImageModel={defaultImageModel}
-            availableQuota={availableQuota}
-            activeTaskCount={activeTaskCount}
-            referenceImages={referenceImages}
-            textareaRef={textareaRef}
-            fileInputRef={fileInputRef}
-            onModeChange={setImageMode}
-            onPromptChange={setImagePrompt}
-            onImageCountChange={setImageCount}
-            onImageSizeChange={(value) => setImageSize(normalizeImageSize(value))}
-            onImageResolutionChange={setImageResolution}
-            onImageQualityChange={setImageQuality}
-            onImageOutputFormatChange={setImageOutputFormat}
-            onImageOutputCompressionChange={setImageOutputCompression}
-            onImageModerationChange={setImageModeration}
-            onImageTransparentBackgroundChange={setImageTransparentBackground}
-            onSubmit={handleSubmit}
-            onPolishPrompt={handlePolishPrompt}
-            isPolishingPrompt={isPolishingPrompt}
-            onPickReferenceImage={() => fileInputRef.current?.click()}
-            onReferenceImageChange={handleReferenceImageChange}
-            onRemoveReferenceImage={handleRemoveReferenceImage}
-          />
-        </aside>
       </section>
 
       <ImageLightbox
@@ -1611,7 +1431,10 @@ function ImageStudioSidebar({
   conversations,
   isLoadingHistory,
   selectedConversationId,
+  searchValue,
+  onSearchChange,
   availableQuota,
+  workspaceStats,
   onCreateDraft,
   onClearHistory,
   onSelectConversation,
@@ -1621,7 +1444,10 @@ function ImageStudioSidebar({
   conversations: ImageConversation[];
   isLoadingHistory: boolean;
   selectedConversationId: string | null;
+  searchValue: string;
+  onSearchChange: (value: string) => void;
   availableQuota: string;
+  workspaceStats: ReturnType<typeof getWorkspaceStats>;
   onCreateDraft: () => void;
   onClearHistory: () => void | Promise<void>;
   onSelectConversation: (id: string) => void;
@@ -1642,6 +1468,9 @@ function ImageStudioSidebar({
             conversations={conversations}
             isLoadingHistory={isLoadingHistory}
             selectedConversationId={selectedConversationId}
+            searchValue={searchValue}
+            onSearchChange={onSearchChange}
+            searchPlaceholder="搜索作品、提示词、会话"
             onCreateDraft={onCreateDraft}
             onClearHistory={onClearHistory}
             onSelectConversation={onSelectConversation}
@@ -1652,20 +1481,40 @@ function ImageStudioSidebar({
       </div>
 
       <div className="border-t border-rose-100/70 p-3">
-        <div className="rounded-lg bg-gradient-to-br from-white/80 to-rose-50/80 p-3">
-          <div className="text-sm text-stone-500">本地额度</div>
-          <div className="mt-1 text-3xl font-bold tracking-tight text-stone-950">{availableQuota}</div>
+        <div className="grid grid-cols-2 gap-2">
+          <SidebarMetric className="col-span-2" label="本地额度" value={availableQuota} prominent />
+          <SidebarMetric label="今日生成" value={workspaceStats.todayGenerated} />
+          <SidebarMetric label="成功率" value={workspaceStats.successRate} />
+          <SidebarMetric label="处理中" value={workspaceStats.active} />
+          <SidebarMetric label="历史作品" value={workspaceStats.successImages} />
         </div>
       </div>
     </aside>
   );
 }
 
-function WorkspaceMetric({ label, value }: { label: string; value: string | number }) {
+function SidebarMetric({
+  label,
+  value,
+  prominent = false,
+  className,
+}: {
+  label: string;
+  value: string | number;
+  prominent?: boolean;
+  className?: string;
+}) {
   return (
-    <div className="yan-panel-strong rounded-lg px-4 py-2.5">
-      <div className="text-xs font-medium text-stone-500">{label}</div>
-      <div className="mt-1 text-xl font-bold tracking-tight text-stone-950">{value}</div>
+    <div className={cn("rounded-lg bg-gradient-to-br from-white/82 to-rose-50/82 p-2.5", className)}>
+      <div className={cn("font-medium text-stone-500", prominent ? "text-sm" : "text-[11px]")}>{label}</div>
+      <div
+        className={cn(
+          "mt-1 truncate font-bold tracking-tight text-stone-950",
+          prominent ? "text-3xl" : "text-lg",
+        )}
+      >
+        {value}
+      </div>
     </div>
   );
 }
