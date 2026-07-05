@@ -172,50 +172,53 @@ class ModelServiceTest(unittest.TestCase):
 
             self.assertFalse(service.has_external_channels("gpt-image-2"))
 
-    def test_channel_order_honors_priority_before_weight(self) -> None:
+    def test_channel_order_honors_weight_before_priority(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
             storage.save_channels(
                 [
                     {
-                        "id": "low-priority-heavy",
-                        "name": "Low",
-                        "base_url": "https://low.example",
-                        "api_key": "sk-low",
+                        "id": "weight-wins",
+                        "name": "Weight Wins",
+                        "base_url": "https://weight.example",
+                        "api_key": "sk-weight",
                         "models": ["gpt-image-2", "gpt-5.5"],
-                        "priority": 0,
-                        "weight": 100,
+                        "priority": 1,
+                        "weight": 2,
                     },
                     {
-                        "id": "high-priority-a",
-                        "name": "High A",
-                        "base_url": "https://high-a.example",
-                        "api_key": "sk-high-a",
+                        "id": "priority-wins-when-weight-ties",
+                        "name": "Priority Wins",
+                        "base_url": "https://priority.example",
+                        "api_key": "sk-priority",
                         "models": ["gpt-image-2", "gpt-5.5"],
-                        "priority": 10,
+                        "priority": 2,
                         "weight": 1,
                     },
                     {
-                        "id": "high-priority-b",
-                        "name": "High B",
-                        "base_url": "https://high-b.example",
-                        "api_key": "sk-high-b",
+                        "id": "lower-priority-tie",
+                        "name": "Lower Priority Tie",
+                        "base_url": "https://tie.example",
+                        "api_key": "sk-tie",
                         "models": ["gpt-image-2", "gpt-5.5"],
-                        "priority": 10,
+                        "priority": 1,
                         "weight": 1,
                     },
                 ]
             )
             service = ChannelService(storage, FakeConfigStore())
 
-            with mock.patch.object(channel_service_module.random, "shuffle", lambda items: items.reverse()):
-                image_order = [channel["id"] for channel in service._enabled_external_channels("gpt-image-2")]
-                chat_order = [channel["id"] for channel in service._enabled_external_chat_channels("gpt-5.5")]
+            image_order = [channel["id"] for channel in service._enabled_external_channels("gpt-image-2")]
+            chat_order = [channel["id"] for channel in service._enabled_external_chat_channels("gpt-5.5")]
 
-            self.assertEqual(image_order[-1], "low-priority-heavy")
-            self.assertEqual(chat_order[-1], "low-priority-heavy")
-            self.assertEqual(set(image_order[:2]), {"high-priority-a", "high-priority-b"})
-            self.assertEqual(set(chat_order[:2]), {"high-priority-a", "high-priority-b"})
+            self.assertEqual(
+                image_order,
+                ["weight-wins", "priority-wins-when-weight-ties", "lower-priority-tie"],
+            )
+            self.assertEqual(
+                chat_order,
+                ["weight-wins", "priority-wins-when-weight-ties", "lower-priority-tie"],
+            )
 
     def test_generation_uses_requested_image_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -288,8 +291,7 @@ class ModelServiceTest(unittest.TestCase):
                 return {"created": 1, "data": [{"url": "https://b.example/image.png"}]}
 
             service._call_generation = fake_generation  # type: ignore[method-assign]
-            with mock.patch.object(channel_service_module.random, "shuffle", lambda items: None):
-                routed = service.call_generation(payload)
+            routed = service.call_generation(payload)
 
             self.assertIsNotNone(routed)
             self.assertEqual(calls, [("channel-a", "gpt-image-2"), ("channel-b", "gpt-image-2")])
@@ -397,8 +399,7 @@ class ModelServiceTest(unittest.TestCase):
                 }
 
             service._call_chat_completion = fake_chat_completion  # type: ignore[method-assign]
-            with mock.patch.object(channel_service_module.random, "shuffle", lambda items: None):
-                routed = service.call_chat_completion(payload)
+            routed = service.call_chat_completion(payload)
 
             self.assertIsNotNone(routed)
             self.assertEqual(calls, [("channel-a", "gpt-5.5"), ("channel-b", "gpt-5.5")])
@@ -463,11 +464,10 @@ class ModelServiceTest(unittest.TestCase):
             closed: list[str] = []
             service._session = lambda channel: FakeSession(str(channel.get("id")))  # type: ignore[method-assign]
 
-            with mock.patch.object(channel_service_module.random, "shuffle", lambda items: None):
-                routed = service.call_chat_completion_stream({
-                    "model": "gpt-5.5",
-                    "messages": [{"role": "user", "content": "hello"}],
-                })
+            routed = service.call_chat_completion_stream({
+                "model": "gpt-5.5",
+                "messages": [{"role": "user", "content": "hello"}],
+            })
 
             self.assertIsNotNone(routed)
             chunks, channel_name = routed

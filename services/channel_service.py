@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import random
 import time
 import uuid
 from datetime import datetime, timezone
@@ -577,7 +576,7 @@ class ChannelService:
         with self._lock:
             channels = self._current_channels()
             items = [self._public(channel) for channel in channels]
-        items.sort(key=lambda item: (int(item.get("priority") or 0), int(item.get("weight") or 0)), reverse=True)
+        items.sort(key=lambda item: (int(item.get("weight") or 0), int(item.get("priority") or 0)), reverse=True)
         return items
 
     def get_channel(self, channel_id: str, *, include_internal: bool = False) -> dict[str, object] | None:
@@ -862,20 +861,17 @@ class ChannelService:
     def _weighted_distinct_channels(channels: list[dict[str, object]]) -> list[dict[str, object]]:
         selected: list[dict[str, object]] = []
         seen: set[str] = set()
-        priorities = sorted({int(channel.get("priority") or 0) for channel in channels}, reverse=True)
-        for priority in priorities:
-            weighted: list[dict[str, object]] = []
-            for channel in channels:
-                if int(channel.get("priority") or 0) != priority:
-                    continue
-                weighted.extend([channel] * max(1, int(channel.get("weight") or 1)))
-            random.shuffle(weighted)
-            for channel in weighted:
-                channel_id = _clean(channel.get("id"))
-                if channel_id in seen:
-                    continue
-                seen.add(channel_id)
-                selected.append(dict(channel))
+        ordered = sorted(
+            channels,
+            key=lambda channel: (int(channel.get("weight") or 0), int(channel.get("priority") or 0)),
+            reverse=True,
+        )
+        for channel in ordered:
+            channel_id = _clean(channel.get("id"))
+            if channel_id in seen:
+                continue
+            seen.add(channel_id)
+            selected.append(dict(channel))
         return selected
 
     def has_external_channels(self, model: str | None = None) -> bool:

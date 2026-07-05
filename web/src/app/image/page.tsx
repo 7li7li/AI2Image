@@ -763,7 +763,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     setSelectedConversationId(null);
     resetComposer();
     textareaRef.current?.focus();
-    toast.success("已新建空白创作");
   };
 
   const handleDeleteConversation = async (id: string) => {
@@ -892,7 +891,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
         setReferenceImageFiles((prev) => [...prev, preparedReference.file]);
         setImagePrompt("");
         textareaRef.current?.focus();
-        toast.success("已加入当前参考图，继续输入描述即可编辑");
       } catch (error) {
         const message = error instanceof Error ? error.message : "读取生成图失败";
         toast.error(message);
@@ -1195,10 +1193,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     const targetStats = getImageConversationStats(baseConversation);
     if (targetStats.running > 0 || targetStats.queued > 1) {
       toast.success("已加入当前对话队列");
-    } else if (!targetConversation) {
-      toast.success("已创建新对话并开始处理");
-    } else {
-      toast.success("已发送到当前对话");
     }
   };
 
@@ -1272,7 +1266,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     setSelectedConversationId(conversationId);
     await persistConversation(nextConversation);
     void runConversationQueue(conversationId);
-    toast.success("已加入重新生成队列");
   };
 
   return (

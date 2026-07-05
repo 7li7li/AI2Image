@@ -91,14 +91,14 @@ const CHANNEL_FIELDS: Array<{
   {
     key: "weight",
     label: "权重",
-    description: "同优先级下的随机命中权重。",
+    description: "越高越先尝试，失败后再尝试下一个渠道。",
     placeholder: "1",
     type: "number",
   },
   {
     key: "priority",
     label: "优先级",
-    description: "越高越先尝试。",
+    description: "权重相同时，数字越大越先尝试。",
     placeholder: "0",
     type: "number",
   },
