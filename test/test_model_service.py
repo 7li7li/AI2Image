@@ -2,9 +2,13 @@
 
 import tempfile
 import unittest
+import base64
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+
+from PIL import Image
 
 from services.channel_service import ChannelService
 from services import channel_service as channel_service_module
@@ -744,12 +748,80 @@ class ModelServiceTest(unittest.TestCase):
         body = calls["kwargs"]["json"]
         self.assertEqual(body["size"], "2560x1440")
         self.assertEqual(body["quality"], "high")
-        self.assertEqual(body["output_format"], "webp")
-        self.assertEqual(body["output_compression"], 82)
+        self.assertEqual(body["output_format"], "png")
+        self.assertNotIn("output_compression", body)
         self.assertEqual(body["moderation"], "low")
-        self.assertEqual(body["background"], "transparent")
+        self.assertNotIn("background", body)
         self.assertTrue(body["prompt"].startswith("draw\n\n"))
         self.assertIn("16:9", body["prompt"])
+        self.assertIn("#00FF00", body["prompt"])
+        self.assertIn("#FF00FF", body["prompt"])
+
+    def test_external_generation_transparent_background_postprocesses_b64_response(self) -> None:
+        source = Image.new("RGBA", (3, 3), (0, 255, 0, 255))
+        source.putpixel((1, 1), (200, 20, 20, 255))
+        buffer = BytesIO()
+        source.save(buffer, format="PNG")
+        source_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+
+        class FakeResponse:
+            ok = True
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {"created": 1, "data": [{"b64_json": source_b64}]}
+
+        class FakeSession:
+            def post(self, url, **kwargs):
+                return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            images_dir = Path(tmp_dir) / "images"
+            fake_config = SimpleNamespace(
+                images_dir=images_dir,
+                base_url="http://127.0.0.1:8000",
+                cleanup_old_images=lambda: 0,
+            )
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            storage.save_channels(
+                [
+                    {
+                        "id": "channel-a",
+                        "name": "A",
+                        "base_url": "https://a.example",
+                        "api_key": "sk-test",
+                        "models": ["gpt-image-2"],
+                    }
+                ]
+            )
+            service = ChannelService(storage, FakeConfigStore())
+            service._session = lambda channel: FakeSession()  # type: ignore[method-assign]
+
+            with (
+                mock.patch.object(channel_service_module, "config", fake_config),
+                mock.patch.object(channel_service_module, "china_now_text", return_value="2026-05-29 08:00:00"),
+            ):
+                routed = service.call_generation({
+                    "prompt": "draw",
+                    "model": "gpt-image-2",
+                    "n": 1,
+                    "background": "transparent",
+                    "response_format": "b64_json",
+                    "base_url": "http://127.0.0.1:8000",
+                })
+
+            self.assertIsNotNone(routed)
+            result, _channel = routed
+            item = result["data"][0]
+            output_bytes = base64.b64decode(item["b64_json"])
+            with Image.open(BytesIO(output_bytes)) as output:
+                output = output.convert("RGBA")
+                self.assertEqual(output.getpixel((0, 0))[3], 0)
+                self.assertEqual(output.getpixel((1, 1))[3], 255)
+            saved_path = images_dir / item["url"].split("/images/", 1)[1]
+            with Image.open(saved_path) as saved:
+                self.assertEqual(saved.convert("RGBA").getpixel((0, 0))[3], 0)
 
     def test_external_generation_url_response_is_saved_locally(self) -> None:
         class FakeResponse:

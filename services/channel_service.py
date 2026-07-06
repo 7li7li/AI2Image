@@ -19,6 +19,7 @@ from services.proxy_service import proxy_settings
 from services.repositories.base import RepositoryProvider
 from services.repositories.storage_adapter import RepositoryStorageAdapter
 from services.storage.base import StorageBackend
+from services.transparent_image import build_transparent_prompt, remove_keyed_background
 from utils.timezone import china_now_text
 PERSONAL_CHANNEL_ID_PREFIX = "personal_image_channel"
 
@@ -42,6 +43,18 @@ def _save_image_bytes(image_data: bytes, base_url: str | None = None) -> str:
     return f"{(base_url or config.base_url)}/images/{relative_dir.as_posix()}/{filename}"
 
 
+def _is_transparent_background_request(payload: dict[str, Any]) -> bool:
+    return _clean(payload.get("background")).lower() == "transparent"
+
+
+def _remove_keyed_background_with_fallback(image_data: bytes) -> bytes:
+    try:
+        return remove_keyed_background(image_data)
+    except Exception as exc:
+        print(f"[channel] transparent background post-processing failed: {_friendly_channel_error(exc)}")
+        return image_data
+
+
 def _download_image_url(image_url: str) -> bytes:
     parsed = urlparse(image_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -59,16 +72,26 @@ def _download_image_url(image_url: str) -> bytes:
     return image_data
 
 
-def _local_image_url_from_path(parsed_path: str, base_url: str) -> str:
+def _local_image_path_from_path(parsed_path: str) -> Path | None:
     if not parsed_path.startswith("/images/"):
-        return ""
+        return None
     local_path = config.images_dir / parsed_path.removeprefix("/images/")
-    if not local_path.is_file():
+    return local_path if local_path.is_file() else None
+
+
+def _local_image_url_from_path(parsed_path: str, base_url: str) -> str:
+    local_path = _local_image_path_from_path(parsed_path)
+    if local_path is None:
         return ""
     return f"{base_url.rstrip('/')}{parsed_path}"
 
 
-def _localize_url_items(items: list[dict[str, Any]], base_url: str | None) -> list[dict[str, Any]]:
+def _localize_url_items(
+        items: list[dict[str, Any]],
+        base_url: str | None,
+        *,
+        transparent_background: bool = False,
+) -> list[dict[str, Any]]:
     target_base_url = _clean(base_url) or config.base_url
     if not target_base_url:
         return items
@@ -79,11 +102,15 @@ def _localize_url_items(items: list[dict[str, Any]], base_url: str | None) -> li
         if not image_url:
             continue
         parsed = urlparse(image_url)
-        local_url = _local_image_url_from_path(parsed.path or image_url, target_base_url)
-        if local_url:
+        parsed_path = parsed.path or image_url
+        local_url = _local_image_url_from_path(parsed_path, target_base_url)
+        if local_url and not transparent_background:
             localized.append({**item, "url": local_url})
             continue
-        image_data = _download_image_url(image_url)
+        local_path = _local_image_path_from_path(parsed_path)
+        image_data = local_path.read_bytes() if local_path else _download_image_url(image_url)
+        if transparent_background:
+            image_data = _remove_keyed_background_with_fallback(image_data)
         localized.append({**item, "url": _save_image_bytes(image_data, target_base_url)})
     return localized
 
@@ -94,6 +121,7 @@ def _format_image_result(
         response_format: str,
         base_url: str | None = None,
         created: int | None = None,
+        transparent_background: bool = False,
 ) -> dict[str, Any]:
     data: list[dict[str, Any]] = []
     for item in items:
@@ -101,7 +129,11 @@ def _format_image_result(
         if not b64_json:
             continue
         revised_prompt = _clean(item.get("revised_prompt") or prompt) or prompt
-        saved_url = _save_image_bytes(base64.b64decode(b64_json), base_url)
+        image_data = base64.b64decode(b64_json)
+        if transparent_background:
+            image_data = _remove_keyed_background_with_fallback(image_data)
+            b64_json = base64.b64encode(image_data).decode("ascii")
+        saved_url = _save_image_bytes(image_data, base_url)
         if response_format == "b64_json":
             data.append({"b64_json": b64_json, "url": saved_url, "revised_prompt": revised_prompt})
         else:
@@ -273,9 +305,13 @@ def _normalize_external_image_options(payload: dict[str, Any]) -> dict[str, obje
     if quality in {"auto", "low", "medium", "high"}:
         options["quality"] = quality
     output_format = _clean(payload.get("output_format")).lower()
-    if output_format in {"png", "jpeg", "webp"}:
+    background = _clean(payload.get("background")).lower()
+    transparent_background = background == "transparent"
+    if transparent_background:
+        options["output_format"] = "png"
+    elif output_format in {"png", "jpeg", "webp"}:
         options["output_format"] = output_format
-    if output_format in {"jpeg", "webp"}:
+    if not transparent_background and output_format in {"jpeg", "webp"}:
         try:
             output_compression = int(payload.get("output_compression"))
         except (TypeError, ValueError):
@@ -285,8 +321,7 @@ def _normalize_external_image_options(payload: dict[str, Any]) -> dict[str, obje
     moderation = _clean(payload.get("moderation")).lower()
     if moderation in {"auto", "low"}:
         options["moderation"] = moderation
-    background = _clean(payload.get("background")).lower()
-    if background in {"auto", "transparent", "opaque"}:
+    if background in {"auto", "opaque"}:
         options["background"] = background
     return options
 
@@ -991,6 +1026,8 @@ class ChannelService:
             payload.get("size"),
             payload.get("resolution"),
         )
+        if _is_transparent_background_request(payload) and prompt is not None:
+            prompt = build_transparent_prompt(prompt)
         body = {
             key: value
             for key, value in payload.items()
@@ -1016,6 +1053,8 @@ class ChannelService:
             payload.get("size"),
             payload.get("resolution"),
         )
+        if _is_transparent_background_request(payload):
+            prompt = build_transparent_prompt(prompt or "")
         form_data = {
             "prompt": prompt or "",
             "model": _clean(payload.get("model")) or (channel.get("models") or ["gpt-image-1"])[0],
@@ -1170,13 +1209,19 @@ class ChannelService:
         b64_items = [item for item in data if isinstance(item, dict) and item.get("b64_json")]
         url_items = [item for item in data if isinstance(item, dict) and item.get("url") and not item.get("b64_json")]
         base_url = _clean(original_payload.get("base_url")) or None
-        localized_url_items = _localize_url_items(url_items, base_url)
+        transparent_background = _is_transparent_background_request(original_payload)
+        localized_url_items = _localize_url_items(
+            url_items,
+            base_url,
+            transparent_background=transparent_background,
+        )
         if b64_items:
             result = _format_image_result(
                 b64_items,
                 _clean(original_payload.get("prompt")),
                 _clean(original_payload.get("response_format")) or "b64_json",
                 base_url,
+                transparent_background=transparent_background,
             )
             if localized_url_items:
                 result["data"].extend(localized_url_items)
@@ -1191,6 +1236,7 @@ class ChannelService:
                         _clean(original_payload.get("prompt")),
                         "b64_json",
                         base_url,
+                        transparent_background=transparent_background,
                     )["data"][0]
                     normalized["data"].append({
                         "b64_json": item,
