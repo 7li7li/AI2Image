@@ -7,13 +7,11 @@ import {
   ChevronDown,
   Clapperboard,
   Copy,
-  Crop,
   Eraser,
   Expand,
   ExternalLink,
   Glasses,
   ImagePlus,
-  ImageUpscale,
   Images,
   LoaderCircle,
   Newspaper,
@@ -21,6 +19,7 @@ import {
   ScanSearch,
   Search,
   Scissors,
+  ScissorsLineDashed,
   SlidersHorizontal,
   Sparkles,
   SunMedium,
@@ -417,7 +416,7 @@ type QuickImageToolPreset = {
 const QUICK_IMAGE_TOOL_PRESETS: QuickImageToolPreset[] = [
   {
     label: "AI 抠图",
-    icon: Crop,
+    icon: ScissorsLineDashed,
     prompt: "请对上传图片进行主体抠图，精准保留主体轮廓、发丝、半透明材质和边缘细节，移除背景，输出干净的透明背景效果。",
   },
   {
@@ -437,7 +436,7 @@ const QUICK_IMAGE_TOOL_PRESETS: QuickImageToolPreset[] = [
   },
   {
     label: "变清晰",
-    icon: ImageUpscale,
+    icon: WandSparkles,
     prompt: "请对上传图片进行高清修复、降噪和细节增强，提升清晰度、边缘细节和整体质感，同时保持人物身份、构图和原始内容不变。",
   },
 ];
