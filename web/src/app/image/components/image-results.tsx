@@ -242,7 +242,7 @@ export function ImageResults({
                     <span>{getTurnStatusLabel(turn.status)}</span>
                     <span>{formatConversationTime(turn.createdAt)}</span>
                   </div>
-                  <p className="line-clamp-2 text-sm leading-6 text-stone-800">{turn.prompt}</p>
+                  <p className="whitespace-pre-wrap break-words text-sm leading-6 text-stone-800">{turn.prompt}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   <Button

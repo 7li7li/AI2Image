@@ -26,6 +26,10 @@ import {
 import { useEffect, useMemo, useState, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { toast } from "sonner";
 
+import {
+  AnnotationEditorDialog,
+  type AnnotationEditResult,
+} from "@/app/image/components/annotation-editor-dialog";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -588,6 +592,7 @@ type ImageComposerProps = {
   onPickReferenceImage: () => void;
   onReferenceImageChange: (files: File[]) => void | Promise<void>;
   onRemoveReferenceImage: (index: number) => void;
+  onCreateAnnotatedReferenceImage: (sourceIndex: number, result: AnnotationEditResult) => void | Promise<void>;
 };
 
 export function ImageComposer({
@@ -621,9 +626,11 @@ export function ImageComposer({
   onPickReferenceImage,
   onReferenceImageChange,
   onRemoveReferenceImage,
+  onCreateAnnotatedReferenceImage,
 }: ImageComposerProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [annotationImageIndex, setAnnotationImageIndex] = useState<number | null>(null);
   const [isPromptLibraryOpen, setIsPromptLibraryOpen] = useState(false);
   const [bananaPromptStatus, setBananaPromptStatus] = useState<BananaPromptStatus>("idle");
   const [bananaPromptError, setBananaPromptError] = useState("");
@@ -635,6 +642,8 @@ export function ImageComposer({
     () => referenceImages.map((image, index) => ({ id: `${image.name}-${index}`, src: image.dataUrl })),
     [referenceImages],
   );
+  const annotationEditorImage =
+    annotationImageIndex === null ? null : referenceImages[annotationImageIndex] ?? null;
   const imageSizeOptions = [
     { value: "", label: "自动" },
     { value: "1:1", label: "1:1 (正方形)" },
@@ -779,6 +788,21 @@ export function ImageComposer({
     window.requestAnimationFrame(() => onPickReferenceImage());
   };
 
+  const handleRemoveReference = (index: number) => {
+    if (annotationImageIndex === index) {
+      setAnnotationImageIndex(null);
+    }
+    onRemoveReferenceImage(index);
+  };
+
+  const handleApplyAnnotation = async (result: AnnotationEditResult) => {
+    if (annotationImageIndex === null) {
+      return;
+    }
+    await onCreateAnnotatedReferenceImage(annotationImageIndex, result);
+    toast.success("批注图已加入图生图参考");
+  };
+
   return (
     <div className="flex max-h-[min(58vh,560px)] min-h-0 shrink-0 flex-col">
       <input
@@ -798,6 +822,17 @@ export function ImageComposer({
         open={lightboxOpen}
         onOpenChange={setLightboxOpen}
         onIndexChange={setLightboxIndex}
+      />
+
+      <AnnotationEditorDialog
+        image={annotationEditorImage}
+        open={annotationImageIndex !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAnnotationImageIndex(null);
+          }
+        }}
+        onApply={handleApplyAnnotation}
       />
 
       {mode === "edit" && referenceImages.length > 0 ? (
@@ -824,12 +859,24 @@ export function ImageComposer({
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
-                    onRemoveReferenceImage(index);
+                    handleRemoveReference(index);
                   }}
                   className="absolute -top-1 -right-1 inline-flex size-5 items-center justify-center rounded-full border border-rose-100 bg-white text-stone-500 transition hover:border-rose-200 hover:text-rose-600"
                   aria-label={`移除参考图 ${image.name || index + 1}`}
                 >
                   <X className="size-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setAnnotationImageIndex(index);
+                  }}
+                  className="absolute -bottom-1 -left-1 inline-flex size-6 items-center justify-center rounded-full border border-rose-100 bg-white text-stone-600 shadow-sm transition hover:border-rose-200 hover:text-rose-600"
+                  aria-label={`批注参考图 ${image.name || index + 1}`}
+                  title="批注修改"
+                >
+                  <NotebookPen className="size-3.5" />
                 </button>
               </div>
             ))}

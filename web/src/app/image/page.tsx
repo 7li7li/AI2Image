@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 
 import { ImageComposer } from "@/app/image/components/image-composer";
+import type { AnnotationEditResult } from "@/app/image/components/annotation-editor-dialog";
 import { ImageResults, type ImageLightboxItem } from "@/app/image/components/image-results";
 import { ImageSidebar } from "@/app/image/components/image-sidebar";
 import { ImageLightbox } from "@/components/image-lightbox";
@@ -870,6 +871,26 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     setReferenceImages((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
   }, []);
 
+  const handleCreateAnnotatedReferenceImage = useCallback(
+    async (_sourceIndex: number, result: AnnotationEditResult) => {
+      const nextReferenceImage: StoredReferenceImage = {
+        name: result.file.name,
+        type: result.file.type || "image/png",
+        dataUrl: result.dataUrl,
+      };
+
+      setImageMode("edit");
+      setReferenceImageFiles((prev) => [...prev, result.file]);
+      setReferenceImages((prev) => [...prev, nextReferenceImage]);
+      setImagePrompt((currentPrompt) => {
+        const cleanedPrompt = currentPrompt.trim();
+        return cleanedPrompt ? `${cleanedPrompt}\n\n${result.instruction}` : result.instruction;
+      });
+      window.requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    [],
+  );
+
   const handleContinueEdit = useCallback(
     async (conversationId: string, image: StoredImage | StoredReferenceImage) => {
       try {
@@ -1383,6 +1404,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
               onPickReferenceImage={() => fileInputRef.current?.click()}
               onReferenceImageChange={handleReferenceImageChange}
               onRemoveReferenceImage={handleRemoveReferenceImage}
+              onCreateAnnotatedReferenceImage={handleCreateAnnotatedReferenceImage}
             />
           </div>
         </div>
