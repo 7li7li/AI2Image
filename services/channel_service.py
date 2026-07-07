@@ -185,6 +185,7 @@ EXTERNAL_IMAGE_RATIO_SIZE_ALIASES = {
     "9:16": "1024x1536",
     "3:4": "1024x1536",
     "21:9": "1536x658",
+    "9:21": "816x1920",
 }
 
 EXTERNAL_IMAGE_RATIO_PROMPT_HINTS = {
@@ -196,6 +197,7 @@ EXTERNAL_IMAGE_RATIO_PROMPT_HINTS = {
     "4:3": "输出为 4:3 比例，兼顾宽度与高度，适合展示画面细节。",
     "3:4": "输出为 3:4 比例，纵向构图，适合人物肖像或竖向场景。",
     "21:9": "输出为 21:9 超宽幅构图，适合电影感场景和横向展示。",
+    "9:21": "输出为 9:21 超高竖幅构图，适合竖向长图和移动端展示。",
 }
 
 EXTERNAL_IMAGE_RESOLUTION_SIZE_PRESETS = {
@@ -216,6 +218,19 @@ EXTERNAL_IMAGE_RESOLUTION_SIZE_PRESETS = {
     },
 }
 
+EXTERNAL_IMAGE_RATIO_RESOLUTION_SIZE_PRESETS = {
+    "21:9": {
+        "1k": "1920x816",
+        "2k": "3120x1344",
+        "4k": "3840x1648",
+    },
+    "9:21": {
+        "1k": "816x1920",
+        "2k": "1344x3120",
+        "4k": "1648x3840",
+    },
+}
+
 EXTERNAL_IMAGE_RATIO_DIMENSIONS = {
     "1:1": (1, 1),
     "3:2": (3, 2),
@@ -225,6 +240,7 @@ EXTERNAL_IMAGE_RATIO_DIMENSIONS = {
     "9:16": (9, 16),
     "3:4": (3, 4),
     "21:9": (21, 9),
+    "9:21": (9, 21),
 }
 
 
@@ -264,6 +280,9 @@ def _resolve_image_resolution_size(size: str, resolution: str) -> str | None:
     preset = EXTERNAL_IMAGE_RESOLUTION_SIZE_PRESETS.get(normalized_resolution)
     if not preset:
         return None
+    ratio_preset = EXTERNAL_IMAGE_RATIO_RESOLUTION_SIZE_PRESETS.get(size)
+    if ratio_preset:
+        return ratio_preset[normalized_resolution]
     if _is_explicit_image_size(size):
         width, _, height = size.lower().partition("x")
         width_value = int(width)

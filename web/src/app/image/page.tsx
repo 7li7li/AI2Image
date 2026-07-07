@@ -64,7 +64,7 @@ const IMAGE_OUTPUT_FORMAT_STORAGE_KEY = "chatgpt2api:image_last_output_format";
 const IMAGE_OUTPUT_COMPRESSION_STORAGE_KEY = "chatgpt2api:image_last_output_compression";
 const IMAGE_MODERATION_STORAGE_KEY = "chatgpt2api:image_last_moderation";
 const IMAGE_TRANSPARENT_BACKGROUND_STORAGE_KEY = "chatgpt2api:image_last_transparent_background";
-const SUPPORTED_IMAGE_SIZES = new Set(["", "1:1", "3:2", "2:3", "16:9", "4:3", "3:4", "9:16"]);
+const SUPPORTED_IMAGE_SIZES = new Set(["", "1:1", "3:2", "2:3", "16:9", "9:16", "4:3", "3:4", "21:9", "9:21"]);
 const activeConversationQueueIds = new Set<string>();
 let isImageGenerationQueueRunning = false;
 

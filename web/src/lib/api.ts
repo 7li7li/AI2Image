@@ -241,82 +241,238 @@ export type ImageRequestOptions = {
   background?: string;
 };
 
-const IMAGE_RATIO_SIZE_ALIASES: Record<string, string> = {
-  "1:1": "1024x1024",
-  "3:2": "1536x1024",
-  "2:3": "1024x1536",
-  "16:9": "1536x1024",
-  "4:3": "1536x1024",
-  "9:16": "1024x1536",
-  "3:4": "1024x1536",
-  "21:9": "1536x658",
+type ImageResolutionTier = "1k" | "2k" | "4k";
+type ImagePresetRatio = "1:1" | "3:2" | "2:3" | "16:9" | "9:16" | "4:3" | "3:4" | "21:9" | "9:21";
+
+const IMAGE_SIZE_PATTERN = /^\s*(\d+)\s*[xX]\s*(\d+)\s*$/;
+const IMAGE_RATIO_PATTERN = /^\s*(\d+(?:\.\d+)?)\s*[:xX]\s*(\d+(?:\.\d+)?)\s*$/;
+const IMAGE_SIZE_MULTIPLE = 16;
+const IMAGE_MAX_EDGE = 3840;
+const IMAGE_MAX_ASPECT_RATIO = 3;
+const IMAGE_MIN_PIXELS = 655_360;
+const IMAGE_MAX_PIXELS = 8_294_400;
+
+const IMAGE_RESOLUTION_TIERS: Record<string, ImageResolutionTier> = {
+  "1k": "1k",
+  "2k": "2k",
+  "4k": "4k",
 };
 
-const IMAGE_RATIO_DIMENSIONS: Record<string, [number, number]> = {
-  "1:1": [1, 1],
-  "3:2": [3, 2],
-  "2:3": [2, 3],
-  "16:9": [16, 9],
-  "4:3": [4, 3],
-  "9:16": [9, 16],
-  "3:4": [3, 4],
-  "21:9": [21, 9],
+const IMAGE_TIER_PIXEL_BUDGET: Record<ImageResolutionTier, number> = {
+  "1k": 1_572_864,
+  "2k": 4_194_304,
+  "4k": IMAGE_MAX_PIXELS,
 };
 
-const IMAGE_RESOLUTION_SIZE_PRESETS: Record<string, Record<"square" | "landscape" | "portrait", string>> = {
+const IMAGE_COMMON_SIZE_PRESETS: Record<ImageResolutionTier, Record<ImagePresetRatio, string>> = {
   "1k": {
-    square: "1024x1024",
-    landscape: "1536x1024",
-    portrait: "1024x1536",
+    "1:1": "1024x1024",
+    "3:2": "1536x1024",
+    "2:3": "1024x1536",
+    "16:9": "1280x720",
+    "9:16": "720x1280",
+    "4:3": "1024x768",
+    "3:4": "768x1024",
+    "21:9": "1920x816",
+    "9:21": "816x1920",
   },
   "2k": {
-    square: "2048x2048",
-    landscape: "2560x1440",
-    portrait: "1440x2560",
+    "1:1": "2048x2048",
+    "3:2": "2160x1440",
+    "2:3": "1440x2160",
+    "16:9": "2560x1440",
+    "9:16": "1440x2560",
+    "4:3": "2048x1536",
+    "3:4": "1536x2048",
+    "21:9": "3120x1344",
+    "9:21": "1344x3120",
   },
   "4k": {
-    square: "2880x2880",
-    landscape: "3840x2160",
-    portrait: "2160x3840",
+    "1:1": "2880x2880",
+    "3:2": "3456x2304",
+    "2:3": "2304x3456",
+    "16:9": "3840x2160",
+    "9:16": "2160x3840",
+    "4:3": "3200x2400",
+    "3:4": "2400x3200",
+    "21:9": "3840x1648",
+    "9:21": "1648x3840",
   },
 };
 
-function isExplicitImageSize(value: string) {
-  const [width, height] = value.toLowerCase().split("x");
-  return Boolean(width && height && /^\d+$/.test(width) && /^\d+$/.test(height));
+function roundToImageMultiple(value: number) {
+  return Math.max(IMAGE_SIZE_MULTIPLE, Math.round(value / IMAGE_SIZE_MULTIPLE) * IMAGE_SIZE_MULTIPLE);
 }
 
-function resolveImageOrientation(width: number, height: number): "square" | "landscape" | "portrait" {
-  if (width > height) {
-    return "landscape";
+function floorToImageMultiple(value: number) {
+  return Math.max(IMAGE_SIZE_MULTIPLE, Math.floor(value / IMAGE_SIZE_MULTIPLE) * IMAGE_SIZE_MULTIPLE);
+}
+
+function ceilToImageMultiple(value: number) {
+  return Math.max(IMAGE_SIZE_MULTIPLE, Math.ceil(value / IMAGE_SIZE_MULTIPLE) * IMAGE_SIZE_MULTIPLE);
+}
+
+function normalizeImageDimensions(width: number, height: number) {
+  let normalizedWidth = roundToImageMultiple(width);
+  let normalizedHeight = roundToImageMultiple(height);
+
+  const scaleToFit = (scale: number) => {
+    normalizedWidth = floorToImageMultiple(normalizedWidth * scale);
+    normalizedHeight = floorToImageMultiple(normalizedHeight * scale);
+  };
+
+  const scaleToFill = (scale: number) => {
+    normalizedWidth = ceilToImageMultiple(normalizedWidth * scale);
+    normalizedHeight = ceilToImageMultiple(normalizedHeight * scale);
+  };
+
+  for (let index = 0; index < 4; index += 1) {
+    const maxEdge = Math.max(normalizedWidth, normalizedHeight);
+    if (maxEdge > IMAGE_MAX_EDGE) {
+      scaleToFit(IMAGE_MAX_EDGE / maxEdge);
+    }
+
+    if (normalizedWidth / normalizedHeight > IMAGE_MAX_ASPECT_RATIO) {
+      normalizedWidth = floorToImageMultiple(normalizedHeight * IMAGE_MAX_ASPECT_RATIO);
+    } else if (normalizedHeight / normalizedWidth > IMAGE_MAX_ASPECT_RATIO) {
+      normalizedHeight = floorToImageMultiple(normalizedWidth * IMAGE_MAX_ASPECT_RATIO);
+    }
+
+    const pixels = normalizedWidth * normalizedHeight;
+    if (pixels > IMAGE_MAX_PIXELS) {
+      scaleToFit(Math.sqrt(IMAGE_MAX_PIXELS / pixels));
+    } else if (pixels < IMAGE_MIN_PIXELS) {
+      scaleToFill(Math.sqrt(IMAGE_MIN_PIXELS / pixels));
+    }
   }
-  if (height > width) {
-    return "portrait";
+
+  return { width: normalizedWidth, height: normalizedHeight };
+}
+
+function parseImageSize(value: string) {
+  const match = value.match(IMAGE_SIZE_PATTERN);
+  if (!match) {
+    return null;
   }
-  return "square";
+  return { width: Number(match[1]), height: Number(match[2]) };
+}
+
+function parseImageRatio(value: string) {
+  const match = value.match(IMAGE_RATIO_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return { width, height };
+}
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
+}
+
+function getPresetRatioKey(ratioWidth: number, ratioHeight: number): ImagePresetRatio | null {
+  if (!Number.isInteger(ratioWidth) || !Number.isInteger(ratioHeight)) {
+    return null;
+  }
+
+  const divisor = gcd(ratioWidth, ratioHeight);
+  const key = `${ratioWidth / divisor}:${ratioHeight / divisor}`;
+  return key in IMAGE_COMMON_SIZE_PRESETS["1k"] ? (key as ImagePresetRatio) : null;
+}
+
+function getExactPresetRatioKey(value: string): ImagePresetRatio | null {
+  return value in IMAGE_COMMON_SIZE_PRESETS["1k"] ? (value as ImagePresetRatio) : null;
+}
+
+function calculateImageSize(tier: ImageResolutionTier, ratio: string) {
+  const exactPresetRatioKey = getExactPresetRatioKey(ratio.trim().toLowerCase());
+  if (exactPresetRatioKey) {
+    return IMAGE_COMMON_SIZE_PRESETS[tier][exactPresetRatioKey];
+  }
+
+  const parsed = parseImageRatio(ratio);
+  if (!parsed) {
+    return null;
+  }
+
+  const presetRatioKey = getPresetRatioKey(parsed.width, parsed.height);
+  if (presetRatioKey) {
+    return IMAGE_COMMON_SIZE_PRESETS[tier][presetRatioKey];
+  }
+
+  const targetRatio = parsed.width / parsed.height;
+  const pixelBudget = IMAGE_TIER_PIXEL_BUDGET[tier];
+  let bestWidth = 0;
+  let bestHeight = 0;
+  let bestPixels = 0;
+
+  for (let width = IMAGE_SIZE_MULTIPLE; width <= IMAGE_MAX_EDGE; width += IMAGE_SIZE_MULTIPLE) {
+    const idealHeight = width / targetRatio;
+    const heightCandidates = [
+      Math.floor(idealHeight / IMAGE_SIZE_MULTIPLE) * IMAGE_SIZE_MULTIPLE,
+      Math.ceil(idealHeight / IMAGE_SIZE_MULTIPLE) * IMAGE_SIZE_MULTIPLE,
+    ];
+
+    for (const height of heightCandidates) {
+      if (height < IMAGE_SIZE_MULTIPLE || height > IMAGE_MAX_EDGE) {
+        continue;
+      }
+
+      const pixels = width * height;
+      if (pixels > pixelBudget || pixels < IMAGE_MIN_PIXELS) {
+        continue;
+      }
+      if (Math.max(width / height, height / width) > IMAGE_MAX_ASPECT_RATIO) {
+        continue;
+      }
+
+      const actualRatio = width / height;
+      const ratioError = Math.abs(actualRatio - targetRatio) / targetRatio;
+      if (ratioError > 0.01) {
+        continue;
+      }
+
+      if (pixels > bestPixels) {
+        bestPixels = pixels;
+        bestWidth = width;
+        bestHeight = height;
+      }
+    }
+  }
+
+  return bestPixels > 0 ? `${bestWidth}x${bestHeight}` : null;
 }
 
 export function resolveImageRequestSize(size?: string, resolution?: string) {
   const normalizedSize = String(size || "").trim().toLowerCase();
   const normalizedResolution = String(resolution || "").trim().toLowerCase();
-  const resolutionPreset = IMAGE_RESOLUTION_SIZE_PRESETS[normalizedResolution];
+  const resolutionTier = IMAGE_RESOLUTION_TIERS[normalizedResolution];
 
-  if (resolutionPreset) {
-    if (isExplicitImageSize(normalizedSize)) {
-      const [width, height] = normalizedSize.split("x").map(Number);
-      return resolutionPreset[resolveImageOrientation(width, height)];
+  if (resolutionTier) {
+    if (!normalizedSize || normalizedSize === "auto") {
+      return IMAGE_COMMON_SIZE_PRESETS[resolutionTier]["1:1"];
     }
-    const [width, height] = IMAGE_RATIO_DIMENSIONS[normalizedSize] || IMAGE_RATIO_DIMENSIONS["1:1"];
-    return resolutionPreset[resolveImageOrientation(width, height)];
+
+    const parsedSize = parseImageSize(normalizedSize);
+    const ratio = parsedSize ? `${parsedSize.width}:${parsedSize.height}` : normalizedSize;
+    return calculateImageSize(resolutionTier, ratio) || IMAGE_COMMON_SIZE_PRESETS[resolutionTier]["1:1"];
   }
 
   if (!normalizedSize || normalizedSize === "auto") {
     return undefined;
   }
-  if (isExplicitImageSize(normalizedSize)) {
-    return normalizedSize;
+  const parsedSize = parseImageSize(normalizedSize);
+  if (parsedSize) {
+    const { width, height } = normalizeImageDimensions(parsedSize.width, parsedSize.height);
+    return `${width}x${height}`;
   }
-  return IMAGE_RATIO_SIZE_ALIASES[normalizedSize] || normalizedSize;
+  return calculateImageSize("1k", normalizedSize) || normalizedSize;
 }
 
 export type LoginResponse = {

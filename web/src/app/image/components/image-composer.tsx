@@ -640,10 +640,12 @@ export function ImageComposer({
     { value: "1:1", label: "1:1 (正方形)" },
     { value: "3:2", label: "3:2 (横版)" },
     { value: "2:3", label: "2:3 (竖版)" },
+    { value: "16:9", label: "16:9 (横版)" },
+    { value: "9:16", label: "9:16 (竖版)" },
     { value: "4:3", label: "4:3 (横版)" },
     { value: "3:4", label: "3:4 (竖版)" },
-    { value: "9:16", label: "9:16 (竖版)" },
-    { value: "16:9", label: "16:9 (横版)" },
+    { value: "21:9", label: "21:9 (超宽)" },
+    { value: "9:21", label: "9:21 (超高)" },
   ];
   const imageResolutionOptions = [
     { value: "auto", label: "自动" },
