@@ -1,14 +1,12 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { LoginForm } from "@/app/login/login-form";
 import { getDefaultRouteForRole, getStoredAuthSession } from "@/store/auth";
 
 export default function HomePage() {
-  const router = useRouter();
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   useEffect(() => {
@@ -26,7 +24,7 @@ export default function HomePage() {
         return;
       }
       if (session) {
-        router.replace(getDefaultRouteForRole(session.role));
+        window.location.replace(getDefaultRouteForRole(session.role));
         return;
       }
       setIsCheckingAuth(false);
@@ -36,7 +34,7 @@ export default function HomePage() {
     return () => {
       active = false;
     };
-  }, [router]);
+  }, []);
 
   if (isCheckingAuth) {
     return (
