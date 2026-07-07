@@ -7,13 +7,18 @@ import {
   ChevronDown,
   Clapperboard,
   Copy,
+  Crop,
+  Eraser,
+  Expand,
   ExternalLink,
   Glasses,
   ImagePlus,
+  ImageUpscale,
   Images,
   LoaderCircle,
   Newspaper,
   NotebookPen,
+  ScanSearch,
   Search,
   Scissors,
   SlidersHorizontal,
@@ -403,6 +408,40 @@ Once parameters are set, generate notes in the chosen language adhering strictly
 
 type PromptPickerItem = Omit<PromptLibraryItem, "id"> & { id?: string };
 
+type QuickImageToolPreset = {
+  label: string;
+  prompt: string;
+  icon: LucideIcon;
+};
+
+const QUICK_IMAGE_TOOL_PRESETS: QuickImageToolPreset[] = [
+  {
+    label: "AI 抠图",
+    icon: Crop,
+    prompt: "请对上传图片进行主体抠图，精准保留主体轮廓、发丝、半透明材质和边缘细节，移除背景，输出干净的透明背景效果。",
+  },
+  {
+    label: "擦除",
+    icon: Eraser,
+    prompt: "请擦除图片中指定或标记的内容，并根据周围环境自然补全背景纹理、光影、透视和遮挡关系，不留下擦除痕迹。",
+  },
+  {
+    label: "标记改图",
+    icon: ScanSearch,
+    prompt: "请根据参考图中的标记、箭头、文字说明或蒙版进行局部修改，严格保持未标记区域不变，最终移除所有标记痕迹。",
+  },
+  {
+    label: "扩图",
+    icon: Expand,
+    prompt: "请在保持原图主体、风格、光线、透视和画面连续性的前提下扩展画面边界，自然补全周围场景，不改变原始主体内容。",
+  },
+  {
+    label: "变清晰",
+    icon: ImageUpscale,
+    prompt: "请对上传图片进行高清修复、降噪和细节增强，提升清晰度、边缘细节和整体质感，同时保持人物身份、构图和原始内容不变。",
+  },
+];
+
 const promptIconMap: Record<string, LucideIcon> = {
   aperture: Aperture,
   box: Box,
@@ -632,6 +671,7 @@ export function ImageComposer({
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [annotationImageIndex, setAnnotationImageIndex] = useState<number | null>(null);
   const [isPromptLibraryOpen, setIsPromptLibraryOpen] = useState(false);
+  const [isQuickToolsOpen, setIsQuickToolsOpen] = useState(false);
   const [bananaPromptStatus, setBananaPromptStatus] = useState<BananaPromptStatus>("idle");
   const [bananaPromptError, setBananaPromptError] = useState("");
   const [bananaPrompts, setBananaPrompts] = useState<PromptPickerItem[]>([]);
@@ -714,6 +754,13 @@ export function ImageComposer({
       onImageCountChange(item.image_count);
     }
     setIsPromptLibraryOpen(false);
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+
+  const handleQuickToolSelect = (item: QuickImageToolPreset) => {
+    onModeChange("edit");
+    onPromptChange(item.prompt);
+    setIsQuickToolsOpen(false);
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
@@ -800,7 +847,7 @@ export function ImageComposer({
       return;
     }
     await onCreateAnnotatedReferenceImage(annotationImageIndex, result);
-    toast.success("批注图已加入图生图参考");
+    toast.success(result.insertInstruction ? "批注图已加入参考，提示词已插入" : "批注图已加入图生图参考");
   };
 
   return (
@@ -1214,6 +1261,44 @@ export function ImageComposer({
               </div>
 
               <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                <Popover open={isQuickToolsOpen} onOpenChange={setIsQuickToolsOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-rose-100 bg-white/72 px-2.5 text-xs font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white"
+                      aria-label="快捷工具"
+                    >
+                      <Sparkles className="size-4" />
+                      <span>快捷工具</span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="top"
+                    align="end"
+                    sideOffset={10}
+                    className="w-[min(620px,calc(100vw-2rem))] border-rose-100 bg-white/95 p-3 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.28)]"
+                  >
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                      {QUICK_IMAGE_TOOL_PRESETS.map((item) => {
+                        const Icon = item.icon;
+                        return (
+                          <button
+                            key={item.label}
+                            type="button"
+                            onClick={() => handleQuickToolSelect(item)}
+                            className="flex h-20 flex-col items-center justify-center gap-2 rounded-lg border border-rose-100 bg-white/80 px-2 text-center text-sm font-medium text-stone-800 transition hover:border-rose-200 hover:bg-rose-50"
+                            title={item.prompt}
+                          >
+                            <span className="grid size-8 place-items-center rounded-lg bg-rose-50 text-rose-600">
+                              <Icon className="size-4" />
+                            </span>
+                            <span className="leading-none">{item.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
                 <button
                   type="button"
                   onClick={() => setIsPromptLibraryOpen(true)}

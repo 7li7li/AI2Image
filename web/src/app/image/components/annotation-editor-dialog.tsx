@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 export type AnnotationEditorImage = {
@@ -18,6 +18,7 @@ export type AnnotationEditResult = {
   file: File;
   dataUrl: string;
   instruction: string;
+  insertInstruction: boolean;
 };
 
 type Point = {
@@ -447,6 +448,7 @@ export function AnnotationEditorDialog({
   const [maskBrushSize, setMaskBrushSize] = useState(MASK_BRUSH_DEFAULT);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [isApplying, setIsApplying] = useState(false);
+  const [isInsertPromptDialogOpen, setIsInsertPromptDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!open || !image) {
@@ -461,6 +463,7 @@ export function AnnotationEditorDialog({
     setPendingText(null);
     setPendingTextValue("");
     setDraggingText(null);
+    setIsInsertPromptDialogOpen(false);
     draftRef.current = null;
   }, [image, open]);
 
@@ -684,20 +687,72 @@ export function AnnotationEditorDialog({
     setPendingTextValue("");
   };
 
-  const handleApply = async () => {
+  const undoLastAnnotation = () => {
+    if (pendingArrow) {
+      cancelPendingArrow();
+      return;
+    }
+    if (pendingText) {
+      cancelPendingText();
+      return;
+    }
+    setMarks((prev) => prev.slice(0, -1));
+  };
+
+  useEffect(() => {
+    if (!open || isApplying) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      const isUndoShortcut = (event.ctrlKey || event.metaKey) && !event.shiftKey && key === "z";
+      if (!isUndoShortcut || event.defaultPrevented) {
+        return;
+      }
+
+      const target = event.target;
+      const isEditableTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable);
+      if (isEditableTarget) {
+        return;
+      }
+
+      event.preventDefault();
+      undoLastAnnotation();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isApplying, open, pendingArrow, pendingText]);
+
+  const getEffectiveMarks = (): AnnotationMark[] =>
+    pendingArrow && pendingArrowText.trim()
+      ? [
+          ...marks,
+          { ...pendingArrow, text: pendingArrowText.trim() },
+          ...(pendingText && pendingTextValue.trim() ? [{ ...pendingText, text: pendingTextValue.trim() }] : []),
+        ]
+      : pendingText && pendingTextValue.trim()
+        ? [...marks, { ...pendingText, text: pendingTextValue.trim() }]
+        : marks;
+
+  const handleCompleteClick = () => {
+    const effectiveMarks = getEffectiveMarks();
+    if (effectiveMarks.length === 0) {
+      toast.error("请先添加批注");
+      return;
+    }
+    setIsInsertPromptDialogOpen(true);
+  };
+
+  const handleApply = async (insertInstruction: boolean) => {
     if (!image || !canvasRef.current || !sourceImageRef.current) {
       return;
     }
-    const effectiveMarks: AnnotationMark[] =
-      pendingArrow && pendingArrowText.trim()
-        ? [
-            ...marks,
-            { ...pendingArrow, text: pendingArrowText.trim() },
-            ...(pendingText && pendingTextValue.trim() ? [{ ...pendingText, text: pendingTextValue.trim() }] : []),
-          ]
-        : pendingText && pendingTextValue.trim()
-          ? [...marks, { ...pendingText, text: pendingTextValue.trim() }]
-        : marks;
+    const effectiveMarks: AnnotationMark[] = getEffectiveMarks();
     if (effectiveMarks.length === 0) {
       toast.error("请先添加批注");
       return;
@@ -718,7 +773,9 @@ export function AnnotationEditorDialog({
         file,
         dataUrl,
         instruction: buildAnnotationInstruction(image.name, effectiveMarks),
+        insertInstruction,
       });
+      setIsInsertPromptDialogOpen(false);
       onOpenChange(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "生成批注图失败");
@@ -773,7 +830,16 @@ export function AnnotationEditorDialog({
   }[tool];
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setIsInsertPromptDialogOpen(false);
+          }
+          onOpenChange(nextOpen);
+        }}
+      >
       <DialogContent className="flex h-[88vh] w-[min(96vw,1040px)] max-w-none flex-col overflow-hidden rounded-lg p-0">
         <DialogHeader className="border-b border-rose-100 px-5 py-4">
           <DialogTitle className="text-base font-semibold text-stone-950">批注修改</DialogTitle>
@@ -825,8 +891,8 @@ export function AnnotationEditorDialog({
             variant="outline"
             size="sm"
             className="h-9 rounded-lg border-rose-100 bg-white/85"
-            onClick={() => setMarks((prev) => prev.slice(0, -1))}
-            disabled={!canUndo || hasPendingInput}
+            onClick={undoLastAnnotation}
+            disabled={!canUndo && !hasPendingInput}
           >
             <Undo2 className="size-4" />
             撤销
@@ -850,7 +916,7 @@ export function AnnotationEditorDialog({
             type="button"
             size="sm"
             className="h-9 rounded-lg text-white"
-            onClick={() => void handleApply()}
+            onClick={handleCompleteClick}
             disabled={isApplying || (marks.length === 0 && !hasPendingInput)}
           >
             <Check className="size-4" />
@@ -931,7 +997,38 @@ export function AnnotationEditorDialog({
           </div>
         </div>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+
+      <Dialog open={isInsertPromptDialogOpen} onOpenChange={setIsInsertPromptDialogOpen}>
+        <DialogContent className="w-[min(92vw,420px)] rounded-lg border-rose-100 bg-white p-0">
+          <DialogHeader className="border-b border-rose-100 px-5 pt-5 pb-4">
+            <DialogTitle className="text-base font-semibold text-stone-950">是否自动插入提示词？</DialogTitle>
+            <DialogDescription className="pt-2 text-sm leading-6 text-stone-500">
+              批注图会加入图生图参考。你可以选择是否把批注说明同步追加到当前输入框。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 px-5 py-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-lg border-rose-100 bg-white"
+              onClick={() => void handleApply(false)}
+              disabled={isApplying}
+            >
+              不插入
+            </Button>
+            <Button
+              type="button"
+              className="rounded-lg text-white"
+              onClick={() => void handleApply(true)}
+              disabled={isApplying}
+            >
+              插入提示词
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

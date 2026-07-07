@@ -882,10 +882,12 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
       setImageMode("edit");
       setReferenceImageFiles((prev) => [...prev, result.file]);
       setReferenceImages((prev) => [...prev, nextReferenceImage]);
-      setImagePrompt((currentPrompt) => {
-        const cleanedPrompt = currentPrompt.trim();
-        return cleanedPrompt ? `${cleanedPrompt}\n\n${result.instruction}` : result.instruction;
-      });
+      if (result.insertInstruction) {
+        setImagePrompt((currentPrompt) => {
+          const cleanedPrompt = currentPrompt.trim();
+          return cleanedPrompt ? `${cleanedPrompt}\n\n${result.instruction}` : result.instruction;
+        });
+      }
       window.requestAnimationFrame(() => textareaRef.current?.focus());
     },
     [],
