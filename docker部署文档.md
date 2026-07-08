@@ -18,7 +18,7 @@
 http://127.0.0.1:9001
 ```
 
-管理员登录使用 `.env` 中的 `CHATGPT2API_AUTH_KEY`。
+管理员登录使用 `config.json` 中的 `auth-key`。
 
 ## 2. 前置要求
 
@@ -74,7 +74,7 @@ Windows PowerShell：
 Copy-Item config.example.json config.json
 ```
 
-`config.json` 需要存在，因为 Compose 会把它挂载到容器内。管理员密钥推荐放在 `.env` 的 `CHATGPT2API_AUTH_KEY` 中，优先级高于 `config.json`。
+`config.json` 需要存在，因为 Compose 会把它挂载到容器内。管理员密钥只从 `config.json` 的 `auth-key` 读取。
 
 ## 4. 创建 .env
 
@@ -86,7 +86,6 @@ IMAGESTUDIO_PORT=9001
 
 DATABASE_URL=postgresql://db_user:db_password@db_host:5432/db_name
 
-CHATGPT2API_AUTH_KEY=replace_with_a_long_random_admin_key
 CHATGPT2API_BASE_URL=http://127.0.0.1:9001
 ```
 
@@ -98,7 +97,7 @@ DATABASE_URL=postgresql://imagestudio:strong_password@192.168.1.10:5432/imagestu
 
 注意：
 
-- `CHATGPT2API_AUTH_KEY` 是管理员密钥，登录后台时使用。
+- `config.json` 中的 `auth-key` 是管理员密钥，登录后台时使用。
 - `DATABASE_URL` 指向外部 PostgreSQL，不要写 `postgres:5432`，除非你的外部数据库主机名就叫 `postgres`。
 - 如果数据库密码包含 `@`、`:`、`/`、`#`、空格等特殊字符，需要 URL encode。
 - 如果本机 `9001` 已被占用，把 `IMAGESTUDIO_PORT` 改成其他端口，例如 `9010`，并同步修改 `CHATGPT2API_BASE_URL`。
@@ -124,7 +123,6 @@ services:
     environment:
       STORAGE_BACKEND: postgres
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
-      CHATGPT2API_AUTH_KEY: ${CHATGPT2API_AUTH_KEY:?CHATGPT2API_AUTH_KEY is required}
       CHATGPT2API_BASE_URL: ${CHATGPT2API_BASE_URL:-}
 ```
 
@@ -194,10 +192,10 @@ curl http://127.0.0.1:9001/health
 http://127.0.0.1:9001/login
 ```
 
-选择“管理员”，输入 `.env` 中的：
+选择“管理员”，输入 `config.json` 中的：
 
 ```text
-CHATGPT2API_AUTH_KEY
+auth-key
 ```
 
 ## 9. 更新代码后的部署流程
@@ -304,10 +302,12 @@ Windows 可直接压缩 `data`、`config.json`、`.env`。
 
 ### 1. 提示 auth-key 未设置
 
-检查 `.env` 是否存在并包含：
+检查 `config.json` 是否存在并包含：
 
-```dotenv
-CHATGPT2API_AUTH_KEY=replace_with_a_long_random_admin_key
+```json
+{
+  "auth-key": "replace_with_a_long_random_admin_key"
+}
 ```
 
 然后重启：

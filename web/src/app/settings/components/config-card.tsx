@@ -94,7 +94,7 @@ export function ConfigCard() {
               </p>
             </div>
             <div className="space-y-2 md:col-span-2">
-              <label className="text-sm text-stone-700">网站背景 URL</label>
+              <label className="text-sm text-stone-700">登录页背景 URL</label>
               <Input
                 value={String(config?.site_background || "")}
                 onChange={(event) => setSiteBackground(event.target.value)}
@@ -102,7 +102,7 @@ export function ConfigCard() {
                 className="h-10 rounded-xl border-stone-200 bg-white"
               />
               <p className="text-xs text-stone-500">
-                留空使用默认渐变背景；填写图片 URL 后会作为全站背景图显示。
+                留空使用默认浅灰白背景；填写图片 URL 后只会在登录页显示。
               </p>
             </div>
           </div>

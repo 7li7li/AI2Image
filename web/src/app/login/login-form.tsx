@@ -1,7 +1,7 @@
 "use client";
 
 import { KeyRound, LoaderCircle, Mail, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -22,9 +22,18 @@ export function LoginForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const siteTitle = useSiteSettingsStore((state) => state.settings.site_title);
   const siteIcon = useSiteSettingsStore((state) => state.settings.site_icon);
+  const siteBackground = useSiteSettingsStore((state) => state.settings.site_background);
   const [iconFailed, setIconFailed] = useState(false);
   const normalizedSiteIcon = siteIcon.trim();
+  const normalizedSiteBackground = siteBackground.trim();
   const showSiteIcon = Boolean(normalizedSiteIcon && !iconFailed);
+  const loginBackgroundStyle: CSSProperties | undefined = normalizedSiteBackground
+    ? {
+        backgroundImage: `linear-gradient(rgba(255, 255, 255, 0.62), rgba(248, 248, 249, 0.68)), url(${JSON.stringify(normalizedSiteBackground)})`,
+        backgroundPosition: "center",
+        backgroundSize: "cover",
+      }
+    : undefined;
 
   useEffect(() => {
     setIconFailed(false);
@@ -55,7 +64,10 @@ export function LoginForm() {
   };
 
   return (
-    <div className="grid min-h-[calc(100vh-1rem)] w-full place-items-center px-4 py-6">
+    <div
+      className={cn("grid min-h-screen w-full place-items-center px-4 py-6", normalizedSiteBackground ? "bg-white" : "bg-[#f7f7f8]")}
+      style={loginBackgroundStyle}
+    >
       <Card className="w-full max-w-[460px] rounded-lg border-white/80 bg-white/90 shadow-[0_28px_90px_rgba(190,24,93,0.12)]">
         <CardContent className="space-y-7 p-6 sm:p-8">
           <div className="space-y-4 text-center">

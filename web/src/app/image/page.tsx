@@ -31,10 +31,8 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   editImage,
-  fetchMe,
   generateImage,
   polishImagePrompt,
-  type CurrentUser,
   type ImageRequestOptions,
 } from "@/lib/api";
 import { resolveApiAssetUrl } from "@/lib/assets";
@@ -65,6 +63,7 @@ import {
 import type { StoredAuthSession } from "@/store/auth";
 
 const ACTIVE_CONVERSATION_STORAGE_KEY = "chatgpt2api:image_active_conversation_id";
+const QUOTA_REFRESH_EVENT = "yanai:quota-refresh";
 const IMAGE_SIZE_STORAGE_KEY = "chatgpt2api:image_last_size";
 const IMAGE_RESOLUTION_STORAGE_KEY = "chatgpt2api:image_last_resolution";
 const IMAGE_QUALITY_STORAGE_KEY = "chatgpt2api:image_last_quality";
@@ -79,24 +78,6 @@ let isImageGenerationQueueRunning = false;
 type PreparedReferenceImage = {
   referenceImage: StoredReferenceImage;
   file: File;
-};
-
-type QuotaSummary = {
-  value: string;
-  spentLabel: string;
-  expiryLabel: string;
-};
-
-const LOADING_QUOTA_SUMMARY: QuotaSummary = {
-  value: "加载中...",
-  spentLabel: "",
-  expiryLabel: "",
-};
-
-const UNAVAILABLE_QUOTA_SUMMARY: QuotaSummary = {
-  value: "--",
-  spentLabel: "",
-  expiryLabel: "",
 };
 
 function getScopedStorageKey(baseKey: string, ownerKey: string) {
@@ -122,27 +103,6 @@ function formatConversationTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
-}
-
-function formatQuotaTime(value?: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function getQuotaSummary(user: CurrentUser): QuotaSummary {
-  return {
-    value: String(user.quota ?? 0),
-    spentLabel: `已消耗 ${user.spent_quota ?? user.quota_used ?? 0} 点`,
-    expiryLabel: user.quota_expires_at ? `有效期至 ${formatQuotaTime(user.quota_expires_at)}` : "额度长期有效",
-  };
 }
 
 function createId() {
@@ -407,7 +367,6 @@ async function recoverConversationHistory(
 }
 
 function ImagePageContent({ session }: { session: StoredAuthSession }) {
-  const didLoadQuotaRef = useRef(false);
   const conversationsRef = useRef<ImageConversation[]>([]);
   const resultsViewportRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -430,7 +389,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   const [conversations, setConversations] = useState<ImageConversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
-  const [quotaSummary, setQuotaSummary] = useState<QuotaSummary>(LOADING_QUOTA_SUMMARY);
   const [lightboxImages, setLightboxImages] = useState<ImageLightboxItem[]>([]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -439,7 +397,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
 
   const defaultImageModel = useSiteSettingsStore((state) => state.settings.default_image_model || "gpt-image-2");
   const defaultTextModel = useSiteSettingsStore((state) => state.settings.default_text_model || "gpt-5.5");
-  const isAdmin = session.role === "admin";
   const imageConversationOwnerKey = useMemo(() => getImageConversationOwnerKey(session), [session]);
   const activeConversationStorageKey = useMemo(
     () => getScopedStorageKey(ACTIVE_CONVERSATION_STORAGE_KEY, imageConversationOwnerKey),
@@ -602,36 +559,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     imageSizeStorageKey,
     imageTransparentBackgroundStorageKey,
   ]);
-
-  const loadQuota = useCallback(async () => {
-    if (isAdmin) {
-      setQuotaSummary(UNAVAILABLE_QUOTA_SUMMARY);
-      return;
-    }
-    try {
-      const data = await fetchMe();
-      setQuotaSummary(getQuotaSummary(data.user));
-    } catch {
-      setQuotaSummary(UNAVAILABLE_QUOTA_SUMMARY);
-    }
-  }, [isAdmin]);
-
-  useEffect(() => {
-    if (didLoadQuotaRef.current) {
-      return;
-    }
-    didLoadQuotaRef.current = true;
-
-    const handleFocus = () => {
-      void loadQuota();
-    };
-
-    void loadQuota();
-    window.addEventListener("focus", handleFocus);
-    return () => {
-      window.removeEventListener("focus", handleFocus);
-    };
-  }, [isAdmin, loadQuota]);
 
   useEffect(() => {
     if (!selectedConversation) {
@@ -1143,7 +1070,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
           };
         });
 
-        await loadQuota();
+        window.dispatchEvent(new Event(QUOTA_REFRESH_EVENT));
       } catch (error) {
         const message = error instanceof Error ? error.message : "生成图片失败";
         await updateConversation(conversationId, (current) => {
@@ -1182,7 +1109,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
         }
       }
     },
-    [imageConversationOwnerKey, loadQuota, updateConversation],
+    [imageConversationOwnerKey, updateConversation],
   );
   /* eslint-enable react-hooks/preserve-manual-memoization */
 
@@ -1279,7 +1206,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     try {
       const polished = await polishImagePrompt(prompt, imageMode, defaultTextModel);
       setImagePrompt(polished);
-      await loadQuota();
+      window.dispatchEvent(new Event(QUOTA_REFRESH_EVENT));
       window.requestAnimationFrame(() => textareaRef.current?.focus());
       toast.success("提示词已润色，已扣除 1 点额度");
     } catch (error) {
@@ -1339,15 +1266,14 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
 
   return (
     <>
-      <section className="grid h-full min-h-0 w-full min-w-0 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[300px_minmax(0,1fr)] lg:overflow-hidden">
-        <div className="yan-panel hidden min-h-0 overflow-hidden rounded-lg lg:flex">
+      <section className="grid h-full min-h-0 w-full min-w-0 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[280px_minmax(0,1fr)] lg:overflow-hidden">
+        <div className="hidden min-h-0 overflow-hidden rounded-xl border border-white/80 bg-white/88 shadow-[0_20px_70px_-45px_rgba(15,23,42,0.45)] backdrop-blur-xl lg:flex">
           <ImageStudioSidebar
             conversations={filteredConversations}
             isLoadingHistory={isLoadingHistory}
             selectedConversationId={selectedConversationId}
             searchValue={workspaceSearch}
             onSearchChange={setWorkspaceSearch}
-            quotaSummary={quotaSummary}
             workspaceStats={workspaceStats}
             onCreateDraft={handleCreateDraft}
             onClearHistory={openClearHistoryConfirm}
@@ -1366,7 +1292,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
               selectedConversationId={selectedConversationId}
               searchValue={workspaceSearch}
               onSearchChange={setWorkspaceSearch}
-              quotaSummary={quotaSummary}
               workspaceStats={workspaceStats}
               onCreateDraft={() => {
                 handleCreateDraft();
@@ -1407,53 +1332,59 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             </Button>
           </div>
 
-          <div className="yan-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
             <div
               ref={resultsViewportRef}
-              className="min-h-0 flex-1 overflow-y-auto px-3 py-3 [scrollbar-color:rgba(244,114,182,.45)_transparent] [scrollbar-width:thin] sm:px-4 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-rose-300/55 [&::-webkit-scrollbar-track]:bg-transparent"
+              className="min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-72 [scrollbar-color:rgba(148,163,184,.45)_transparent] [scrollbar-width:thin] sm:px-5 sm:pb-80 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/65 [&::-webkit-scrollbar-track]:bg-transparent"
             >
-              <ImageResults
-                selectedConversation={selectedConversation}
-                onOpenLightbox={openLightbox}
-                onContinueEdit={handleContinueEdit}
-                onRegenerate={handleRegenerateTurn}
-                formatConversationTime={formatConversationTime}
-              />
+              <div className="mx-auto w-full max-w-6xl">
+                <ImageResults
+                  selectedConversation={selectedConversation}
+                  onOpenLightbox={openLightbox}
+                  onContinueEdit={handleContinueEdit}
+                  onRegenerate={handleRegenerateTurn}
+                  formatConversationTime={formatConversationTime}
+                />
+              </div>
             </div>
 
-            <ImageComposer
-              mode={imageMode}
-              prompt={imagePrompt}
-              imageCount={imageCount}
-              imageSize={imageSize}
-              imageResolution={imageResolution}
-              imageQuality={imageQuality}
-              imageOutputFormat={imageOutputFormat}
-              imageOutputCompression={imageOutputCompression}
-              imageModeration={imageModeration}
-              imageTransparentBackground={imageTransparentBackground}
-              defaultImageModel={defaultImageModel}
-              referenceImages={referenceImages}
-              textareaRef={textareaRef}
-              fileInputRef={fileInputRef}
-              onModeChange={setImageMode}
-              onPromptChange={setImagePrompt}
-              onImageCountChange={setImageCount}
-              onImageSizeChange={(value) => setImageSize(normalizeImageSize(value))}
-              onImageResolutionChange={setImageResolution}
-              onImageQualityChange={setImageQuality}
-              onImageOutputFormatChange={setImageOutputFormat}
-              onImageOutputCompressionChange={setImageOutputCompression}
-              onImageModerationChange={setImageModeration}
-              onImageTransparentBackgroundChange={setImageTransparentBackground}
-              onSubmit={handleSubmit}
-              onPolishPrompt={handlePolishPrompt}
-              isPolishingPrompt={isPolishingPrompt}
-              onPickReferenceImage={() => fileInputRef.current?.click()}
-              onReferenceImageChange={handleReferenceImageChange}
-              onRemoveReferenceImage={handleRemoveReferenceImage}
-              onCreateAnnotatedReferenceImage={handleCreateAnnotatedReferenceImage}
-            />
+            <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 px-3 sm:px-6 lg:px-10">
+              <div className="pointer-events-auto mx-auto max-w-5xl">
+                <ImageComposer
+                  mode={imageMode}
+                  prompt={imagePrompt}
+                  imageCount={imageCount}
+                  imageSize={imageSize}
+                  imageResolution={imageResolution}
+                  imageQuality={imageQuality}
+                  imageOutputFormat={imageOutputFormat}
+                  imageOutputCompression={imageOutputCompression}
+                  imageModeration={imageModeration}
+                  imageTransparentBackground={imageTransparentBackground}
+                  defaultImageModel={defaultImageModel}
+                  referenceImages={referenceImages}
+                  textareaRef={textareaRef}
+                  fileInputRef={fileInputRef}
+                  onModeChange={setImageMode}
+                  onPromptChange={setImagePrompt}
+                  onImageCountChange={setImageCount}
+                  onImageSizeChange={(value) => setImageSize(normalizeImageSize(value))}
+                  onImageResolutionChange={setImageResolution}
+                  onImageQualityChange={setImageQuality}
+                  onImageOutputFormatChange={setImageOutputFormat}
+                  onImageOutputCompressionChange={setImageOutputCompression}
+                  onImageModerationChange={setImageModeration}
+                  onImageTransparentBackgroundChange={setImageTransparentBackground}
+                  onSubmit={handleSubmit}
+                  onPolishPrompt={handlePolishPrompt}
+                  isPolishingPrompt={isPolishingPrompt}
+                  onPickReferenceImage={() => fileInputRef.current?.click()}
+                  onReferenceImageChange={handleReferenceImageChange}
+                  onRemoveReferenceImage={handleRemoveReferenceImage}
+                  onCreateAnnotatedReferenceImage={handleCreateAnnotatedReferenceImage}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -1496,7 +1427,6 @@ function ImageStudioSidebar({
   selectedConversationId,
   searchValue,
   onSearchChange,
-  quotaSummary,
   workspaceStats,
   onCreateDraft,
   onClearHistory,
@@ -1509,7 +1439,6 @@ function ImageStudioSidebar({
   selectedConversationId: string | null;
   searchValue: string;
   onSearchChange: (value: string) => void;
-  quotaSummary: QuotaSummary;
   workspaceStats: ReturnType<typeof getWorkspaceStats>;
   onCreateDraft: () => void;
   onClearHistory: () => void | Promise<void>;
@@ -1545,13 +1474,6 @@ function ImageStudioSidebar({
 
       <div className="border-t border-rose-100/70 p-3">
         <div className="grid grid-cols-2 gap-2">
-          <SidebarMetric
-            className="col-span-2"
-            label="本地额度"
-            value={quotaSummary.value}
-            details={[quotaSummary.spentLabel, quotaSummary.expiryLabel]}
-            prominent
-          />
           <SidebarMetric label="今日生成" value={workspaceStats.todayGenerated} />
           <SidebarMetric label="成功率" value={workspaceStats.successRate} />
           <SidebarMetric label="处理中" value={workspaceStats.active} />

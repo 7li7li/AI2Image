@@ -415,7 +415,7 @@ type QuickImageToolPreset = {
 
 const QUICK_IMAGE_TOOL_PRESETS: QuickImageToolPreset[] = [
   {
-    label: "AI 抠图",
+    label: "抠图",
     icon: ScissorsLineDashed,
     prompt: "请对上传图片进行主体抠图，精准保留主体轮廓、发丝、半透明材质和边缘细节，移除背景，输出干净的透明背景效果。",
   },
@@ -1074,8 +1074,8 @@ export function ImageComposer({
         </DialogContent>
       </Dialog>
 
-      <div className="shrink-0 border-t border-rose-100/70 bg-white/58 p-3 backdrop-blur-xl">
-        <div className="rounded-lg border border-rose-100 bg-white/86 shadow-sm">
+      <div className="shrink-0 rounded-[24px] border border-stone-200/80 bg-white/95 p-3 shadow-[0_24px_90px_-45px_rgba(15,23,42,0.55)] backdrop-blur-xl">
+        <div className="rounded-[18px] bg-white/70">
           <div className="flex items-start gap-2 px-3 pt-3">
             <button
               type="button"
@@ -1102,7 +1102,7 @@ export function ImageComposer({
             />
           </div>
 
-          <div className="border-t border-rose-100/70 px-3 py-2.5">
+          <div className="border-t border-stone-200/70 px-3 py-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <div className="flex h-9 items-center gap-1 rounded-lg border border-rose-100 bg-white/72 p-1">

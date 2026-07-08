@@ -48,10 +48,6 @@ export default function RootLayout({
                   icon.href = settings.site_icon;
                   document.head.appendChild(icon);
                 }
-                if (settings.site_background) {
-                  document.documentElement.style.setProperty("--yan-site-background-image", "url('" + settings.site_background + "')");
-                  document.documentElement.classList.add("has-site-background");
-                }
               }
             } catch (error) {}
           `}

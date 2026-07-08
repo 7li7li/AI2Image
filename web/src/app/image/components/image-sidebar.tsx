@@ -69,7 +69,7 @@ export function ImageSidebar({
           </label>
         ) : null}
 
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 [scrollbar-color:rgba(244,114,182,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-rose-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto [scrollbar-color:rgba(244,114,182,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-rose-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
           {isLoadingHistory ? (
             <div className="flex items-center gap-2 px-2 py-3 text-sm text-stone-500">
               <LoaderCircle className="size-4 animate-spin" />
@@ -90,7 +90,7 @@ export function ImageSidebar({
                     "group relative w-full rounded-lg border px-3 py-2 text-left transition sm:py-3",
                     active
                       ? "border-rose-100 bg-[#2d1d26] text-white shadow-sm"
-                      : "border-transparent text-stone-700 hover:border-rose-100 hover:bg-white/52",
+                      : "border-stone-200/80 bg-white/28 text-stone-700 hover:border-rose-100 hover:bg-white/52",
                   )}
                 >
                   <button

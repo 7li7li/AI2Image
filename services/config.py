@@ -137,11 +137,8 @@ class ConfigStore:
         self._system_settings_seeded = False
         if _is_invalid_auth_key(self.auth_key):
             raise ValueError(
-                "鉂?auth-key 鏈缃紒\n"
-                "璇锋寜浠ヤ笅浠绘剰涓€绉嶆柟寮忚В鍐筹細\n"
-                "1. 鍦?Render 鐨?Environment 鍙橀噺涓坊鍔狅細\n"
-                "   CHATGPT2API_AUTH_KEY = your_real_auth_key\n"
-                "2. 鎴栬€呭湪 config.json 涓～鍐欙細\n"
+                "auth-key is not set.\n"
+                "Set a long random admin key in config.json:\n"
                 '   "auth-key": "your_real_auth_key"'
             )
 
@@ -190,7 +187,7 @@ class ConfigStore:
 
     @property
     def auth_key(self) -> str:
-        return _normalize_auth_key(os.getenv("CHATGPT2API_AUTH_KEY") or self.data.get("auth-key"))
+        return _normalize_auth_key(self.data.get("auth-key"))
 
     @property
     def image_retention_days(self) -> int:

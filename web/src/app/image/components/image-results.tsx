@@ -34,13 +34,6 @@ type EmptyStatePromptSource = {
   fallbackPreview: string;
 };
 
-const emptyStateHeroSource: EmptyStatePromptSource = {
-  id: "glasses",
-  fallbackTitle: "不知道适合什么眼镜？",
-  fallbackDescription: "面部特征分析 + 眼镜搭配指南",
-  fallbackPreview: "https://cdn3.ldstatic.com/optimized/4X/f/d/3/fd350eb34e18b9bd60706b1820a89bf03730f824_2_600x750.jpeg",
-};
-
 const emptyStateExampleSources: EmptyStatePromptSource[] = [
   {
     title: "包装贴合效果",
@@ -107,9 +100,10 @@ export function ImageResults({
 }: ImageResultsProps) {
   const [imageDimensions, setImageDimensions] = useState<Record<string, string>>({});
   const [promptLibraryItems, setPromptLibraryItems] = useState<PromptLibraryItem[]>([]);
+  const shouldShowEmptyState = !selectedConversation || selectedConversation.turns.length === 0;
 
   useEffect(() => {
-    if (selectedConversation) {
+    if (!shouldShowEmptyState) {
       return;
     }
 
@@ -129,9 +123,8 @@ export function ImageResults({
     return () => {
       cancelled = true;
     };
-  }, [selectedConversation]);
+  }, [shouldShowEmptyState]);
 
-  const emptyStateHero = useMemo(() => buildEmptyStatePromptPreview(emptyStateHeroSource, promptLibraryItems), [promptLibraryItems]);
   const emptyStateExamples = useMemo(
     () => emptyStateExampleSources.map((source) => buildEmptyStatePromptPreview(source, promptLibraryItems)),
     [promptLibraryItems],
@@ -178,10 +171,10 @@ export function ImageResults({
     }
   };
 
-  if (!selectedConversation) {
+  if (shouldShowEmptyState) {
     return (
       <div className="image-empty-state grid content-center gap-3">
-        <div className="rounded-lg border border-white/70 bg-white/58 p-5 text-center">
+        <div className="p-5 text-center">
           <div className="mx-auto grid size-12 place-items-center rounded-lg bg-gradient-to-br from-rose-100 to-fuchsia-100 text-rose-500">
             <ImageIcon className="size-5" />
           </div>
@@ -192,8 +185,8 @@ export function ImageResults({
         </div>
         <div className="image-empty-examples-grid mx-auto grid w-full gap-3">
           {emptyStateExamples.map((item) => (
-            <div key={item.label} className="overflow-hidden rounded-lg border border-white/70 bg-white/58 shadow-sm">
-              <div className="aspect-[4/3] bg-rose-50">
+            <div key={item.label} className="overflow-hidden rounded-lg border border-white/70 bg-white/46 shadow-sm backdrop-blur-sm">
+              <div className="aspect-[4/3] bg-white/46">
                 <img
                   src={item.preview}
                   alt={`${item.label}示例图`}
@@ -464,12 +457,17 @@ function getStoredImageSrc(image: StoredImage) {
   return "";
 }
 
-function findPromptPreview(source: EmptyStatePromptSource, items: PromptLibraryItem[]) {
-  return items.find((item) => (source.id ? item.id === source.id : false) || (source.title ? item.title === source.title : false));
-}
-
 function buildEmptyStatePromptPreview(source: EmptyStatePromptSource, items: PromptLibraryItem[]) {
-  const prompt = findPromptPreview(source, items);
+  const prompt = items.find((item) => {
+    if (source.id && item.id === source.id) {
+      return true;
+    }
+    if (source.title && item.title === source.title) {
+      return true;
+    }
+    return false;
+  });
+
   return {
     label: source.label || prompt?.title || source.fallbackTitle,
     title: prompt?.title || source.fallbackTitle,

@@ -103,13 +103,4 @@ export function applySiteSettings(settings: PublicSiteSettings) {
   }
   icon.href = settings.site_icon;
   document.head.appendChild(icon);
-
-  const background = settings.site_background.trim();
-  if (background) {
-    document.documentElement.style.setProperty("--yan-site-background-image", `url("${background}")`);
-    document.documentElement.classList.add("has-site-background");
-  } else {
-    document.documentElement.style.removeProperty("--yan-site-background-image");
-    document.documentElement.classList.remove("has-site-background");
-  }
 }

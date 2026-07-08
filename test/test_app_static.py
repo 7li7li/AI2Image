@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 from unittest import mock
 
-os.environ.setdefault("CHATGPT2API_AUTH_KEY", "test-auth")
 os.environ.setdefault("STORAGE_BACKEND", "json")
 
 import api.support as api_support

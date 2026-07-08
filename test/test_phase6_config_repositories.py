@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-import os
 from pathlib import Path
 import tempfile
 import unittest
-
-os.environ.setdefault("CHATGPT2API_AUTH_KEY", "test-auth")
 
 from services.channel_service import ChannelService
 from services.prompt_service import PromptLibraryService

@@ -44,7 +44,7 @@ mkdir -p data
 YANAI_IMAGE=your-registry/yanai:latest docker compose up -d
 ```
 
-也可以用环境变量 `CHATGPT2API_AUTH_KEY` 覆盖 `config.json` 中的 `auth-key`，但不要把真实密钥写进 Dockerfile、镜像构建参数或公开 compose 文件。
+管理员密钥只从 `config.json` 的 `auth-key` 读取。修改后需要重启后端服务。
 
 本地直接用当前代码启动容器可运行：
 

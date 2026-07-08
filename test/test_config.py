@@ -63,6 +63,24 @@ class ConfigLoadingTests(unittest.TestCase):
             self.assertEqual(store.get()["default_image_model"], "custom-image")
             self.assertEqual(store.get()["default_text_model"], "custom-chat")
 
+    def test_auth_key_comes_from_config_file_only(self) -> None:
+        module = self.config_module
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(json.dumps({"auth-key": "file-auth"}), encoding="utf-8")
+
+            original_env_value = os.environ.get("CHATGPT2API_AUTH_KEY")
+            os.environ["CHATGPT2API_AUTH_KEY"] = "env-auth"
+            try:
+                store = module.ConfigStore(config_path)
+            finally:
+                if original_env_value is None:
+                    os.environ.pop("CHATGPT2API_AUTH_KEY", None)
+                else:
+                    os.environ["CHATGPT2API_AUTH_KEY"] = original_env_value
+
+            self.assertEqual(store.auth_key, "file-auth")
+
     def test_removed_registration_settings_are_not_returned(self) -> None:
         module = self.config_module
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -127,24 +127,13 @@
   }
   body {
     @apply bg-background text-foreground;
-    background:
-      linear-gradient(125deg, rgba(243, 111, 159, 0.16), transparent 34%),
-      linear-gradient(238deg, transparent 38%, rgba(202, 164, 232, 0.14) 73%, transparent 100%),
-      linear-gradient(180deg, #fff8fb 0%, #fff4f8 52%, #fff1f5 100%);
+    background: linear-gradient(180deg, #ffffff 0%, #f8f8f9 54%, #f2f3f5 100%);
     background-attachment: fixed;
     background-position: center;
     background-size: cover;
     letter-spacing: 0;
   }
 
-  .has-site-background body {
-    background:
-      linear-gradient(rgba(255, 248, 251, 0.72), rgba(255, 244, 248, 0.76)),
-      var(--yan-site-background-image);
-    background-attachment: fixed;
-    background-position: center;
-    background-size: cover;
-  }
 }
 
 @layer utilities {
@@ -186,12 +175,6 @@
       linear-gradient(rgba(42, 24, 34, 0.055) 1px, transparent 1px),
       linear-gradient(90deg, rgba(42, 24, 34, 0.055) 1px, transparent 1px);
     background-size: 42px 42px;
-  }
-
-  .has-site-background .yan-soft-grid {
-    background-image:
-      linear-gradient(rgba(42, 24, 34, 0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(42, 24, 34, 0.035) 1px, transparent 1px);
   }
 
   .hide-scrollbar {

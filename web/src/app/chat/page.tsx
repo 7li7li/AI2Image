@@ -39,11 +39,9 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  fetchMe,
   streamChatCompletion,
   type ChatCompletionContent,
   type ChatCompletionMessage,
-  type CurrentUser,
 } from "@/lib/api";
 import { useSiteSettingsStore } from "@/lib/site-settings";
 import { useAuthGuard } from "@/lib/use-auth-guard";
@@ -64,6 +62,7 @@ import {
 } from "@/store/chat-conversations";
 
 const ACTIVE_CHAT_CONVERSATION_STORAGE_KEY = "chatgpt2api:chat_active_conversation_id";
+const QUOTA_REFRESH_EVENT = "yanai:quota-refresh";
 const CHAT_CONTEXT_TURN_LIMIT = 4;
 const MAX_CHAT_ATTACHMENTS = 4;
 const MAX_CHAT_ATTACHMENT_BYTES = 8 * 1024 * 1024;
@@ -83,24 +82,6 @@ type ChatAttachmentLightboxImage = {
   src: string;
   sizeLabel?: string;
   dimensions?: string;
-};
-
-type QuotaSummary = {
-  value: string;
-  spentLabel: string;
-  expiryLabel: string;
-};
-
-const LOADING_QUOTA_SUMMARY: QuotaSummary = {
-  value: "加载中...",
-  spentLabel: "",
-  expiryLabel: "",
-};
-
-const UNAVAILABLE_QUOTA_SUMMARY: QuotaSummary = {
-  value: "--",
-  spentLabel: "",
-  expiryLabel: "",
 };
 
 function getScopedStorageKey(baseKey: string, ownerKey: string) {
@@ -179,27 +160,6 @@ function formatConversationTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
-}
-
-function formatQuotaTime(value?: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function getQuotaSummary(user: CurrentUser): QuotaSummary {
-  return {
-    value: String(user.quota ?? 0),
-    spentLabel: `已消耗 ${user.spent_quota ?? user.quota_used ?? 0} 点`,
-    expiryLabel: user.quota_expires_at ? `有效期至 ${formatQuotaTime(user.quota_expires_at)}` : "额度长期有效",
-  };
 }
 
 function sortChatConversations(conversations: ChatConversation[]) {
@@ -406,7 +366,6 @@ function toApiMessages(messages: StoredChatMessage[]): ChatCompletionMessage[] {
 }
 
 function ChatPageContent({ session }: { session: StoredAuthSession }) {
-  const didLoadQuotaRef = useRef(false);
   const conversationsRef = useRef<ChatConversation[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesViewportRef = useRef<HTMLDivElement>(null);
@@ -419,12 +378,10 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [quotaSummary, setQuotaSummary] = useState<QuotaSummary>(LOADING_QUOTA_SUMMARY);
   const [isSending, setIsSending] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: "one"; id: string } | { type: "all" } | null>(null);
 
   const defaultTextModel = useSiteSettingsStore((state) => state.settings.default_text_model || "gpt-5.5");
-  const isAdmin = session.role === "admin";
   const chatConversationOwnerKey = useMemo(() => getChatConversationOwnerKey(session), [session]);
   const activeConversationStorageKey = useMemo(
     () => getScopedStorageKey(ACTIVE_CHAT_CONVERSATION_STORAGE_KEY, chatConversationOwnerKey),
@@ -511,36 +468,6 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
       window.removeEventListener(CHAT_CONVERSATIONS_CHANGED_EVENT, handleConversationsChanged);
     };
   }, [activeConversationStorageKey, chatConversationOwnerKey]);
-
-  const loadQuota = useCallback(async () => {
-    if (isAdmin) {
-      setQuotaSummary(UNAVAILABLE_QUOTA_SUMMARY);
-      return;
-    }
-    try {
-      const data = await fetchMe();
-      setQuotaSummary(getQuotaSummary(data.user));
-    } catch {
-      setQuotaSummary(UNAVAILABLE_QUOTA_SUMMARY);
-    }
-  }, [isAdmin]);
-
-  useEffect(() => {
-    if (didLoadQuotaRef.current) {
-      return;
-    }
-    didLoadQuotaRef.current = true;
-
-    const handleFocus = () => {
-      void loadQuota();
-    };
-
-    void loadQuota();
-    window.addEventListener("focus", handleFocus);
-    return () => {
-      window.removeEventListener("focus", handleFocus);
-    };
-  }, [loadQuota]);
 
   useEffect(() => {
     if (!selectedConversation) {
@@ -872,7 +799,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
           ),
         };
       });
-      await loadQuota();
+      window.dispatchEvent(new Event(QUOTA_REFRESH_EVENT));
     } catch (error) {
       const message = error instanceof Error ? error.message : "发送消息失败";
       const failedAt = new Date().toISOString();
@@ -910,15 +837,14 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
 
   return (
     <>
-      <section className="grid h-full min-h-0 w-full grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[300px_minmax(0,1fr)] lg:overflow-hidden">
-        <div className="yan-panel hidden min-h-0 overflow-hidden rounded-lg lg:flex">
+      <section className="grid h-full min-h-0 w-full grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[280px_minmax(0,1fr)] lg:overflow-hidden">
+        <div className="hidden min-h-0 overflow-hidden rounded-xl border border-white/80 bg-white/88 shadow-[0_20px_70px_-45px_rgba(15,23,42,0.45)] backdrop-blur-xl lg:flex">
           <ChatStudioSidebar
             conversations={filteredConversations}
             isLoadingHistory={isLoadingHistory}
             selectedConversationId={selectedConversationId}
             searchValue={workspaceSearch}
             onSearchChange={setWorkspaceSearch}
-            quotaSummary={quotaSummary}
             workspaceStats={workspaceStats}
             formatConversationTime={formatConversationTime}
             onCreateDraft={handleCreateDraft}
@@ -937,7 +863,6 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
               selectedConversationId={selectedConversationId}
               searchValue={workspaceSearch}
               onSearchChange={setWorkspaceSearch}
-              quotaSummary={quotaSummary}
               workspaceStats={workspaceStats}
               formatConversationTime={formatConversationTime}
               onCreateDraft={() => {
@@ -978,15 +903,17 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
             </Button>
           </div>
 
-          <div className="yan-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
             <div
               ref={messagesViewportRef}
-              className="min-h-0 flex-1 overflow-y-auto px-3 py-4 [scrollbar-color:rgba(244,114,182,.45)_transparent] [scrollbar-width:thin] sm:px-5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-rose-300/55 [&::-webkit-scrollbar-track]:bg-transparent"
+              className="min-h-0 flex-1 overflow-y-auto px-3 py-4 pb-56 [scrollbar-color:rgba(148,163,184,.45)_transparent] [scrollbar-width:thin] sm:px-5 sm:pb-60 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/65 [&::-webkit-scrollbar-track]:bg-transparent"
             >
-              <ChatMessages conversation={selectedConversation} />
+              <div className="mx-auto w-full max-w-6xl">
+                <ChatMessages conversation={selectedConversation} />
+              </div>
             </div>
 
-            <div className="border-t border-rose-100/70 bg-white/58 p-3 backdrop-blur-xl sm:p-4">
+            <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 px-3 sm:px-6 lg:px-10">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -996,7 +923,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                 onChange={(event) => void handleAttachmentFiles(event.target.files)}
               />
               {pendingAttachments.length > 0 ? (
-                <div className="mb-3 flex flex-wrap gap-2">
+                <div className="pointer-events-auto mx-auto mb-3 flex max-w-4xl flex-wrap gap-2">
                   {pendingAttachments.map((attachment) => (
                     <div
                       key={attachment.id}
@@ -1021,7 +948,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                   ))}
                 </div>
               ) : null}
-              <div className="rounded-[22px] border border-rose-100 bg-white/90 p-3 shadow-sm">
+              <div className="pointer-events-auto mx-auto max-w-4xl rounded-[24px] border border-stone-200/80 bg-white/95 p-3 shadow-[0_24px_90px_-45px_rgba(15,23,42,0.55)] backdrop-blur-xl">
                 <Textarea
                   ref={textareaRef}
                   value={messageDraft}
@@ -1120,7 +1047,6 @@ function ChatStudioSidebar({
   selectedConversationId,
   searchValue,
   onSearchChange,
-  quotaSummary,
   workspaceStats,
   formatConversationTime,
   onCreateDraft,
@@ -1133,7 +1059,6 @@ function ChatStudioSidebar({
   selectedConversationId: string | null;
   searchValue: string;
   onSearchChange: (value: string) => void;
-  quotaSummary: QuotaSummary;
   workspaceStats: ReturnType<typeof getWorkspaceStats>;
   formatConversationTime: (value: string) => string;
   onCreateDraft: () => void;
@@ -1180,7 +1105,7 @@ function ChatStudioSidebar({
               />
             </label>
 
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
               {isLoadingHistory ? (
                 <div className="flex items-center gap-2 px-2 py-3 text-sm text-stone-500">
                   <LoaderCircle className="size-4 animate-spin" />
@@ -1202,7 +1127,7 @@ function ChatStudioSidebar({
                         "group relative w-full rounded-lg border px-3 py-2 text-left transition sm:py-3",
                         active
                           ? "border-rose-100 bg-[#2d1d26] text-white shadow-sm"
-                          : "border-transparent text-stone-700 hover:border-rose-100 hover:bg-white/52",
+                          : "border-stone-200/80 bg-white/28 text-stone-700 hover:border-rose-100 hover:bg-white/52",
                       )}
                     >
                       <button
@@ -1246,13 +1171,6 @@ function ChatStudioSidebar({
 
       <div className="border-t border-rose-100/70 p-3">
         <div className="grid grid-cols-2 gap-2">
-          <SidebarMetric
-            className="col-span-2"
-            label="本地额度"
-            value={quotaSummary.value}
-            details={[quotaSummary.spentLabel, quotaSummary.expiryLabel]}
-            prominent
-          />
           <SidebarMetric label="今日发送" value={workspaceStats.todaySent} />
           <SidebarMetric label="回复数" value={workspaceStats.assistantReplies} />
           <SidebarMetric label="处理中" value={workspaceStats.sending} />
@@ -1279,9 +1197,9 @@ function ChatMessages({ conversation }: { conversation: ChatConversation | null 
 
   if (!conversation || conversation.messages.length === 0) {
     return (
-      <div className="flex min-h-[320px] items-center justify-center">
-        <div className="max-w-sm rounded-lg border border-dashed border-rose-100 bg-white/52 px-4 py-5 text-center text-sm leading-6 text-stone-500">
-          选择历史对话或发送新消息。
+      <div className="flex min-h-[calc(100dvh-260px)] items-center justify-center pb-20">
+        <div className="text-center">
+          <h1 className="text-2xl font-semibold tracking-tight text-stone-950">你好，想聊些什么？</h1>
         </div>
       </div>
     );
