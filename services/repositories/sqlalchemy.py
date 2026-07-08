@@ -926,7 +926,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
                             .values(quota=UserRow.quota - normalized_amount)
                         )
                         if int(result.rowcount or 0) != 1:
-                            raise ValueError("insufficient image quota")
+                            raise ValueError("剩余额度不足")
 
                         session.refresh(user)
                         expires_at = now + timedelta(seconds=max(1, int(ttl_seconds or 900)))
@@ -943,7 +943,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
                         session.flush()
                         return self._to_item(reservation)
                 if quota_expired:
-                    raise ValueError("insufficient image quota")
+                    raise ValueError("剩余额度不足")
         except IntegrityError:
             with self._session_factory() as session:
                 existing = self._get_by_request_id(session, normalized_request_id)

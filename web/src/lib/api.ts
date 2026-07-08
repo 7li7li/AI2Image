@@ -42,6 +42,7 @@ export type ManagedImage = {
   model?: string;
   image_size?: string;
   channel?: string;
+  request_id?: string;
   quota_cost?: number;
   webdav_url?: string;
   webdav_synced_at?: string;
@@ -226,6 +227,26 @@ export type ChatStreamEvent =
   | { type: "delta"; content: string; request_id?: string }
   | { type: "done"; model?: string; channel?: string; request_id?: string }
   | { type: "error"; error: string; request_id?: string };
+
+export type BackgroundTaskStatus<T = unknown> = {
+  id: string;
+  task_id: string;
+  request_id: string;
+  kind: string;
+  status: "queued" | "running" | "success" | "error";
+  version?: number;
+  created_at?: string;
+  updated_at?: string;
+  result?: T;
+  error?: string;
+};
+
+export type ChatTaskResult = {
+  content?: string;
+  model?: string;
+  channel?: string;
+  request_id?: string;
+};
 
 export type ImageQuality = "auto" | "low" | "medium" | "high";
 export type ImageOutputFormat = "png" | "jpeg" | "webp";
@@ -628,6 +649,28 @@ export async function generateImage(prompt: string, model?: ImageModel, options:
   );
 }
 
+export async function createImageGenerationTask(
+  prompt: string,
+  model: ImageModel | undefined,
+  options: ImageRequestOptions = {},
+  requestId: string,
+) {
+  return httpRequest<BackgroundTaskStatus<ImageResponse>>(
+    "/api/tasks/images/generations",
+    {
+      method: "POST",
+      headers: { "x-request-id": requestId },
+      body: {
+        prompt,
+        ...(model ? { model } : {}),
+        ...normalizeImageRequestOptions(options),
+        n: 1,
+        response_format: "url",
+      },
+    },
+  );
+}
+
 export async function editImage(files: File | File[], prompt: string, model?: ImageModel, options: ImageRequestOptions = {}) {
   const formData = new FormData();
   const uploadFiles = Array.isArray(files) ? files : [files];
@@ -655,6 +698,40 @@ export async function editImage(files: File | File[], prompt: string, model?: Im
   );
 }
 
+export async function createImageEditTask(
+  files: File | File[],
+  prompt: string,
+  model: ImageModel | undefined,
+  options: ImageRequestOptions = {},
+  requestId: string,
+) {
+  const formData = new FormData();
+  const uploadFiles = Array.isArray(files) ? files : [files];
+
+  uploadFiles.forEach((file) => {
+    formData.append("image", file);
+  });
+  formData.append("prompt", prompt);
+  if (model) {
+    formData.append("model", model);
+  }
+  const requestOptions = normalizeImageRequestOptions(options);
+  for (const [key, value] of Object.entries(requestOptions)) {
+    formData.append(key, String(value));
+  }
+  formData.append("n", "1");
+  formData.append("response_format", "url");
+
+  return httpRequest<BackgroundTaskStatus<ImageResponse>>(
+    "/api/tasks/images/edits",
+    {
+      method: "POST",
+      headers: { "x-request-id": requestId },
+      body: formData,
+    },
+  );
+}
+
 export async function createChatCompletion(messages: ChatCompletionMessage[], model?: string) {
   return httpRequest<ChatCompletionResponse>("/api/chat/completions", {
     method: "POST",
@@ -663,6 +740,116 @@ export async function createChatCompletion(messages: ChatCompletionMessage[], mo
       messages,
     },
   });
+}
+
+export async function createChatCompletionTask(
+  messages: ChatCompletionMessage[],
+  model: string | undefined,
+  requestId: string,
+) {
+  return httpRequest<BackgroundTaskStatus<ChatTaskResult>>("/api/chat/tasks", {
+    method: "POST",
+    headers: { "x-request-id": requestId },
+    body: {
+      ...(model ? { model } : {}),
+      messages,
+      stream: true,
+    },
+  });
+}
+
+export async function fetchBackgroundTask<T = unknown>(taskId: string) {
+  return httpRequest<BackgroundTaskStatus<T>>(`/api/tasks/${encodeURIComponent(taskId)}`);
+}
+
+function parseTaskSseEvent<T>(raw: string): { type: "update"; task: BackgroundTaskStatus<T> } | { type: "error"; error: string } | null {
+  const lines = raw.split(/\r?\n/);
+  let event = "message";
+  const dataLines: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("event:")) {
+      event = line.slice("event:".length).trim();
+      continue;
+    }
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trimStart());
+    }
+  }
+  const dataText = dataLines.join("\n").trim();
+  if (!dataText || event === "ping") {
+    return null;
+  }
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(dataText) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (event === "error") {
+    return { type: "error", error: String(data.error || "任务处理失败") };
+  }
+  if (event === "update") {
+    return { type: "update", task: data as BackgroundTaskStatus<T> };
+  }
+  return null;
+}
+
+export async function streamBackgroundTask<T = unknown>(
+  taskId: string,
+  onUpdate: (task: BackgroundTaskStatus<T>) => void | Promise<void>,
+  options: { version?: number } = {},
+) {
+  const authKey = await getStoredAuthKey();
+  const params = new URLSearchParams();
+  if (typeof options.version === "number") {
+    params.set("version", String(options.version));
+  }
+  const response = await fetch(apiUrl(`/api/tasks/${encodeURIComponent(taskId)}/events${params.toString() ? `?${params.toString()}` : ""}`), {
+    method: "GET",
+    headers: {
+      Accept: "text/event-stream",
+      ...(authKey ? { Authorization: `Bearer ${authKey}` } : {}),
+    },
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorResponse(response));
+  }
+  if (!response.body) {
+    throw new Error("浏览器不支持流式响应");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() || "";
+    for (const rawEvent of events) {
+      const event = parseTaskSseEvent<T>(rawEvent);
+      if (!event) {
+        continue;
+      }
+      if (event.type === "error") {
+        throw new Error(event.error);
+      }
+      await onUpdate(event.task);
+    }
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    const event = parseTaskSseEvent<T>(buffer);
+    if (event?.type === "error") {
+      throw new Error(event.error);
+    }
+    if (event?.type === "update") {
+      await onUpdate(event.task);
+    }
+  }
 }
 
 function chatCompletionContentToText(content: unknown): string {
@@ -1047,12 +1234,14 @@ export async function uploadMyPromptExampleImage(file: File) {
 export async function fetchMyImages(filters: {
   start_date?: string;
   end_date?: string;
+  request_id?: string;
   page?: number;
   page_size?: number;
 }) {
   const params = new URLSearchParams();
   if (filters.start_date) params.set("start_date", filters.start_date);
   if (filters.end_date) params.set("end_date", filters.end_date);
+  if (filters.request_id) params.set("request_id", filters.request_id);
   if (filters.page) params.set("page", String(filters.page));
   if (filters.page_size) params.set("page_size", String(filters.page_size));
   return httpRequest<ImageListResponse>(`/api/me/images${params.toString() ? `?${params.toString()}` : ""}`);

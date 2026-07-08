@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.support import require_identity, resolve_image_base_url
 from services.auth_service import auth_service
+from services.background_task_service import background_task_service
 from services.channel_service import channel_service
 from services.config import config
 from services.image_service import record_image_result
@@ -176,6 +177,203 @@ def create_router() -> APIRouter:
             return 0
         return 1
 
+    def task_owner_key(identity: dict[str, object]) -> str:
+        subject = str(identity.get("id") or identity.get("email") or identity.get("name") or "").strip()
+        return f"{identity.get('role') or 'unknown'}:{subject}"
+
+    def execute_generation_request(
+            *,
+            identity: dict[str, object],
+            payload: dict[str, object],
+            prompt: str,
+            model: str,
+            size: str | None,
+            quota_request_id: str | None,
+            request_id: str,
+    ) -> dict[str, object]:
+        try:
+            routed = channel_service.call_generation(payload)
+            if routed is not None:
+                result, channel_name = routed
+                log_service.add(
+                    LOG_TYPE_CALL,
+                    "文生图 渠道调用完成",
+                    endpoint="/v1/images/generations",
+                    model=model,
+                    channel=channel_name,
+                    status="success",
+                    request_id=request_id,
+                )
+                count = finalize_image_result(
+                    identity,
+                    result,
+                    prompt=prompt,
+                    mode="generate",
+                    model=model,
+                    size=size,
+                    channel=channel_name,
+                    request_id=request_id,
+                )
+                finalize_quota(quota_request_id, count)
+                return result
+            log_channel_failure(
+                identity=identity,
+                endpoint="/v1/images/generations",
+                model=model,
+                payload=payload,
+                request_id=request_id,
+            )
+            require_channel_success(payload)
+        except Exception:
+            if quota_request_id:
+                auth_service.release_quota(quota_request_id)
+            raise
+        raise HTTPException(status_code=503, detail={"error": "no enabled image channel supports this request"})
+
+    def execute_edit_request(
+            *,
+            identity: dict[str, object],
+            payload: dict[str, object],
+            prompt: str,
+            model: str,
+            size: str | None,
+            quota_request_id: str | None,
+            request_id: str,
+    ) -> dict[str, object]:
+        try:
+            routed = channel_service.call_edit(payload)
+            if routed is not None:
+                result, channel_name = routed
+                log_service.add(
+                    LOG_TYPE_CALL,
+                    "图生图 渠道调用完成",
+                    endpoint="/v1/images/edits",
+                    model=model,
+                    channel=channel_name,
+                    status="success",
+                    request_id=request_id,
+                )
+                count = finalize_image_result(
+                    identity,
+                    result,
+                    prompt=prompt,
+                    mode="edit",
+                    model=model,
+                    size=size,
+                    channel=channel_name,
+                    request_id=request_id,
+                )
+                finalize_quota(quota_request_id, count)
+                return result
+            log_channel_failure(
+                identity=identity,
+                endpoint="/v1/images/edits",
+                model=model,
+                payload=payload,
+                request_id=request_id,
+            )
+            require_channel_success(payload)
+        except Exception:
+            if quota_request_id:
+                auth_service.release_quota(quota_request_id)
+            raise
+        raise HTTPException(status_code=503, detail={"error": "no enabled image channel supports this request"})
+
+    def execute_chat_background_task(
+            *,
+            task_id: str,
+            identity: dict[str, object],
+            payload: dict[str, object],
+            quota_request_id: str | None,
+            request_id: str,
+    ) -> dict[str, object]:
+        quota_finalized = False
+
+        def release_quota_once() -> None:
+            nonlocal quota_finalized
+            if quota_request_id and not quota_finalized:
+                auth_service.release_quota(quota_request_id)
+                quota_finalized = True
+
+        try:
+            routed = channel_service.call_chat_completion_stream(payload)
+            if routed is None:
+                channel_error = str(payload.get("_channel_error") or "").strip()
+                log_channel_failure(
+                    identity=identity,
+                    endpoint="/api/chat/completions",
+                    model=str(payload.get("model") or ""),
+                    payload=payload,
+                    request_id=request_id,
+                )
+                release_quota_once()
+                raise RuntimeError(PUBLIC_CHANNEL_ERROR if channel_error else "no enabled text channel supports this request")
+
+            chunks, channel_name = routed
+            content_parts: list[str] = []
+            background_task_service.update_result(
+                task_id,
+                {
+                    "content": "",
+                    "model": str(payload.get("model") or ""),
+                    "channel": channel_name,
+                    "request_id": request_id,
+                },
+            )
+            for chunk in chunks:
+                text = str(chunk or "")
+                if not text:
+                    continue
+                content_parts.append(text)
+                background_task_service.update_result(
+                    task_id,
+                    {
+                        "content": "".join(content_parts),
+                        "model": str(payload.get("model") or ""),
+                        "channel": channel_name,
+                        "request_id": request_id,
+                    },
+                )
+
+            content = "".join(content_parts).strip()
+            if not content:
+                raise RuntimeError("upstream returned empty text content")
+
+            log_service.add(
+                LOG_TYPE_CALL,
+                "text chat background task completed",
+                endpoint="/api/chat/completions",
+                model=str(payload.get("model") or ""),
+                channel=channel_name,
+                status="success",
+                request_id=request_id,
+            )
+            if quota_request_id:
+                auth_service.confirm_quota(quota_request_id, 1)
+                quota_finalized = True
+            return {
+                "content": content,
+                "model": str(payload.get("model") or ""),
+                "channel": channel_name,
+                "request_id": request_id,
+            }
+        except Exception as exc:
+            release_quota_once()
+            message = str(exc).strip() or exc.__class__.__name__
+            log_service.add(
+                LOG_TYPE_CALL,
+                "text chat background task failed",
+                endpoint="/api/chat/completions",
+                model=str(payload.get("model") or ""),
+                status="error",
+                error=message,
+                request_id=request_id,
+                user_id=str(identity.get("id") or ""),
+                user_name=str(identity.get("name") or ""),
+                user_email=str(identity.get("email") or ""),
+            )
+            raise
+
     def build_chat_response(
             result: dict[str, object],
             model: str | None,
@@ -255,44 +453,16 @@ def create_router() -> APIRouter:
         payload["base_url"] = resolve_image_base_url(request)
         payload["request_id"] = request_id
         quota_request_id = reserve_image_quota(identity, int(body.n or 1), request_id)
-        try:
-            if not body.stream:
-                routed = await run_in_threadpool(channel_service.call_generation, payload)
-                if routed is not None:
-                    result, channel_name = routed
-                    log_service.add(
-                        LOG_TYPE_CALL,
-                        "文生图 渠道调用完成",
-                        endpoint="/v1/images/generations",
-                        model=str(payload.get("model") or ""),
-                        channel=channel_name,
-                        status="success",
-                        request_id=request_id,
-                    )
-                    count = finalize_image_result(
-                        identity,
-                        result,
-                        prompt=body.prompt,
-                        mode="generate",
-                        model=str(payload.get("model") or ""),
-                        size=body.size,
-                        channel=channel_name,
-                        request_id=request_id,
-                    )
-                    finalize_quota(quota_request_id, count)
-                    return result
-            log_channel_failure(
-                identity=identity,
-                endpoint="/v1/images/generations",
-                model=str(payload.get("model") or ""),
-                payload=payload,
-                request_id=request_id,
-            )
-            require_channel_success(payload)
-        except Exception:
-            if quota_request_id:
-                auth_service.release_quota(quota_request_id)
-            raise
+        return await run_in_threadpool(
+            execute_generation_request,
+            identity=identity,
+            payload=payload,
+            prompt=body.prompt,
+            model=str(payload.get("model") or ""),
+            size=body.size,
+            quota_request_id=quota_request_id,
+            request_id=request_id,
+        )
 
     @router.post("/v1/images/edits")
     async def edit_images(
@@ -346,44 +516,187 @@ def create_router() -> APIRouter:
             "request_id": request_id,
         }
         quota_request_id = reserve_image_quota(identity, int(n or 1), request_id)
+        return await run_in_threadpool(
+            execute_edit_request,
+            identity=identity,
+            payload=payload,
+            prompt=prompt,
+            model=str(payload.get("model") or ""),
+            size=size,
+            quota_request_id=quota_request_id,
+            request_id=request_id,
+        )
+
+    @router.get("/api/tasks/{task_id}")
+    async def get_background_task(task_id: str, authorization: str | None = Header(default=None)):
+        identity = require_identity(authorization)
         try:
-            if not stream:
-                routed = await run_in_threadpool(channel_service.call_edit, payload)
-                if routed is not None:
-                    result, channel_name = routed
-                    log_service.add(
-                        LOG_TYPE_CALL,
-                        "图生图 渠道调用完成",
-                        endpoint="/v1/images/edits",
-                        model=str(payload.get("model") or ""),
-                        channel=channel_name,
-                        status="success",
-                        request_id=request_id,
-                    )
-                    count = finalize_image_result(
-                        identity,
-                        result,
-                        prompt=prompt,
-                        mode="edit",
-                        model=str(payload.get("model") or ""),
-                        size=size,
-                        channel=channel_name,
-                        request_id=request_id,
-                    )
-                    finalize_quota(quota_request_id, count)
-                    return result
-            log_channel_failure(
+            task = background_task_service.get(task_id, task_owner_key(identity))
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail={"error": "task does not belong to current user"}) from exc
+        if task is None:
+            raise HTTPException(status_code=404, detail={"error": "task not found"})
+        return task
+
+    @router.get("/api/tasks/{task_id}/events")
+    async def stream_background_task_events(
+            task_id: str,
+            request: Request,
+            version: int = -1,
+            authorization: str | None = Header(default=None),
+    ):
+        identity = require_identity(authorization)
+        owner_key = task_owner_key(identity)
+        try:
+            existing = background_task_service.get(task_id, owner_key)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail={"error": "task does not belong to current user"}) from exc
+        if existing is None:
+            raise HTTPException(status_code=404, detail={"error": "task not found"})
+
+        async def events():
+            current_version = int(version)
+            while True:
+                if await request.is_disconnected():
+                    return
+                task = await run_in_threadpool(
+                    background_task_service.wait_for_update,
+                    task_id,
+                    owner_key,
+                    version=current_version,
+                    timeout_seconds=15,
+                )
+                if task is None:
+                    yield sse_event("error", {"error": "task not found", "request_id": task_id})
+                    return
+                next_version = int(task.get("version") or current_version)
+                if next_version > current_version or task.get("status") not in {"queued", "running"}:
+                    current_version = next_version
+                    yield sse_event("update", task)
+                else:
+                    yield sse_event("ping", {"request_id": task_id, "version": current_version})
+                if task.get("status") not in {"queued", "running"}:
+                    return
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @router.post("/api/tasks/images/generations")
+    async def create_image_generation_task(
+            body: ImageGenerationRequest,
+            request: Request,
+            authorization: str | None = Header(default=None),
+    ):
+        identity = require_identity(authorization)
+        if body.stream:
+            raise HTTPException(status_code=400, detail={"error": "stream is not supported for channel image tasks"})
+        request_id = request_id_from_request(request)
+        owner_key = task_owner_key(identity)
+        try:
+            existing = background_task_service.get(request_id, owner_key)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail={"error": "task does not belong to current user"}) from exc
+        if existing is not None:
+            return existing
+
+        payload = body.model_dump(mode="python")
+        payload["model"] = body.model or config.default_image_model
+        payload["base_url"] = resolve_image_base_url(request)
+        payload["request_id"] = request_id
+        quota_request_id = reserve_image_quota(identity, int(body.n or 1), request_id)
+        return background_task_service.submit(
+            task_id=request_id,
+            owner_key=owner_key,
+            kind="image_generation",
+            runner=lambda: execute_generation_request(
                 identity=identity,
-                endpoint="/v1/images/edits",
-                model=str(payload.get("model") or ""),
                 payload=payload,
+                prompt=body.prompt,
+                model=str(payload.get("model") or ""),
+                size=body.size,
+                quota_request_id=quota_request_id,
                 request_id=request_id,
-            )
-            require_channel_success(payload)
-        except Exception:
-            if quota_request_id:
-                auth_service.release_quota(quota_request_id)
-            raise
+            ),
+        )
+
+    @router.post("/api/tasks/images/edits")
+    async def create_image_edit_task(
+            request: Request,
+            authorization: str | None = Header(default=None),
+            image: list[UploadFile] | None = File(default=None),
+            image_list: list[UploadFile] | None = File(default=None, alias="image[]"),
+            prompt: str = Form(...),
+            model: str | None = Form(default=None),
+            n: int = Form(default=1),
+            size: str | None = Form(default=None),
+            resolution: str | None = Form(default=None),
+            quality: str | None = Form(default=None),
+            output_format: str | None = Form(default=None),
+            output_compression: int | None = Form(default=None),
+            moderation: str | None = Form(default=None),
+            background: str | None = Form(default=None),
+            response_format: str = Form(default="b64_json"),
+            stream: bool | None = Form(default=None),
+    ):
+        identity = require_identity(authorization)
+        if stream:
+            raise HTTPException(status_code=400, detail={"error": "stream is not supported for channel image tasks"})
+        if n < 1 or n > 4:
+            raise HTTPException(status_code=400, detail={"error": "n must be between 1 and 4"})
+        request_id = request_id_from_request(request)
+        owner_key = task_owner_key(identity)
+        try:
+            existing = background_task_service.get(request_id, owner_key)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail={"error": "task does not belong to current user"}) from exc
+        if existing is not None:
+            return existing
+
+        uploads = [*(image or []), *(image_list or [])]
+        if not uploads:
+            raise HTTPException(status_code=400, detail={"error": "image file is required"})
+        images: list[tuple[bytes, str, str]] = []
+        for upload in uploads:
+            image_data = await upload.read()
+            if not image_data:
+                raise HTTPException(status_code=400, detail={"error": "image file is empty"})
+            images.append((image_data, upload.filename or "image.png", upload.content_type or "image/png"))
+
+        payload = {
+            "prompt": prompt,
+            "images": images,
+            "model": model or config.default_image_model,
+            "n": n,
+            "size": size,
+            "resolution": resolution,
+            "quality": quality,
+            "output_format": output_format,
+            "output_compression": output_compression,
+            "moderation": moderation,
+            "background": background,
+            "response_format": response_format,
+            "stream": stream,
+            "base_url": resolve_image_base_url(request),
+            "request_id": request_id,
+        }
+        quota_request_id = reserve_image_quota(identity, int(n or 1), request_id)
+        return background_task_service.submit(
+            task_id=request_id,
+            owner_key=owner_key,
+            kind="image_edit",
+            runner=lambda: execute_edit_request(
+                identity=identity,
+                payload=payload,
+                prompt=prompt,
+                model=str(payload.get("model") or ""),
+                size=size,
+                quota_request_id=quota_request_id,
+                request_id=request_id,
+            ),
+        )
 
     @router.post("/v1/chat/completions")
     async def create_chat_completion(
@@ -419,6 +732,62 @@ def create_router() -> APIRouter:
         if identity.get("role") == "user":
             raise HTTPException(status_code=403, detail={"error": "personal users can only use image features"})
         raise HTTPException(status_code=410, detail={"error": "text compatibility endpoints are disabled; use image channels"})
+
+    @router.post("/api/chat/tasks")
+    async def create_app_chat_task(
+            body: ChatMessageRequest,
+            request: Request,
+            authorization: str | None = Header(default=None),
+    ):
+        identity = require_identity(authorization)
+        messages = [message for message in body.messages if isinstance(message, dict)]
+        if not messages:
+            raise HTTPException(status_code=400, detail={"error": "messages are required"})
+        request_id = request_id_from_request(request)
+        owner_key = task_owner_key(identity)
+        try:
+            existing = background_task_service.get(request_id, owner_key)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail={"error": "task does not belong to current user"}) from exc
+        if existing is not None:
+            return existing
+
+        payload = {
+            "model": body.model or config.default_text_model,
+            "messages": messages,
+            "temperature": body.temperature,
+            "top_p": body.top_p,
+            "max_tokens": body.max_tokens,
+            "max_completion_tokens": body.max_completion_tokens,
+            "presence_penalty": body.presence_penalty,
+            "frequency_penalty": body.frequency_penalty,
+            "response_format": body.response_format,
+            "stop": body.stop,
+            "tools": body.tools,
+            "tool_choice": body.tool_choice,
+            "stream": True,
+            "base_url": resolve_image_base_url(request),
+            "request_id": request_id,
+        }
+        quota_request_id = None
+        if identity.get("role") == "user":
+            try:
+                auth_service.reserve_quota(str(identity.get("id") or ""), chat_quota_cost(identity, "chat"), request_id)
+                quota_request_id = request_id
+            except ValueError as exc:
+                raise HTTPException(status_code=429, detail={"error": str(exc)}) from exc
+        return background_task_service.submit(
+            task_id=request_id,
+            owner_key=owner_key,
+            kind="chat_completion",
+            runner=lambda: execute_chat_background_task(
+                task_id=request_id,
+                identity=identity,
+                payload=payload,
+                quota_request_id=quota_request_id,
+                request_id=request_id,
+            ),
+        )
 
     @router.post("/api/chat/completions")
     async def create_app_chat_completion(

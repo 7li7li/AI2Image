@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Clock3, Copy, ImageIcon, LoaderCircle, RefreshCw, Share2, Sparkles } from "lucide-react";
+import { Clock3, Copy, ImageIcon, LoaderCircle, RefreshCw, Share2, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ type ImageResultsProps = {
   onOpenLightbox: (images: ImageLightboxItem[], index: number) => void;
   onContinueEdit: (conversationId: string, image: StoredImage | StoredReferenceImage) => void;
   onRegenerate: (conversationId: string, turn: ImageConversation["turns"][number]) => void;
+  onDeleteTurn: (conversationId: string, turnId: string) => void | Promise<void>;
   formatConversationTime: (value: string) => string;
 };
 
@@ -96,6 +97,7 @@ export function ImageResults({
   onOpenLightbox,
   onContinueEdit,
   onRegenerate,
+  onDeleteTurn,
   formatConversationTime,
 }: ImageResultsProps) {
   const [imageDimensions, setImageDimensions] = useState<Record<string, string>>({});
@@ -225,7 +227,7 @@ export function ImageResults({
         });
 
         return (
-          <section key={turn.id} className="overflow-hidden rounded-lg border border-white/70 bg-white/46 shadow-sm">
+          <section key={turn.id} className="group overflow-hidden rounded-lg border border-white/70 bg-white/46 shadow-sm">
             <div className="border-b border-rose-100/70 bg-white/56 px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -238,37 +240,54 @@ export function ImageResults({
                   <p className="whitespace-pre-wrap break-words text-sm leading-6 text-stone-800">{turn.prompt}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
+                  <div className="pointer-events-none flex items-center gap-1.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                   <Button
                     type="button"
                     variant="outline"
-                    size="sm"
-                    className="h-8 rounded-lg border-rose-100 bg-white/85 px-2.5 text-stone-700 hover:bg-white"
+                    size="icon"
+                    className="size-8 rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
                     onClick={() => onRegenerate(selectedConversation.id, turn)}
                     disabled={turn.status === "queued" || turn.status === "generating"}
+                    title="重新生成"
+                    aria-label="重新生成"
                   >
                     <RefreshCw className="size-4" />
-                    重新生成
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
-                    size="sm"
-                    className="h-8 rounded-lg border-rose-100 bg-white/85 px-2.5 text-stone-700 hover:bg-white"
+                    size="icon"
+                    className="size-8 rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
+                    onClick={() => void onDeleteTurn(selectedConversation.id, turn.id)}
+                    disabled={turn.status === "queued" || turn.status === "generating"}
+                    title="删除"
+                    aria-label="删除"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-8 rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
                     onClick={() => void copyTurnPrompt(turn.prompt)}
+                    title="复制"
+                    aria-label="复制"
                   >
                     <Copy className="size-4" />
-                    复制
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
-                    size="sm"
-                    className="h-8 rounded-lg border-rose-100 bg-white/85 px-2.5 text-stone-700 hover:bg-white"
+                    size="icon"
+                    className="size-8 rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
                     onClick={() => void shareTurnPrompt(turn)}
+                    title="分享"
+                    aria-label="分享"
                   >
                     <Share2 className="size-4" />
-                    分享
                   </Button>
+                  </div>
                   <div className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-stone-600">
                     {turn.count} 张
                   </div>
@@ -358,20 +377,10 @@ export function ImageResults({
                             variant="outline"
                             size="sm"
                             className="rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
-                            onClick={() => onRegenerate(selectedConversation.id, turn)}
-                            disabled={turn.status === "queued" || turn.status === "generating"}
+                            onClick={() => onContinueEdit(selectedConversation.id, image)}
                           >
-                            <RefreshCw className="size-4" />
-                            重新生成
-                          </Button>
-                          <Button
-                          variant="outline"
-                          size="sm"
-                          className="rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
-                          onClick={() => onContinueEdit(selectedConversation.id, image)}
-                        >
-                          <Sparkles className="size-4" />
-                          编辑
+                            <Sparkles className="size-4" />
+                            加入编辑
                           </Button>
                         </div>
                       </div>

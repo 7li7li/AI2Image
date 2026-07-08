@@ -813,7 +813,7 @@ class AuthService:
                 self._save_users()
                 user = normalized_user
             if int(user.get("quota") or 0) < amount:
-                raise ValueError("insufficient image quota")
+                raise ValueError("剩余额度不足")
 
     def deduct_quota(self, user_id: str, amount: int) -> dict[str, object] | None:
         if amount <= 0:
@@ -865,7 +865,7 @@ class AuthService:
                 return dict(existing)
             user = dict(self._users[index])
             if int(user.get("quota") or 0) < normalized_amount:
-                raise ValueError("insufficient image quota")
+                raise ValueError("剩余额度不足")
             now = _now()
             expires_at = now + timedelta(seconds=max(1, int(ttl_seconds or 900)))
             user["quota"] = max(0, int(user.get("quota") or 0) - normalized_amount)

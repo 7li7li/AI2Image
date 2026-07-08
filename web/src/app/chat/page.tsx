@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import {
+  Copy,
   FileText,
   ImageIcon,
   Bot,
@@ -18,6 +19,7 @@ import {
   MessageSquare,
   MessageSquarePlus,
   Plus,
+  RefreshCw,
   Search,
   Send,
   Sparkles,
@@ -39,9 +41,13 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  createChatCompletionTask,
+  fetchBackgroundTask,
+  streamBackgroundTask,
   streamChatCompletion,
   type ChatCompletionContent,
   type ChatCompletionMessage,
+  type ChatTaskResult,
 } from "@/lib/api";
 import { useSiteSettingsStore } from "@/lib/site-settings";
 import { useAuthGuard } from "@/lib/use-auth-guard";
@@ -54,7 +60,6 @@ import {
   getChatConversationOwnerKey,
   listChatConversations,
   saveChatConversation,
-  saveChatConversations,
   type ChatConversation,
   type ChatConversationsChangedDetail,
   type StoredChatAttachment,
@@ -66,6 +71,8 @@ const QUOTA_REFRESH_EVENT = "yanai:quota-refresh";
 const CHAT_CONTEXT_TURN_LIMIT = 4;
 const MAX_CHAT_ATTACHMENTS = 4;
 const MAX_CHAT_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const BACKGROUND_TASK_POLL_INTERVAL_MS = 1500;
+const activeChatTaskIds = new Set<string>();
 const READABLE_ATTACHMENT_TYPES = new Set([
   "application/json",
   "application/xml",
@@ -93,6 +100,10 @@ function createId() {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function isReadableAttachment(file: File) {
@@ -125,6 +136,29 @@ function formatFileSize(size: number) {
     return `${(size / 1024).toFixed(1)} KB`;
   }
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function copyTextToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("copy failed");
+    }
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 function getAttachmentLightboxImages(attachments: StoredChatAttachment[]): ChatAttachmentLightboxImage[] {
@@ -268,38 +302,8 @@ function getWorkspaceStats(conversations: ChatConversation[]) {
 }
 
 async function recoverChatHistory(items: ChatConversation[], ownerKey: string) {
-  let changed = false;
-  const normalized = items.map((conversation) => {
-    const messages = conversation.messages.map((message) => {
-      if (message.status !== "sending") {
-        return message;
-      }
-      changed = true;
-      return {
-        ...message,
-        status: "error" as const,
-        error: "页面刷新或任务中断，未完成的回复已标记为失败",
-      };
-    });
-
-    const conversationChanged =
-      messages.length !== conversation.messages.length ||
-      messages.some((message, index) => message !== conversation.messages[index]);
-    if (!conversationChanged) {
-      return conversation;
-    }
-
-    return {
-      ...conversation,
-      messages,
-      updatedAt: new Date().toISOString(),
-    };
-  });
-
-  if (changed) {
-    await saveChatConversations(normalized, ownerKey);
-  }
-  return normalized;
+  void ownerKey;
+  return items;
 }
 
 function toApiMessages(messages: StoredChatMessage[]): ChatCompletionMessage[] {
@@ -367,6 +371,8 @@ function toApiMessages(messages: StoredChatMessage[]): ChatCompletionMessage[] {
 
 function ChatPageContent({ session }: { session: StoredAuthSession }) {
   const conversationsRef = useRef<ChatConversation[]>([]);
+  const draftModeRef = useRef(false);
+  const selectedConversationIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesViewportRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -378,7 +384,6 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [isSending, setIsSending] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: "one"; id: string } | { type: "all" } | null>(null);
 
   const defaultTextModel = useSiteSettingsStore((state) => state.settings.default_text_model || "gpt-5.5");
@@ -412,11 +417,16 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
   }, [conversations]);
 
   useEffect(() => {
+    selectedConversationIdRef.current = selectedConversationId;
+  }, [selectedConversationId]);
+
+  useEffect(() => {
     let cancelled = false;
 
     const loadHistory = async (options: { recoverInterrupted?: boolean; resetBeforeLoad?: boolean } = {}) => {
       if (options.resetBeforeLoad) {
         setIsLoadingHistory(true);
+        selectedConversationIdRef.current = null;
       }
       try {
         const items = await listChatConversations(chatConversationOwnerKey);
@@ -431,11 +441,12 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
         const storedConversationId =
           typeof window !== "undefined" ? window.localStorage.getItem(activeConversationStorageKey) : null;
         setSelectedConversationId((currentConversationId) => {
-          if (
-            currentConversationId &&
-            normalizedItems.some((conversation) => conversation.id === currentConversationId)
-          ) {
-            return currentConversationId;
+          const pinnedConversationId = currentConversationId || selectedConversationIdRef.current;
+          if (pinnedConversationId && normalizedItems.some((conversation) => conversation.id === pinnedConversationId)) {
+            return pinnedConversationId;
+          }
+          if (draftModeRef.current) {
+            return null;
           }
           return (
             (storedConversationId && normalizedItems.some((conversation) => conversation.id === storedConversationId)
@@ -493,7 +504,9 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
   useEffect(() => {
     if (selectedConversationId && !conversations.some((conversation) => conversation.id === selectedConversationId)) {
       const timeout = window.setTimeout(() => {
-        setSelectedConversationId(pickFallbackConversationId(conversations));
+        const fallbackConversationId = pickFallbackConversationId(conversations);
+        selectedConversationIdRef.current = fallbackConversationId;
+        setSelectedConversationId(fallbackConversationId);
       }, 0);
       return () => window.clearTimeout(timeout);
     }
@@ -536,6 +549,12 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  }, []);
+
+  const handleSelectConversation = useCallback((id: string) => {
+    draftModeRef.current = false;
+    selectedConversationIdRef.current = id;
+    setSelectedConversationId(id);
   }, []);
 
   const handleAttachmentFiles = async (files: FileList | File[] | null) => {
@@ -632,6 +651,11 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
   };
 
   const handleCreateDraft = () => {
+    draftModeRef.current = true;
+    selectedConversationIdRef.current = null;
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(activeConversationStorageKey);
+    }
     setSelectedConversationId(null);
     resetComposer();
     textareaRef.current?.focus();
@@ -643,7 +667,9 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
     conversationsRef.current = nextConversations;
     setConversations(nextConversations);
     if (selectedConversationId === id) {
-      setSelectedConversationId(pickFallbackConversationId(nextConversations));
+      const fallbackConversationId = pickFallbackConversationId(nextConversations);
+      selectedConversationIdRef.current = fallbackConversationId;
+      setSelectedConversationId(fallbackConversationId);
       resetComposer();
     }
 
@@ -663,6 +689,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
       await clearChatConversations(chatConversationOwnerKey);
       conversationsRef.current = [];
       setConversations([]);
+      selectedConversationIdRef.current = null;
       setSelectedConversationId(null);
       resetComposer();
       toast.success("已清空对话记录");
@@ -695,6 +722,248 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
     await handleDeleteConversation(target.id);
   };
 
+  const runChatTask = useCallback(
+    async (conversationId: string, assistantMessageId: string) => {
+      const taskKey = `${chatConversationOwnerKey}:${conversationId}:${assistantMessageId}`;
+      if (activeChatTaskIds.has(taskKey)) {
+        return;
+      }
+
+      const snapshot = conversationsRef.current.find((conversation) => conversation.id === conversationId);
+      const assistantMessage = snapshot?.messages.find((message) => message.id === assistantMessageId);
+      if (!snapshot || !assistantMessage || assistantMessage.role !== "assistant" || assistantMessage.status !== "sending") {
+        return;
+      }
+
+      const requestId = assistantMessage.requestId || createId();
+      activeChatTaskIds.add(taskKey);
+
+      const persistAssistant = async (
+        updates: Partial<StoredChatMessage>,
+        options: { touchConversation?: boolean; touchMessage?: boolean } = {},
+      ) => {
+        const updatedAt = new Date().toISOString();
+        const touchConversation = options.touchConversation ?? true;
+        const touchMessage = options.touchMessage ?? true;
+        await updateConversation(conversationId, (current) => {
+          const conversation = current ?? snapshot;
+          return {
+            ...conversation,
+            updatedAt: touchConversation ? updatedAt : conversation.updatedAt,
+            messages: conversation.messages.map((message) =>
+              message.id === assistantMessageId
+                ? {
+                    ...message,
+                    ...updates,
+                    requestId,
+                    createdAt: touchMessage ? updatedAt : message.createdAt,
+                  }
+                : message,
+            ),
+          };
+        });
+      };
+
+      try {
+        if (!assistantMessage.requestId) {
+          await persistAssistant({ requestId, status: "sending", error: undefined }, {
+            touchConversation: false,
+            touchMessage: false,
+          });
+        }
+
+        const apiMessages = toApiMessages(snapshot.messages);
+        const runLegacyStream = async () => {
+          let assistantContent = stringifyAssistantContent(assistantMessage.content || "");
+          await streamChatCompletion(apiMessages, snapshot.model, async (event) => {
+            if (event.type !== "delta" || !event.content) {
+              return;
+            }
+            assistantContent += event.content;
+            await persistAssistant({
+              content: assistantContent,
+              status: "sending",
+              error: undefined,
+            }, {
+              touchConversation: false,
+              touchMessage: false,
+            });
+          });
+          assistantContent = stringifyAssistantContent(assistantContent).trim();
+          if (!assistantContent) {
+            throw new Error("上游没有返回文本内容");
+          }
+          await persistAssistant({
+            content: assistantContent,
+            status: "success",
+            error: undefined,
+          });
+          window.dispatchEvent(new Event(QUOTA_REFRESH_EVENT));
+        };
+
+        let initialTask;
+        try {
+          initialTask = await createChatCompletionTask(apiMessages, snapshot.model, requestId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error || "");
+          if (!/method not allowed/i.test(message)) {
+            throw error;
+          }
+          await runLegacyStream();
+          return;
+        }
+        let task = initialTask;
+        let assistantContent = stringifyAssistantContent(task.result?.content || assistantMessage.content || "");
+
+        const applyTaskUpdate = async (nextTask: typeof task) => {
+          task = nextTask;
+          const nextContent = stringifyAssistantContent(task.result?.content || assistantContent);
+          if (nextContent && nextContent !== assistantContent) {
+            assistantContent = nextContent;
+            await persistAssistant({
+              content: assistantContent,
+              status: "sending",
+              error: undefined,
+            }, {
+              touchConversation: false,
+              touchMessage: false,
+            });
+          }
+        };
+
+        const pollTask = async () => {
+          while (task.status === "queued" || task.status === "running") {
+            await delay(BACKGROUND_TASK_POLL_INTERVAL_MS);
+            await applyTaskUpdate(await fetchBackgroundTask<ChatTaskResult>(task.task_id || task.id));
+          }
+        };
+
+        await applyTaskUpdate(task);
+        if (task.status === "queued" || task.status === "running") {
+          try {
+            await streamBackgroundTask<ChatTaskResult>(task.task_id || task.id, applyTaskUpdate, {
+              version: typeof task.version === "number" ? task.version : -1,
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error || "");
+            if (!/method not allowed/i.test(message)) {
+              throw error;
+            }
+            await pollTask();
+          }
+        }
+
+        if (task.status === "error") {
+          throw new Error(task.error || "回复失败");
+        }
+
+        assistantContent = stringifyAssistantContent(task.result?.content || assistantContent).trim();
+        if (!assistantContent) {
+          throw new Error("上游没有返回文本内容");
+        }
+
+        await persistAssistant({
+          content: assistantContent,
+          status: "success",
+          error: undefined,
+        });
+        window.dispatchEvent(new Event(QUOTA_REFRESH_EVENT));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "发送消息失败";
+        const latestConversation = conversationsRef.current.find((conversation) => conversation.id === conversationId) ?? snapshot;
+        const latestAssistant = latestConversation.messages.find((item) => item.id === assistantMessageId);
+        await persistAssistant({
+          content: latestAssistant?.content || assistantMessage.content || "",
+          status: "error",
+          error: message,
+        });
+        toast.error(message);
+      } finally {
+        activeChatTaskIds.delete(taskKey);
+      }
+    },
+    [chatConversationOwnerKey, updateConversation],
+  );
+
+  useEffect(() => {
+    for (const conversation of conversations) {
+      for (const message of conversation.messages) {
+        if (message.role === "assistant" && message.status === "sending") {
+          void runChatTask(conversation.id, message.id);
+        }
+      }
+    }
+  }, [conversations, runChatTask]);
+
+  const handleRegenerateMessage = async (conversationId: string, messageId: string) => {
+    const conversation = conversationsRef.current.find((item) => item.id === conversationId);
+    const messageIndex = conversation?.messages.findIndex((message) => message.id === messageId) ?? -1;
+    const targetMessage = messageIndex >= 0 ? conversation?.messages[messageIndex] : null;
+    if (!conversation || !targetMessage || targetMessage.role !== "assistant") {
+      return;
+    }
+    if (conversation.messages.some((message) => message.status === "sending")) {
+      toast.error("当前对话仍在回复中");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const requestId = createId();
+    await updateConversation(conversationId, (current) => {
+      const source = current ?? conversation;
+      const latestMessageIndex = source.messages.findIndex((message) => message.id === messageId);
+      if (latestMessageIndex < 0) {
+        return source;
+      }
+      return {
+        ...source,
+        updatedAt: now,
+        messages: source.messages.slice(0, latestMessageIndex + 1).map((message, index) =>
+          index === latestMessageIndex
+            ? {
+                ...message,
+                content: "",
+                createdAt: now,
+                error: undefined,
+                requestId,
+                status: "sending" as const,
+              }
+            : message,
+        ),
+      };
+    });
+    void runChatTask(conversationId, messageId);
+  };
+
+  const handleDeleteMessage = async (conversationId: string, messageId: string) => {
+    const conversation = conversationsRef.current.find((item) => item.id === conversationId);
+    const targetMessage = conversation?.messages.find((message) => message.id === messageId);
+    if (!conversation || !targetMessage) {
+      return;
+    }
+    if (targetMessage.status === "sending") {
+      toast.error("回复生成中，稍后再删除");
+      return;
+    }
+
+    const nextMessages = conversation.messages.filter((message) => message.id !== messageId);
+    if (nextMessages.length === 0) {
+      await handleDeleteConversation(conversationId);
+      return;
+    }
+
+    const updatedAt = new Date().toISOString();
+    await updateConversation(conversationId, (current) => {
+      const source = current ?? conversation;
+      return {
+        ...source,
+        updatedAt,
+        messages: source.messages.filter((message) => message.id !== messageId),
+      };
+    });
+    toast.success("已删除消息");
+  };
+
   const handleSubmit = async () => {
     const content = messageDraft.trim();
     const attachments = pendingAttachments;
@@ -702,7 +971,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
       toast.error("请输入消息或上传附件");
       return;
     }
-    if (isSending || selectedConversationSending) {
+    if (selectedConversationSending) {
       toast.error("当前对话仍在回复中");
       return;
     }
@@ -726,6 +995,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
       content: "",
       createdAt: now,
       status: "sending",
+      requestId: createId(),
     };
     const baseConversation: ChatConversation = targetConversation
       ? {
@@ -745,86 +1015,11 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
         };
 
     setSelectedConversationId(conversationId);
+    selectedConversationIdRef.current = conversationId;
+    draftModeRef.current = false;
     resetComposer();
     await persistConversation(baseConversation);
-
-    setIsSending(true);
-    try {
-      let assistantContent = "";
-      await streamChatCompletion(toApiMessages(baseConversation.messages), baseConversation.model, async (event) => {
-        if (event.type !== "delta" || !event.content) {
-          return;
-        }
-        assistantContent += event.content;
-        const updatedAt = new Date().toISOString();
-        await updateConversation(conversationId, (current) => {
-          const conversation = current ?? baseConversation;
-          return {
-            ...conversation,
-            updatedAt,
-            messages: conversation.messages.map((message) =>
-              message.id === assistantMessage.id
-                ? {
-                    ...message,
-                    content: assistantContent,
-                    createdAt: updatedAt,
-                    status: "sending" as const,
-                    error: undefined,
-                  }
-                : message,
-            ),
-          };
-        });
-      });
-      assistantContent = stringifyAssistantContent(assistantContent).trim();
-      if (!assistantContent) {
-        throw new Error("上游没有返回文本内容");
-      }
-      const completedAt = new Date().toISOString();
-      await updateConversation(conversationId, (current) => {
-        const conversation = current ?? baseConversation;
-        return {
-          ...conversation,
-          updatedAt: completedAt,
-          messages: conversation.messages.map((message) =>
-            message.id === assistantMessage.id
-              ? {
-                  ...message,
-                  content: assistantContent,
-                  createdAt: completedAt,
-                  status: "success" as const,
-                  error: undefined,
-                }
-              : message,
-          ),
-        };
-      });
-      window.dispatchEvent(new Event(QUOTA_REFRESH_EVENT));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "发送消息失败";
-      const failedAt = new Date().toISOString();
-      await updateConversation(conversationId, (current) => {
-        const conversation = current ?? baseConversation;
-        return {
-          ...conversation,
-          updatedAt: failedAt,
-          messages: conversation.messages.map((item) =>
-            item.id === assistantMessage.id
-              ? {
-                  ...item,
-                  content: item.content,
-                  createdAt: failedAt,
-                  status: "error" as const,
-                  error: message,
-                }
-              : item,
-          ),
-        };
-      });
-      toast.error(message);
-    } finally {
-      setIsSending(false);
-    }
+    void runChatTask(conversationId, assistantMessage.id);
   };
 
   const handleDraftKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -849,7 +1044,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
             formatConversationTime={formatConversationTime}
             onCreateDraft={handleCreateDraft}
             onClearHistory={openClearHistoryConfirm}
-            onSelectConversation={setSelectedConversationId}
+            onSelectConversation={handleSelectConversation}
             onDeleteConversation={openDeleteConversationConfirm}
           />
         </div>
@@ -871,7 +1066,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
               }}
               onClearHistory={openClearHistoryConfirm}
               onSelectConversation={(id) => {
-                setSelectedConversationId(id);
+                handleSelectConversation(id);
                 setIsHistoryOpen(false);
               }}
               onDeleteConversation={openDeleteConversationConfirm}
@@ -909,7 +1104,11 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
               className="min-h-0 flex-1 overflow-y-auto px-3 py-4 pb-56 [scrollbar-color:rgba(148,163,184,.45)_transparent] [scrollbar-width:thin] sm:px-5 sm:pb-60 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/65 [&::-webkit-scrollbar-track]:bg-transparent"
             >
               <div className="mx-auto w-full max-w-6xl">
-                <ChatMessages conversation={selectedConversation} />
+                <ChatMessages
+                  conversation={selectedConversation}
+                  onDeleteMessage={handleDeleteMessage}
+                  onRegenerateMessage={handleRegenerateMessage}
+                />
               </div>
             </div>
 
@@ -964,7 +1163,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                     size="icon"
                     className="size-8 rounded-full text-stone-500 hover:bg-stone-100"
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={isSending || selectedConversationSending || pendingAttachments.length >= MAX_CHAT_ATTACHMENTS}
+                    disabled={selectedConversationSending || pendingAttachments.length >= MAX_CHAT_ATTACHMENTS}
                     aria-label="上传附件"
                   >
                     <Plus className="size-4" />
@@ -1001,10 +1200,10 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                     size="icon"
                     className="size-9 rounded-full bg-stone-700 text-white shadow-none hover:bg-stone-800"
                     onClick={() => void handleSubmit()}
-                    disabled={(!messageDraft.trim() && pendingAttachments.length === 0) || isSending || selectedConversationSending}
+                    disabled={(!messageDraft.trim() && pendingAttachments.length === 0) || selectedConversationSending}
                     aria-label="发送消息"
                   >
-                    {isSending || selectedConversationSending ? (
+                    {selectedConversationSending ? (
                       <LoaderCircle className="size-4 animate-spin" />
                     ) : (
                       <Send className="size-4" />
@@ -1181,7 +1380,15 @@ function ChatStudioSidebar({
   );
 }
 
-function ChatMessages({ conversation }: { conversation: ChatConversation | null }) {
+function ChatMessages({
+  conversation,
+  onDeleteMessage,
+  onRegenerateMessage,
+}: {
+  conversation: ChatConversation | null;
+  onDeleteMessage: (conversationId: string, messageId: string) => void | Promise<void>;
+  onRegenerateMessage: (conversationId: string, messageId: string) => void | Promise<void>;
+}) {
   const [lightboxImages, setLightboxImages] = useState<ChatAttachmentLightboxImage[]>([]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -1211,8 +1418,9 @@ function ChatMessages({ conversation }: { conversation: ChatConversation | null 
         {conversation.messages.map((message) => {
           const isUser = message.role === "user";
           const isAssistant = message.role === "assistant";
+          const conversationSending = conversation.messages.some((item) => item.status === "sending");
           return (
-            <div key={message.id} className={cn("flex gap-3", isUser ? "justify-end" : "justify-start")}>
+            <div key={message.id} className={cn("group flex gap-3", isUser ? "justify-end" : "justify-start")}>
               {!isUser ? (
                 <div className="mt-1 grid size-8 shrink-0 place-items-center rounded-lg border border-rose-100 bg-white/75 text-rose-500">
                   {isAssistant ? <Bot className="size-4" /> : <MessageSquare className="size-4" />}
@@ -1220,14 +1428,20 @@ function ChatMessages({ conversation }: { conversation: ChatConversation | null 
               ) : null}
               <div
                 className={cn(
-                  "max-w-[min(780px,82%)] rounded-lg px-4 py-3 text-sm leading-6 shadow-sm",
-                  isUser
-                    ? "bg-[#2d1d26] text-white"
-                    : message.status === "error"
-                      ? "border border-red-100 bg-red-50 text-red-700"
-                      : "border border-rose-100/80 bg-white/82 text-stone-800",
+                  "flex max-w-[min(780px,82%)] flex-col gap-1.5",
+                  isUser ? "items-end" : "items-start",
                 )}
               >
+                <div
+                  className={cn(
+                    "max-w-full rounded-lg px-4 py-3 text-sm leading-6 shadow-sm",
+                    isUser
+                      ? "bg-[#2d1d26] text-white"
+                      : message.status === "error"
+                        ? "border border-red-100 bg-red-50 text-red-700"
+                        : "border border-rose-100/80 bg-white/82 text-stone-800",
+                  )}
+                >
                 {message.status === "sending" ? (
                   message.content ? (
                     <div className="space-y-2">
@@ -1262,6 +1476,15 @@ function ChatMessages({ conversation }: { conversation: ChatConversation | null 
                     ) : null}
                   </div>
                 )}
+                </div>
+                <ChatMessageActions
+                  conversationId={conversation.id}
+                  conversationSending={conversationSending}
+                  isUser={isUser}
+                  message={message}
+                  onDeleteMessage={onDeleteMessage}
+                  onRegenerateMessage={onRegenerateMessage}
+                />
               </div>
               {isUser ? (
                 <div className="mt-1 grid size-8 shrink-0 place-items-center rounded-lg border border-stone-200 bg-white/75 text-stone-500">
@@ -1280,6 +1503,84 @@ function ChatMessages({ conversation }: { conversation: ChatConversation | null 
         onIndexChange={setLightboxIndex}
       />
     </>
+  );
+}
+
+function ChatMessageActions({
+  conversationId,
+  conversationSending,
+  isUser,
+  message,
+  onDeleteMessage,
+  onRegenerateMessage,
+}: {
+  conversationId: string;
+  conversationSending: boolean;
+  isUser: boolean;
+  message: StoredChatMessage;
+  onDeleteMessage: (conversationId: string, messageId: string) => void | Promise<void>;
+  onRegenerateMessage: (conversationId: string, messageId: string) => void | Promise<void>;
+}) {
+  const copyText = stringifyAssistantContent(message.content || message.error || "").trim();
+  const isAssistant = message.role === "assistant";
+  const isSending = message.status === "sending";
+
+  const handleCopy = async () => {
+    if (!copyText) {
+      toast.error("没有可复制的内容");
+      return;
+    }
+    try {
+      await copyTextToClipboard(copyText);
+      toast.success("已复制");
+    } catch {
+      toast.error("复制失败");
+    }
+  };
+
+  const buttonClassName =
+    "grid size-7 place-items-center rounded-full border border-stone-200 bg-white/82 text-stone-500 shadow-sm transition hover:bg-white hover:text-stone-800 disabled:cursor-not-allowed disabled:opacity-45";
+
+  return (
+    <div
+      className={cn(
+        "pointer-events-none flex items-center gap-1.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+        isUser ? "justify-end" : "justify-start",
+      )}
+    >
+      {isAssistant ? (
+        <button
+          type="button"
+          className={buttonClassName}
+          onClick={() => void onRegenerateMessage(conversationId, message.id)}
+          disabled={conversationSending || isSending}
+          title="重新生成"
+          aria-label="重新生成"
+        >
+          <RefreshCw className="size-3.5" />
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className={buttonClassName}
+        onClick={() => void onDeleteMessage(conversationId, message.id)}
+        disabled={isSending}
+        title="删除"
+        aria-label="删除"
+      >
+        <Trash2 className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        className={buttonClassName}
+        onClick={() => void handleCopy()}
+        disabled={!copyText}
+        title="复制"
+        aria-label="复制"
+      >
+        <Copy className="size-3.5" />
+      </button>
+    </div>
   );
 }
 
@@ -1411,12 +1712,25 @@ function markdownHeadingClassName(level: number) {
   return "text-sm font-bold leading-6 text-stone-950";
 }
 
+function markdownTableAlignClassName(alignment: MarkdownTableAlignment) {
+  if (alignment === "center") {
+    return "text-center";
+  }
+  if (alignment === "right") {
+    return "text-right";
+  }
+  return "text-left";
+}
+
 type MarkdownBlock =
   | { type: "blockquote"; text: string }
   | { type: "code"; language: string; text: string }
   | { type: "heading"; level: number; text: string }
-  | { type: "list"; ordered: boolean; items: string[] }
+  | { type: "list"; ordered: boolean; items: string[]; start?: number }
+  | { type: "table"; alignments: MarkdownTableAlignment[]; headers: string[]; rows: string[][] }
   | { type: "paragraph"; text: string };
+
+type MarkdownTableAlignment = "left" | "center" | "right";
 
 function getFenceMatch(line: string) {
   return /^ {0,3}(`{3,}|~{3,})[ \t]*([^`]*)?$/.exec(line.trimEnd());
@@ -1432,9 +1746,9 @@ function getHeadingMatch(line: string) {
 }
 
 function getListMatch(line: string) {
-  const ordered = /^ {0,3}\d+\.[ \t]+(.+)$/.exec(line);
+  const ordered = /^ {0,3}(\d+)\.[ \t]+(.+)$/.exec(line);
   if (ordered) {
-    return { ordered: true, text: ordered[1] };
+    return { ordered: true, start: Number(ordered[1]), text: ordered[2] };
   }
   const unordered = /^ {0,3}[-*+][ \t]+(.+)$/.exec(line);
   if (unordered) {
@@ -1445,6 +1759,84 @@ function getListMatch(line: string) {
 
 function getBlockquoteMatch(line: string) {
   return /^ {0,3}>[ \t]?(.*)$/.exec(line);
+}
+
+function splitMarkdownTableRow(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) {
+    return null;
+  }
+
+  let row = trimmed;
+  if (row.startsWith("|")) {
+    row = row.slice(1);
+  }
+  if (row.endsWith("|")) {
+    row = row.slice(0, -1);
+  }
+
+  const cells: string[] = [];
+  let current = "";
+  for (let index = 0; index < row.length; index += 1) {
+    const char = row[index];
+    if (char === "\\" && row[index + 1] === "|") {
+      current += "|";
+      index += 1;
+      continue;
+    }
+    if (char === "|") {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function getTableSeparator(line: string, columnCount: number) {
+  const cells = splitMarkdownTableRow(line);
+  if (!cells || cells.length !== columnCount) {
+    return null;
+  }
+
+  const alignments: MarkdownTableAlignment[] = [];
+  for (const cell of cells) {
+    const value = cell.replace(/\s+/g, "");
+    if (!/^:?-{3,}:?$/.test(value)) {
+      return null;
+    }
+    if (value.startsWith(":") && value.endsWith(":")) {
+      alignments.push("center");
+    } else if (value.endsWith(":")) {
+      alignments.push("right");
+    } else {
+      alignments.push("left");
+    }
+  }
+  return alignments;
+}
+
+function getTableStart(lines: string[], index: number) {
+  const headers = splitMarkdownTableRow(lines[index] || "");
+  if (!headers || headers.length < 2 || index + 1 >= lines.length) {
+    return null;
+  }
+
+  const alignments = getTableSeparator(lines[index + 1], headers.length);
+  if (!alignments) {
+    return null;
+  }
+
+  return { alignments, headers };
+}
+
+function normalizeTableCells(cells: string[], columnCount: number) {
+  if (cells.length >= columnCount) {
+    return cells.slice(0, columnCount);
+  }
+  return [...cells, ...Array.from({ length: columnCount - cells.length }, () => "")];
 }
 
 function parseMarkdownBlocks(content: string): MarkdownBlock[] {
@@ -1487,6 +1879,27 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
       continue;
     }
 
+    const tableStart = getTableStart(lines, index);
+    if (tableStart) {
+      const rows: string[][] = [];
+      index += 2;
+      while (index < lines.length && lines[index].trim()) {
+        const cells = splitMarkdownTableRow(lines[index]);
+        if (!cells || cells.length < 2) {
+          break;
+        }
+        rows.push(normalizeTableCells(cells, tableStart.headers.length));
+        index += 1;
+      }
+      blocks.push({
+        type: "table",
+        alignments: tableStart.alignments,
+        headers: tableStart.headers,
+        rows,
+      });
+      continue;
+    }
+
     const quoteMatch = getBlockquoteMatch(line);
     if (quoteMatch) {
       const quoteLines: string[] = [];
@@ -1511,6 +1924,7 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
     if (listMatch) {
       const items: string[] = [];
       const ordered = listMatch.ordered;
+      const start = listMatch.ordered ? listMatch.start : undefined;
       while (index < lines.length) {
         const currentList = getListMatch(lines[index]);
         if (!currentList || currentList.ordered !== ordered) {
@@ -1519,7 +1933,7 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
         items.push(currentList.text.trim());
         index += 1;
       }
-      blocks.push({ type: "list", ordered, items });
+      blocks.push({ type: "list", ordered, start, items });
       continue;
     }
 
@@ -1531,7 +1945,11 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
       }
       if (
         paragraphLines.length > 0 &&
-        (getFenceMatch(currentLine) || getHeadingMatch(currentLine) || getBlockquoteMatch(currentLine) || getListMatch(currentLine))
+        (getFenceMatch(currentLine) ||
+          getHeadingMatch(currentLine) ||
+          getTableStart(lines, index) ||
+          getBlockquoteMatch(currentLine) ||
+          getListMatch(currentLine))
       ) {
         break;
       }
@@ -1578,15 +1996,67 @@ function MarkdownContent({ content }: { content: string }) {
         }
 
         if (block.type === "list") {
-          const List = block.ordered ? "ol" : "ul";
+          if (block.ordered) {
+            return (
+              <ol key={index} start={block.start} className="list-decimal space-y-1 pl-5">
+                {block.items.map((item, lineIndex) => (
+                  <li key={lineIndex}>
+                    <InlineMarkdown text={item} />
+                  </li>
+                ))}
+              </ol>
+            );
+          }
+
           return (
-            <List key={index} className={cn("space-y-1 pl-5", block.ordered ? "list-decimal" : "list-disc")}>
+            <ul key={index} className="list-disc space-y-1 pl-5">
               {block.items.map((item, lineIndex) => (
                 <li key={lineIndex}>
                   <InlineMarkdown text={item} />
                 </li>
               ))}
-            </List>
+            </ul>
+          );
+        }
+
+        if (block.type === "table") {
+          return (
+            <div key={index} className="overflow-x-auto rounded-lg border border-rose-100">
+              <table className="min-w-full border-collapse text-xs leading-5 sm:text-sm">
+                <thead className="bg-rose-50/80 text-stone-700">
+                  <tr>
+                    {block.headers.map((header, cellIndex) => (
+                      <th
+                        key={cellIndex}
+                        className={cn(
+                          "border-b border-r border-rose-100 px-3 py-2 font-semibold last:border-r-0",
+                          markdownTableAlignClassName(block.alignments[cellIndex] || "left"),
+                        )}
+                      >
+                        <InlineMarkdown text={header} />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, rowIndex) => (
+                    <tr key={rowIndex} className="odd:bg-white/55 even:bg-rose-50/25">
+                      {row.map((cell, cellIndex) => (
+                        <td
+                          key={cellIndex}
+                          className={cn(
+                            "border-r border-t border-rose-100 px-3 py-2 align-top text-stone-700 last:border-r-0",
+                            markdownTableAlignClassName(block.alignments[cellIndex] || "left"),
+                          )}
+                        >
+                          <InlineMarkdown text={cell} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           );
         }
 

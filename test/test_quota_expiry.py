@@ -66,7 +66,7 @@ class QuotaExpiryTest(unittest.TestCase):
             )
             service = AuthService(storage)
 
-            with self.assertRaisesRegex(ValueError, "insufficient image quota"):
+            with self.assertRaisesRegex(ValueError, "剩余额度不足"):
                 service.reserve_quota("user-a", 1, "request-a")
 
             user = service.get_user("user-a")
@@ -176,7 +176,7 @@ class QuotaExpiryTest(unittest.TestCase):
                     ]
                 )
 
-                with self.assertRaisesRegex(ValueError, "insufficient image quota"):
+                with self.assertRaisesRegex(ValueError, "剩余额度不足"):
                     storage.repository_provider.quota_reservations.reserve("user-a", 1, "request-a")
 
                 self.assertEqual(storage.load_users()[0]["quota"], 0)

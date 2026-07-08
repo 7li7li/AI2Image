@@ -22,6 +22,7 @@ export type StoredChatMessage = Omit<ChatCompletionMessage, "content"> & {
   content: string;
   status?: ChatMessageStatus;
   error?: string;
+  requestId?: string;
   attachments?: StoredChatAttachment[];
 };
 
@@ -117,6 +118,7 @@ function normalizeMessage(message: StoredChatMessage & Record<string, unknown>):
         ? message.status
         : "success",
     error: typeof message.error === "string" ? message.error : undefined,
+    requestId: typeof message.requestId === "string" ? message.requestId : undefined,
     attachments,
   };
 }

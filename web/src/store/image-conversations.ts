@@ -18,6 +18,7 @@ export type StoredImage = {
   b64_json?: string;
   url?: string;
   error?: string;
+  requestId?: string;
 };
 
 export type ImageTurnStatus = "queued" | "generating" | "success" | "error";

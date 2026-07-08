@@ -30,10 +30,14 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
-  editImage,
-  generateImage,
+  createImageEditTask,
+  createImageGenerationTask,
+  fetchBackgroundTask,
+  fetchMyImages,
   polishImagePrompt,
+  type BackgroundTaskStatus,
   type ImageRequestOptions,
+  type ImageResponse,
 } from "@/lib/api";
 import { resolveApiAssetUrl } from "@/lib/assets";
 import { useSiteSettingsStore } from "@/lib/site-settings";
@@ -72,6 +76,7 @@ const IMAGE_OUTPUT_COMPRESSION_STORAGE_KEY = "chatgpt2api:image_last_output_comp
 const IMAGE_MODERATION_STORAGE_KEY = "chatgpt2api:image_last_moderation";
 const IMAGE_TRANSPARENT_BACKGROUND_STORAGE_KEY = "chatgpt2api:image_last_transparent_background";
 const SUPPORTED_IMAGE_SIZES = new Set(["", "1:1", "3:2", "2:3", "16:9", "9:16", "4:3", "3:4", "21:9", "9:21"]);
+const BACKGROUND_TASK_POLL_INTERVAL_MS = 1500;
 const activeConversationQueueIds = new Set<string>();
 let isImageGenerationQueueRunning = false;
 
@@ -220,6 +225,45 @@ function buildImageRequestOptions(turn: Pick<
   };
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function waitForBackgroundTaskResult<T>(initialTask: BackgroundTaskStatus<T>) {
+  let task = initialTask;
+  while (task.status === "queued" || task.status === "running") {
+    await delay(BACKGROUND_TASK_POLL_INTERVAL_MS);
+    task = await fetchBackgroundTask<T>(task.task_id || task.id);
+  }
+  if (task.status === "error") {
+    throw new Error(task.error || "任务处理失败");
+  }
+  if (!task.result) {
+    throw new Error("任务没有返回结果");
+  }
+  return task.result;
+}
+
+async function fetchGeneratedImageByRequestId(requestId: string): Promise<ImageResponse | null> {
+  if (!requestId) {
+    return null;
+  }
+  try {
+    const page = await fetchMyImages({ request_id: requestId, page_size: 1 });
+    const item = page.items[0];
+    if (!item?.url) {
+      return null;
+    }
+    const createdAt = new Date(item.created_at || "").getTime();
+    return {
+      created: Number.isFinite(createdAt) ? Math.floor(createdAt / 1000) : Math.floor(Date.now() / 1000),
+      data: [{ url: item.url }],
+    };
+  } catch {
+    return null;
+  }
+}
+
 function isSameLocalDay(value: string, date = new Date()) {
   const target = new Date(value);
   if (Number.isNaN(target.getTime())) {
@@ -312,20 +356,15 @@ async function recoverConversationHistory(
       }
 
       const loadingCount = turn.images.filter((image) => image.status === "loading").length;
-      if (turn.status === "generating" && loadingCount > 0 && !isConversationQueueActive) {
-        const message = "页面刷新或任务中断，未完成的图片已标记为失败";
-        changed = true;
-        return {
-          ...turn,
-          status: "error" as const,
-          error: message,
-          images: turn.images.map((image) =>
-            image.status === "loading" ? { ...image, status: "error" as const, error: message } : image,
-          ),
-        };
-      }
-
       if (loadingCount > 0) {
+        if (turn.status === "generating" && !isConversationQueueActive) {
+          changed = true;
+          return {
+            ...turn,
+            status: "queued" as const,
+            error: undefined,
+          };
+        }
         return turn;
       }
 
@@ -350,11 +389,10 @@ async function recoverConversationHistory(
       return conversation;
     }
 
-    const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null;
     return {
       ...conversation,
       turns,
-      updatedAt: lastTurn?.createdAt || conversation.updatedAt,
+      updatedAt: new Date().toISOString(),
     };
   });
 
@@ -974,11 +1012,47 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
         let resumedFailedCount = 0;
 
         for (const pendingImage of pendingImages) {
+          const requestId = pendingImage.requestId || createId();
+          if (!pendingImage.requestId) {
+            await updateConversation(conversationId, (current) => {
+              const conversation = current ?? snapshot;
+              return {
+                ...conversation,
+                updatedAt: new Date().toISOString(),
+                turns: conversation.turns.map((turn) =>
+                  turn.id === queuedTurn.id
+                    ? {
+                        ...turn,
+                        images: turn.images.map((image) =>
+                          image.id === pendingImage.id ? { ...image, requestId } : image,
+                        ),
+                      }
+                    : turn,
+                ),
+              };
+            });
+          }
+
           try {
+            const recoveredData = await fetchGeneratedImageByRequestId(requestId);
             const data =
-              queuedTurn.mode === "edit"
-                ? await editImage(referenceFiles, queuedTurn.prompt, queuedTurn.model, buildImageRequestOptions(queuedTurn))
-                : await generateImage(queuedTurn.prompt, queuedTurn.model, buildImageRequestOptions(queuedTurn));
+              recoveredData ??
+              (await waitForBackgroundTaskResult<ImageResponse>(
+                queuedTurn.mode === "edit"
+                  ? await createImageEditTask(
+                      referenceFiles,
+                      queuedTurn.prompt,
+                      queuedTurn.model,
+                      buildImageRequestOptions(queuedTurn),
+                      requestId,
+                    )
+                  : await createImageGenerationTask(
+                      queuedTurn.prompt,
+                      queuedTurn.model,
+                      buildImageRequestOptions(queuedTurn),
+                      requestId,
+                    ),
+              ));
             const first = data.data?.[0];
             if (!first?.b64_json && !first?.url) {
               throw new Error("未返回图片数据");
@@ -989,11 +1063,13 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
                   id: pendingImage.id,
                   status: "success",
                   url: first.url,
+                  requestId,
                 }
               : {
                   id: pendingImage.id,
                   status: "success",
                   b64_json: first.b64_json,
+                  requestId,
                 };
 
             await updateConversation(
@@ -1023,6 +1099,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
               id: pendingImage.id,
               status: "error",
               error: message,
+              requestId,
             };
 
             await updateConversation(
@@ -1159,6 +1236,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
       images: Array.from({ length: parsedCount }, (_, index) => ({
         id: `${turnId}-${index}`,
         status: "loading" as const,
+        requestId: createId(),
       })),
       createdAt: now,
       status: "queued",
@@ -1247,6 +1325,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
       images: Array.from({ length: Math.max(1, turn.count) }, (_, index) => ({
         id: `${turnId}-${index}`,
         status: "loading" as const,
+        requestId: createId(),
       })),
       createdAt: now,
       status: "queued",
@@ -1262,6 +1341,35 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     setSelectedConversationId(conversationId);
     await persistConversation(nextConversation);
     void runConversationQueue(conversationId);
+  };
+
+  const handleDeleteTurn = async (conversationId: string, turnId: string) => {
+    const targetConversation = conversationsRef.current.find((conversation) => conversation.id === conversationId);
+    const targetTurn = targetConversation?.turns.find((turn) => turn.id === turnId);
+    if (!targetConversation || !targetTurn) {
+      return;
+    }
+    if (targetTurn.status === "queued" || targetTurn.status === "generating") {
+      toast.error("当前任务仍在处理中");
+      return;
+    }
+
+    const nextTurns = targetConversation.turns.filter((turn) => turn.id !== turnId);
+    if (nextTurns.length === 0) {
+      await handleDeleteConversation(conversationId);
+      toast.success("已删除");
+      return;
+    }
+
+    await updateConversation(conversationId, (current) => {
+      const conversation = current ?? targetConversation;
+      return {
+        ...conversation,
+        updatedAt: new Date().toISOString(),
+        turns: conversation.turns.filter((turn) => turn.id !== turnId),
+      };
+    });
+    toast.success("已删除");
   };
 
   return (
@@ -1343,6 +1451,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
                   onOpenLightbox={openLightbox}
                   onContinueEdit={handleContinueEdit}
                   onRegenerate={handleRegenerateTurn}
+                  onDeleteTurn={handleDeleteTurn}
                   formatConversationTime={formatConversationTime}
                 />
               </div>
