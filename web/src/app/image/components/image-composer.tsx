@@ -411,6 +411,7 @@ type QuickImageToolPreset = {
   label: string;
   prompt: string;
   icon: LucideIcon;
+  transparentBackground?: boolean;
 };
 
 const QUICK_IMAGE_TOOL_PRESETS: QuickImageToolPreset[] = [
@@ -418,6 +419,7 @@ const QUICK_IMAGE_TOOL_PRESETS: QuickImageToolPreset[] = [
     label: "抠图",
     icon: ScissorsLineDashed,
     prompt: "请对上传图片进行主体抠图，精准保留主体轮廓、发丝、半透明材质和边缘细节，移除背景，输出干净的透明背景效果。",
+    transparentBackground: true,
   },
   {
     label: "擦除",
@@ -759,6 +761,10 @@ export function ImageComposer({
   const handleQuickToolSelect = (item: QuickImageToolPreset) => {
     onModeChange("edit");
     onPromptChange(item.prompt);
+    if (item.transparentBackground) {
+      onImageOutputFormatChange("png");
+      onImageTransparentBackgroundChange(true);
+    }
     setIsQuickToolsOpen(false);
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   };
