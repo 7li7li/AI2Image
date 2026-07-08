@@ -1113,9 +1113,16 @@ export function ImageComposer({
                     图生图
                   </ModeButton>
                 </div>
-                <div className="inline-flex h-9 max-w-[190px] items-center gap-2 rounded-lg border border-rose-100 bg-white/72 px-3 text-xs font-medium text-stone-600">
+                <div className="inline-flex h-9 max-w-[250px] items-center gap-2 rounded-lg border border-rose-100 bg-white/72 px-3 text-xs font-medium text-stone-600">
                   <Sparkles className="size-3.5 shrink-0 text-rose-500" />
-                  <span className="truncate">{defaultImageModel}</span>
+                  <span className="min-w-0 truncate">{defaultImageModel}</span>
+                  <span
+                    className="inline-flex shrink-0 items-center gap-1 border-l border-rose-100 pl-2 text-stone-500"
+                    title="每张图片扣除 1 点额度"
+                  >
+                    <Sparkles className="size-3 shrink-0 text-stone-300" />
+                    1/张
+                  </span>
                 </div>
                 <Popover>
                   <PopoverTrigger asChild>

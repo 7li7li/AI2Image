@@ -20,6 +20,7 @@ import {
   Plus,
   Search,
   Send,
+  Sparkles,
   Trash2,
   UserRound,
   X,
@@ -37,7 +38,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { fetchMe, streamChatCompletion, type ChatCompletionContent, type ChatCompletionMessage } from "@/lib/api";
+import {
+  fetchMe,
+  streamChatCompletion,
+  type ChatCompletionContent,
+  type ChatCompletionMessage,
+  type CurrentUser,
+} from "@/lib/api";
 import { useSiteSettingsStore } from "@/lib/site-settings";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
@@ -76,6 +83,24 @@ type ChatAttachmentLightboxImage = {
   src: string;
   sizeLabel?: string;
   dimensions?: string;
+};
+
+type QuotaSummary = {
+  value: string;
+  spentLabel: string;
+  expiryLabel: string;
+};
+
+const LOADING_QUOTA_SUMMARY: QuotaSummary = {
+  value: "加载中...",
+  spentLabel: "",
+  expiryLabel: "",
+};
+
+const UNAVAILABLE_QUOTA_SUMMARY: QuotaSummary = {
+  value: "--",
+  spentLabel: "",
+  expiryLabel: "",
 };
 
 function getScopedStorageKey(baseKey: string, ownerKey: string) {
@@ -154,6 +179,27 @@ function formatConversationTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatQuotaTime(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function getQuotaSummary(user: CurrentUser): QuotaSummary {
+  return {
+    value: String(user.quota ?? 0),
+    spentLabel: `已消耗 ${user.spent_quota ?? user.quota_used ?? 0} 点`,
+    expiryLabel: user.quota_expires_at ? `有效期至 ${formatQuotaTime(user.quota_expires_at)}` : "额度长期有效",
+  };
 }
 
 function sortChatConversations(conversations: ChatConversation[]) {
@@ -373,7 +419,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [availableQuota, setAvailableQuota] = useState("加载中...");
+  const [quotaSummary, setQuotaSummary] = useState<QuotaSummary>(LOADING_QUOTA_SUMMARY);
   const [isSending, setIsSending] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: "one"; id: string } | { type: "all" } | null>(null);
 
@@ -468,14 +514,14 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
 
   const loadQuota = useCallback(async () => {
     if (isAdmin) {
-      setAvailableQuota("--");
+      setQuotaSummary(UNAVAILABLE_QUOTA_SUMMARY);
       return;
     }
     try {
       const data = await fetchMe();
-      setAvailableQuota(String(data.user.quota ?? 0));
+      setQuotaSummary(getQuotaSummary(data.user));
     } catch {
-      setAvailableQuota("--");
+      setQuotaSummary(UNAVAILABLE_QUOTA_SUMMARY);
     }
   }, [isAdmin]);
 
@@ -872,7 +918,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
             selectedConversationId={selectedConversationId}
             searchValue={workspaceSearch}
             onSearchChange={setWorkspaceSearch}
-            availableQuota={availableQuota}
+            quotaSummary={quotaSummary}
             workspaceStats={workspaceStats}
             formatConversationTime={formatConversationTime}
             onCreateDraft={handleCreateDraft}
@@ -891,7 +937,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
               selectedConversationId={selectedConversationId}
               searchValue={workspaceSearch}
               onSearchChange={setWorkspaceSearch}
-              availableQuota={availableQuota}
+              quotaSummary={quotaSummary}
               workspaceStats={workspaceStats}
               formatConversationTime={formatConversationTime}
               onCreateDraft={() => {
@@ -1003,9 +1049,16 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                       回复中
                     </span>
                   ) : null}
-                  <div className="inline-flex min-w-0 max-w-[42vw] items-center gap-1.5 text-xs font-medium text-stone-600 sm:max-w-[260px]">
+                  <div className="inline-flex min-w-0 max-w-[48vw] items-center gap-1.5 text-xs font-medium text-stone-600 sm:max-w-[310px]">
                     <Bot className="size-3.5 shrink-0 text-stone-300" />
-                    <span className="truncate">{selectedConversation?.model || defaultTextModel}</span>
+                    <span className="min-w-0 truncate">{selectedConversation?.model || defaultTextModel}</span>
+                    <span
+                      className="inline-flex shrink-0 items-center gap-1 border-l border-stone-200 pl-2 text-stone-500"
+                      title="每次成功回复扣除 1 点额度"
+                    >
+                      <Sparkles className="size-3 shrink-0 text-stone-300" />
+                      1/次
+                    </span>
                   </div>
                   <Button
                     variant="ghost"
@@ -1067,7 +1120,7 @@ function ChatStudioSidebar({
   selectedConversationId,
   searchValue,
   onSearchChange,
-  availableQuota,
+  quotaSummary,
   workspaceStats,
   formatConversationTime,
   onCreateDraft,
@@ -1080,7 +1133,7 @@ function ChatStudioSidebar({
   selectedConversationId: string | null;
   searchValue: string;
   onSearchChange: (value: string) => void;
-  availableQuota: string;
+  quotaSummary: QuotaSummary;
   workspaceStats: ReturnType<typeof getWorkspaceStats>;
   formatConversationTime: (value: string) => string;
   onCreateDraft: () => void;
@@ -1193,7 +1246,13 @@ function ChatStudioSidebar({
 
       <div className="border-t border-rose-100/70 p-3">
         <div className="grid grid-cols-2 gap-2">
-          <SidebarMetric className="col-span-2" label="本地额度" value={availableQuota} prominent />
+          <SidebarMetric
+            className="col-span-2"
+            label="本地额度"
+            value={quotaSummary.value}
+            details={[quotaSummary.spentLabel, quotaSummary.expiryLabel]}
+            prominent
+          />
           <SidebarMetric label="今日发送" value={workspaceStats.todaySent} />
           <SidebarMetric label="回复数" value={workspaceStats.assistantReplies} />
           <SidebarMetric label="处理中" value={workspaceStats.sending} />
@@ -1626,25 +1685,52 @@ function MarkdownContent({ content }: { content: string }) {
 function SidebarMetric({
   label,
   value,
+  details = [],
   prominent = false,
   className,
 }: {
   label: string;
   value: string | number;
+  details?: string[];
   prominent?: boolean;
   className?: string;
 }) {
+  const visibleDetails = details.filter(Boolean);
+
   return (
     <div className={cn("rounded-lg bg-gradient-to-br from-white/82 to-rose-50/82 p-2.5", className)}>
-      <div className={cn("font-medium text-stone-500", prominent ? "text-sm" : "text-[11px]")}>{label}</div>
-      <div
-        className={cn(
-          "mt-1 truncate font-bold tracking-tight text-stone-950",
-          prominent ? "text-3xl" : "text-lg",
-        )}
-      >
-        {value}
-      </div>
+      {prominent && visibleDetails.length > 0 ? (
+        <div className="grid grid-cols-[minmax(64px,auto)_minmax(0,1fr)] items-center gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-stone-500">{label}</div>
+            <div className="mt-0.5 truncate text-3xl font-bold tracking-tight text-stone-950">{value}</div>
+          </div>
+          <div className="min-w-0 space-y-1 text-right">
+            {visibleDetails.map((detail) => (
+              <div key={detail} title={detail} className="truncate text-xs leading-4 text-stone-400">
+                {detail}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className={cn("font-medium text-stone-500", prominent ? "text-sm" : "text-[11px]")}>{label}</div>
+          <div
+            className={cn(
+              "mt-1 truncate font-bold tracking-tight text-stone-950",
+              prominent ? "text-3xl" : "text-lg",
+            )}
+          >
+            {value}
+          </div>
+          {visibleDetails.map((detail) => (
+            <div key={detail} className="mt-1 text-xs text-stone-400">
+              {detail}
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }

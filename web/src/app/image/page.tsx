@@ -29,7 +29,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { editImage, fetchMe, generateImage, polishImagePrompt, type ImageRequestOptions } from "@/lib/api";
+import {
+  editImage,
+  fetchMe,
+  generateImage,
+  polishImagePrompt,
+  type CurrentUser,
+  type ImageRequestOptions,
+} from "@/lib/api";
 import { resolveApiAssetUrl } from "@/lib/assets";
 import { useSiteSettingsStore } from "@/lib/site-settings";
 import { useAuthGuard } from "@/lib/use-auth-guard";
@@ -74,6 +81,24 @@ type PreparedReferenceImage = {
   file: File;
 };
 
+type QuotaSummary = {
+  value: string;
+  spentLabel: string;
+  expiryLabel: string;
+};
+
+const LOADING_QUOTA_SUMMARY: QuotaSummary = {
+  value: "加载中...",
+  spentLabel: "",
+  expiryLabel: "",
+};
+
+const UNAVAILABLE_QUOTA_SUMMARY: QuotaSummary = {
+  value: "--",
+  spentLabel: "",
+  expiryLabel: "",
+};
+
 function getScopedStorageKey(baseKey: string, ownerKey: string) {
   return ownerKey ? `${baseKey}:${ownerKey}` : baseKey;
 }
@@ -97,6 +122,27 @@ function formatConversationTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatQuotaTime(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function getQuotaSummary(user: CurrentUser): QuotaSummary {
+  return {
+    value: String(user.quota ?? 0),
+    spentLabel: `已消耗 ${user.spent_quota ?? user.quota_used ?? 0} 点`,
+    expiryLabel: user.quota_expires_at ? `有效期至 ${formatQuotaTime(user.quota_expires_at)}` : "额度长期有效",
+  };
 }
 
 function createId() {
@@ -384,7 +430,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   const [conversations, setConversations] = useState<ImageConversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
-  const [availableQuota, setAvailableQuota] = useState("加载中...");
+  const [quotaSummary, setQuotaSummary] = useState<QuotaSummary>(LOADING_QUOTA_SUMMARY);
   const [lightboxImages, setLightboxImages] = useState<ImageLightboxItem[]>([]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -559,14 +605,14 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
 
   const loadQuota = useCallback(async () => {
     if (isAdmin) {
-      setAvailableQuota("--");
+      setQuotaSummary(UNAVAILABLE_QUOTA_SUMMARY);
       return;
     }
     try {
       const data = await fetchMe();
-      setAvailableQuota(String(data.user.quota ?? 0));
+      setQuotaSummary(getQuotaSummary(data.user));
     } catch {
-      setAvailableQuota("--");
+      setQuotaSummary(UNAVAILABLE_QUOTA_SUMMARY);
     }
   }, [isAdmin]);
 
@@ -1301,7 +1347,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             selectedConversationId={selectedConversationId}
             searchValue={workspaceSearch}
             onSearchChange={setWorkspaceSearch}
-            availableQuota={availableQuota}
+            quotaSummary={quotaSummary}
             workspaceStats={workspaceStats}
             onCreateDraft={handleCreateDraft}
             onClearHistory={openClearHistoryConfirm}
@@ -1320,7 +1366,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
               selectedConversationId={selectedConversationId}
               searchValue={workspaceSearch}
               onSearchChange={setWorkspaceSearch}
-              availableQuota={availableQuota}
+              quotaSummary={quotaSummary}
               workspaceStats={workspaceStats}
               onCreateDraft={() => {
                 handleCreateDraft();
@@ -1450,7 +1496,7 @@ function ImageStudioSidebar({
   selectedConversationId,
   searchValue,
   onSearchChange,
-  availableQuota,
+  quotaSummary,
   workspaceStats,
   onCreateDraft,
   onClearHistory,
@@ -1463,7 +1509,7 @@ function ImageStudioSidebar({
   selectedConversationId: string | null;
   searchValue: string;
   onSearchChange: (value: string) => void;
-  availableQuota: string;
+  quotaSummary: QuotaSummary;
   workspaceStats: ReturnType<typeof getWorkspaceStats>;
   onCreateDraft: () => void;
   onClearHistory: () => void | Promise<void>;
@@ -1499,7 +1545,13 @@ function ImageStudioSidebar({
 
       <div className="border-t border-rose-100/70 p-3">
         <div className="grid grid-cols-2 gap-2">
-          <SidebarMetric className="col-span-2" label="本地额度" value={availableQuota} prominent />
+          <SidebarMetric
+            className="col-span-2"
+            label="本地额度"
+            value={quotaSummary.value}
+            details={[quotaSummary.spentLabel, quotaSummary.expiryLabel]}
+            prominent
+          />
           <SidebarMetric label="今日生成" value={workspaceStats.todayGenerated} />
           <SidebarMetric label="成功率" value={workspaceStats.successRate} />
           <SidebarMetric label="处理中" value={workspaceStats.active} />
@@ -1513,25 +1565,52 @@ function ImageStudioSidebar({
 function SidebarMetric({
   label,
   value,
+  details = [],
   prominent = false,
   className,
 }: {
   label: string;
   value: string | number;
+  details?: string[];
   prominent?: boolean;
   className?: string;
 }) {
+  const visibleDetails = details.filter(Boolean);
+
   return (
     <div className={cn("rounded-lg bg-gradient-to-br from-white/82 to-rose-50/82 p-2.5", className)}>
-      <div className={cn("font-medium text-stone-500", prominent ? "text-sm" : "text-[11px]")}>{label}</div>
-      <div
-        className={cn(
-          "mt-1 truncate font-bold tracking-tight text-stone-950",
-          prominent ? "text-3xl" : "text-lg",
-        )}
-      >
-        {value}
-      </div>
+      {prominent && visibleDetails.length > 0 ? (
+        <div className="grid grid-cols-[minmax(64px,auto)_minmax(0,1fr)] items-center gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-stone-500">{label}</div>
+            <div className="mt-0.5 truncate text-3xl font-bold tracking-tight text-stone-950">{value}</div>
+          </div>
+          <div className="min-w-0 space-y-1 text-right">
+            {visibleDetails.map((detail) => (
+              <div key={detail} title={detail} className="truncate text-xs leading-4 text-stone-400">
+                {detail}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className={cn("font-medium text-stone-500", prominent ? "text-sm" : "text-[11px]")}>{label}</div>
+          <div
+            className={cn(
+              "mt-1 truncate font-bold tracking-tight text-stone-950",
+              prominent ? "text-3xl" : "text-lg",
+            )}
+          >
+            {value}
+          </div>
+          {visibleDetails.map((detail) => (
+            <div key={detail} className="mt-1 text-xs text-stone-400">
+              {detail}
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }
