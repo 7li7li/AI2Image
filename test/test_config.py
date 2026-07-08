@@ -63,6 +63,52 @@ class ConfigLoadingTests(unittest.TestCase):
             self.assertEqual(store.get()["default_image_model"], "custom-image")
             self.assertEqual(store.get()["default_text_model"], "custom-chat")
 
+    def test_background_task_limits_default_override_and_env(self) -> None:
+        module = self.config_module
+        env_keys = [
+            "YANAI_BACKGROUND_TASK_MAX_WORKERS",
+            "YANAI_BACKGROUND_TASK_QUEUE_LIMIT",
+            "YANAI_BACKGROUND_TASK_USER_LIMIT",
+        ]
+        original_env = {key: os.environ.get(key) for key in env_keys}
+        for key in env_keys:
+            os.environ.pop(key, None)
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                config_path = Path(tmp_dir) / "config.json"
+                config_path.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+                store = module.ConfigStore(config_path)
+
+                self.assertEqual(store.background_task_max_workers, 12)
+                self.assertEqual(store.background_task_queue_limit, 100)
+                self.assertEqual(store.background_task_user_limit, 3)
+
+                store.update(
+                    {
+                        "background_task_max_workers": 20,
+                        "background_task_queue_limit": 200,
+                        "background_task_user_limit": 0,
+                    }
+                )
+
+                self.assertEqual(store.background_task_max_workers, 20)
+                self.assertEqual(store.background_task_queue_limit, 200)
+                self.assertEqual(store.background_task_user_limit, 0)
+
+                os.environ["YANAI_BACKGROUND_TASK_MAX_WORKERS"] = "12"
+                os.environ["YANAI_BACKGROUND_TASK_QUEUE_LIMIT"] = "1000"
+                os.environ["YANAI_BACKGROUND_TASK_USER_LIMIT"] = "3"
+
+                self.assertEqual(store.background_task_max_workers, 12)
+                self.assertEqual(store.background_task_queue_limit, 1000)
+                self.assertEqual(store.background_task_user_limit, 3)
+        finally:
+            for key, value in original_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
     def test_auth_key_comes_from_config_file_only(self) -> None:
         module = self.config_module
         with tempfile.TemporaryDirectory() as tmp_dir:

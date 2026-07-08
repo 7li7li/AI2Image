@@ -415,6 +415,18 @@ def create_router() -> APIRouter:
     def sse_event(event: str, data: dict[str, object]) -> str:
         return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
+    def submit_background_task(*, quota_request_id: str | None = None, **kwargs):
+        try:
+            return background_task_service.submit(**kwargs)
+        except ValueError as exc:
+            if quota_request_id:
+                auth_service.release_quota(quota_request_id)
+            raise HTTPException(status_code=429, detail={"error": str(exc)}) from exc
+        except Exception:
+            if quota_request_id:
+                auth_service.release_quota(quota_request_id)
+            raise
+
     @router.get("/v1/models")
     async def list_models(authorization: str | None = Header(default=None)):
         require_identity(authorization)
@@ -538,6 +550,13 @@ def create_router() -> APIRouter:
             raise HTTPException(status_code=404, detail={"error": "task not found"})
         return task
 
+    @router.get("/api/tasks")
+    async def get_background_task_stats(authorization: str | None = Header(default=None)):
+        identity = require_identity(authorization)
+        if identity.get("role") == "admin":
+            return {"stats": background_task_service.stats()}
+        return {"stats": background_task_service.stats(task_owner_key(identity))}
+
     @router.get("/api/tasks/{task_id}/events")
     async def stream_background_task_events(
             task_id: str,
@@ -607,7 +626,8 @@ def create_router() -> APIRouter:
         payload["base_url"] = resolve_image_base_url(request)
         payload["request_id"] = request_id
         quota_request_id = reserve_image_quota(identity, int(body.n or 1), request_id)
-        return background_task_service.submit(
+        return submit_background_task(
+            quota_request_id=quota_request_id,
             task_id=request_id,
             owner_key=owner_key,
             kind="image_generation",
@@ -683,7 +703,8 @@ def create_router() -> APIRouter:
             "request_id": request_id,
         }
         quota_request_id = reserve_image_quota(identity, int(n or 1), request_id)
-        return background_task_service.submit(
+        return submit_background_task(
+            quota_request_id=quota_request_id,
             task_id=request_id,
             owner_key=owner_key,
             kind="image_edit",
@@ -776,7 +797,8 @@ def create_router() -> APIRouter:
                 quota_request_id = request_id
             except ValueError as exc:
                 raise HTTPException(status_code=429, detail={"error": str(exc)}) from exc
-        return background_task_service.submit(
+        return submit_background_task(
+            quota_request_id=quota_request_id,
             task_id=request_id,
             owner_key=owner_key,
             kind="chat_completion",

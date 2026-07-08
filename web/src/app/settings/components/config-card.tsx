@@ -20,6 +20,9 @@ export function ConfigCard() {
   const isLoadingConfig = useSettingsStore((state) => state.isLoadingConfig);
   const isSavingConfig = useSettingsStore((state) => state.isSavingConfig);
   const setImageRetentionDays = useSettingsStore((state) => state.setImageRetentionDays);
+  const setBackgroundTaskMaxWorkers = useSettingsStore((state) => state.setBackgroundTaskMaxWorkers);
+  const setBackgroundTaskQueueLimit = useSettingsStore((state) => state.setBackgroundTaskQueueLimit);
+  const setBackgroundTaskUserLimit = useSettingsStore((state) => state.setBackgroundTaskUserLimit);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
   const setProxy = useSettingsStore((state) => state.setProxy);
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
@@ -171,6 +174,45 @@ export function ConfigCard() {
                 className="h-10 rounded-xl border-stone-200 bg-white"
               />
               <p className="text-xs text-stone-500">自动删除多少天前的本地图片。</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">后台任务总并发</label>
+              <Input
+                type="number"
+                min={1}
+                max={128}
+                value={String(config?.background_task_max_workers || "")}
+                onChange={(event) => setBackgroundTaskMaxWorkers(event.target.value)}
+                placeholder="12"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+              <p className="text-xs text-stone-500">同一后端进程最多同时处理多少个图片/对话后台任务。</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">后台任务队列容量</label>
+              <Input
+                type="number"
+                min={1}
+                max={10000}
+                value={String(config?.background_task_queue_limit || "")}
+                onChange={(event) => setBackgroundTaskQueueLimit(event.target.value)}
+                placeholder="100"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+              <p className="text-xs text-stone-500">排队和运行中的后台任务总数达到该值后，新任务会返回繁忙。</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">单账号任务上限</label>
+              <Input
+                type="number"
+                min={0}
+                max={50}
+                value={String(config?.background_task_user_limit ?? "")}
+                onChange={(event) => setBackgroundTaskUserLimit(event.target.value)}
+                placeholder="3"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+              <p className="text-xs text-stone-500">单个账号排队和运行中的任务上限，填 0 表示不限制。</p>
             </div>
             <div className="space-y-2">
               <label className="text-sm text-stone-700">默认画图模型</label>

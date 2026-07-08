@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.support import require_admin, require_identity, resolve_image_base_url
 from services.auth_service import auth_service
+from services.background_task_service import background_task_service
 from services.config import config
 from services.image_service import delete_images, list_images
 from services.log_service import LOG_TYPE_AUDIT, audit_service, log_service
@@ -66,6 +67,7 @@ def create_router(app_version: str) -> APIRouter:
             "status": status,
             "version": app_version,
             "storage": storage_health,
+            "background_tasks": background_task_service.stats(),
         }
 
     @router.post("/auth/login")

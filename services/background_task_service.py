@@ -6,6 +6,7 @@ from threading import Condition, Lock
 import time
 from typing import Any, Callable
 
+from services.config import config
 from services.observability import normalize_request_id, request_id_context
 
 
@@ -21,12 +22,53 @@ def _iso_now() -> str:
 
 
 class BackgroundTaskService:
-    def __init__(self, *, max_workers: int = 4, retention_seconds: int = 86400) -> None:
-        self._executor = ThreadPoolExecutor(max_workers=max(1, max_workers), thread_name_prefix="yanai-task")
+    def __init__(
+        self,
+        *,
+        max_workers: int = 4,
+        max_pending_tasks: int = 100,
+        max_tasks_per_owner: int = 2,
+        retention_seconds: int = 86400,
+    ) -> None:
+        self._max_workers = max(1, int(max_workers or 4))
+        self._max_pending_tasks = max(1, int(max_pending_tasks or 100))
+        self._max_tasks_per_owner = max(0, int(max_tasks_per_owner or 0))
+        self._executor = ThreadPoolExecutor(max_workers=self._max_workers, thread_name_prefix="yanai-task")
         self._retention = timedelta(seconds=max(60, retention_seconds))
         self._lock = Lock()
         self._condition = Condition(self._lock)
         self._tasks: dict[str, dict[str, Any]] = {}
+
+    def configure(
+        self,
+        *,
+        max_workers: int,
+        max_pending_tasks: int,
+        max_tasks_per_owner: int,
+    ) -> dict[str, Any]:
+        normalized_max_workers = max(1, int(max_workers or 1))
+        normalized_max_pending_tasks = max(1, int(max_pending_tasks or 1))
+        normalized_max_tasks_per_owner = max(0, int(max_tasks_per_owner or 0))
+        old_executor: ThreadPoolExecutor | None = None
+
+        with self._condition:
+            if normalized_max_workers != self._max_workers:
+                old_executor = self._executor
+                self._executor = ThreadPoolExecutor(
+                    max_workers=normalized_max_workers,
+                    thread_name_prefix="yanai-task",
+                )
+            self._max_workers = normalized_max_workers
+            self._max_pending_tasks = normalized_max_pending_tasks
+            self._max_tasks_per_owner = normalized_max_tasks_per_owner
+            self._condition.notify_all()
+
+        if old_executor is not None:
+            old_executor.shutdown(wait=False, cancel_futures=False)
+        return self.stats()
+
+    def shutdown(self, *, wait: bool = True) -> None:
+        self._executor.shutdown(wait=wait, cancel_futures=False)
 
     def submit(
         self,
@@ -45,6 +87,7 @@ class BackgroundTaskService:
             if existing is not None:
                 self._require_owner(existing, normalized_owner_key)
                 return self._serialize(existing)
+            self._require_capacity(normalized_owner_key)
 
             task = {
                 "id": normalized_task_id,
@@ -61,21 +104,14 @@ class BackgroundTaskService:
                 "version": 0,
             }
             self._tasks[normalized_task_id] = task
+            try:
+                task["future"] = self._executor.submit(self._run, normalized_task_id, runner)
+            except Exception:
+                self._tasks.pop(normalized_task_id, None)
+                self._condition.notify_all()
+                raise
             self._condition.notify_all()
-
-        future = self._executor.submit(self._run, normalized_task_id, runner)
-        with self._lock:
-            current = self._tasks.get(normalized_task_id)
-            if current is not None:
-                current["future"] = future
-                return self._serialize(current)
-        return {
-            "id": normalized_task_id,
-            "task_id": normalized_task_id,
-            "request_id": normalized_task_id,
-            "kind": normalized_kind,
-            "status": "queued",
-        }
+            return self._serialize(task)
 
     def get(self, task_id: str, owner_key: str) -> dict[str, Any] | None:
         normalized_task_id = normalize_request_id(task_id)
@@ -125,6 +161,31 @@ class BackgroundTaskService:
             task["updated_at"] = _iso_now()
             task["version"] = int(task.get("version") or 0) + 1
             self._condition.notify_all()
+
+    def stats(self, owner_key: str | None = None) -> dict[str, Any]:
+        normalized_owner_key = str(owner_key or "").strip()
+        self._cleanup_locked()
+        with self._lock:
+            items = [
+                task
+                for task in self._tasks.values()
+                if not normalized_owner_key or str(task.get("owner_key") or "") == normalized_owner_key
+            ]
+            queued = sum(1 for task in items if task.get("status") == "queued")
+            running = sum(1 for task in items if task.get("status") == "running")
+            success = sum(1 for task in items if task.get("status") == "success")
+            error = sum(1 for task in items if task.get("status") == "error")
+            return {
+                "max_workers": self._max_workers,
+                "max_pending_tasks": self._max_pending_tasks,
+                "max_tasks_per_owner": self._max_tasks_per_owner,
+                "queued": queued,
+                "running": running,
+                "active": queued + running,
+                "success": success,
+                "error": error,
+                "total": len(items),
+            }
 
     def _run(self, task_id: str, runner: TaskRunner) -> None:
         with self._condition:
@@ -181,6 +242,19 @@ class BackgroundTaskService:
             for task_id in expired_ids:
                 self._tasks.pop(task_id, None)
 
+    def _require_capacity(self, owner_key: str) -> None:
+        active_tasks = [
+            task
+            for task in self._tasks.values()
+            if task.get("status") in {"queued", "running"}
+        ]
+        if len(active_tasks) >= self._max_pending_tasks:
+            raise ValueError("后台任务队列繁忙，请稍后再试")
+        if self._max_tasks_per_owner > 0:
+            owner_active = sum(1 for task in active_tasks if str(task.get("owner_key") or "") == owner_key)
+            if owner_active >= self._max_tasks_per_owner:
+                raise ValueError("当前账号已有任务在排队或处理中，请稍后再试")
+
     @staticmethod
     def _parse_time(value: object) -> datetime:
         try:
@@ -210,4 +284,8 @@ class BackgroundTaskService:
         return serialized
 
 
-background_task_service = BackgroundTaskService()
+background_task_service = BackgroundTaskService(
+    max_workers=config.background_task_max_workers,
+    max_pending_tasks=config.background_task_queue_limit,
+    max_tasks_per_owner=config.background_task_user_limit,
+)

@@ -14,6 +14,9 @@ export type SettingsConfig = {
   default_image_model?: string;
   default_text_model?: string;
   image_retention_days?: number | string;
+  background_task_max_workers?: number | string;
+  background_task_queue_limit?: number | string;
+  background_task_user_limit?: number | string;
   log_levels?: string[];
   [key: string]: unknown;
 };

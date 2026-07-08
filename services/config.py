@@ -49,6 +49,9 @@ DEFAULT_SITE_ICON = "/favicon.ico"
 DEFAULT_SITE_BACKGROUND = ""
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_TEXT_MODEL = "gpt-5.5"
+DEFAULT_BACKGROUND_TASK_MAX_WORKERS = 12
+DEFAULT_BACKGROUND_TASK_QUEUE_LIMIT = 100
+DEFAULT_BACKGROUND_TASK_USER_LIMIT = 3
 
 
 def _normalize_auth_key(value: object) -> str:
@@ -65,6 +68,14 @@ def _bool(value: object, default: bool = False) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _bounded_int(value: object, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value if value is not None and value != "" else default)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
 
 
 def _clean_list(value: object) -> list[str]:
@@ -311,6 +322,36 @@ class ConfigStore:
         )
 
     @property
+    def background_task_max_workers(self) -> int:
+        return _bounded_int(
+            os.getenv("YANAI_BACKGROUND_TASK_MAX_WORKERS")
+            or self._get_config_value("background_task_max_workers"),
+            default=DEFAULT_BACKGROUND_TASK_MAX_WORKERS,
+            minimum=1,
+            maximum=128,
+        )
+
+    @property
+    def background_task_queue_limit(self) -> int:
+        return _bounded_int(
+            os.getenv("YANAI_BACKGROUND_TASK_QUEUE_LIMIT")
+            or self._get_config_value("background_task_queue_limit"),
+            default=DEFAULT_BACKGROUND_TASK_QUEUE_LIMIT,
+            minimum=1,
+            maximum=10000,
+        )
+
+    @property
+    def background_task_user_limit(self) -> int:
+        return _bounded_int(
+            os.getenv("YANAI_BACKGROUND_TASK_USER_LIMIT")
+            or self._get_config_value("background_task_user_limit"),
+            default=DEFAULT_BACKGROUND_TASK_USER_LIMIT,
+            minimum=0,
+            maximum=50,
+        )
+
+    @property
     def image_model_mappings(self) -> dict[str, str]:
         defaults: dict[str, str] = {}
         raw = self._get_config_value("image_model_mappings")
@@ -342,6 +383,9 @@ class ConfigStore:
         data["image_retention_days"] = self.image_retention_days
         data["log_levels"] = self.log_levels
         data["image_model_mappings"] = self.image_model_mappings
+        data["background_task_max_workers"] = self.background_task_max_workers
+        data["background_task_queue_limit"] = self.background_task_queue_limit
+        data["background_task_user_limit"] = self.background_task_user_limit
         data.pop("auth-key", None)
         data.pop("smtp_password", None)
         data.pop("linuxdo_client_secret", None)
@@ -379,7 +423,20 @@ class ConfigStore:
         next_data.update(updates)
         self.data = next_data
         self._save()
+        self._sync_runtime_settings()
         return self.get()
+
+    def _sync_runtime_settings(self) -> None:
+        try:
+            from services.background_task_service import background_task_service
+
+            background_task_service.configure(
+                max_workers=self.background_task_max_workers,
+                max_pending_tasks=self.background_task_queue_limit,
+                max_tasks_per_owner=self.background_task_user_limit,
+            )
+        except Exception:
+            return
 
     def get_storage_backend(self) -> StorageBackend:
         """Return the singleton storage backend."""

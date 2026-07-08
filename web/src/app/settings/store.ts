@@ -6,6 +6,14 @@ import { create } from "zustand";
 import { fetchSettingsConfig, updateSettingsConfig, type SettingsConfig } from "@/lib/api";
 import { applySiteSettings, useSiteSettingsStore } from "@/lib/site-settings";
 
+function boundedNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = value === "" || value === null || value === undefined ? fallback : Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, parsed));
+}
+
 function normalizeConfig(config: SettingsConfig): SettingsConfig {
   return {
     ...config,
@@ -15,6 +23,9 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     default_image_model: typeof config.default_image_model === "string" ? config.default_image_model : "gpt-image-2",
     default_text_model: typeof config.default_text_model === "string" ? config.default_text_model : "gpt-5.5",
     image_retention_days: Number(config.image_retention_days || 30),
+    background_task_max_workers: boundedNumber(config.background_task_max_workers, 12, 1, 128),
+    background_task_queue_limit: boundedNumber(config.background_task_queue_limit, 100, 1, 10000),
+    background_task_user_limit: boundedNumber(config.background_task_user_limit, 3, 0, 50),
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
     proxy: typeof config.proxy === "string" ? config.proxy : "",
     base_url: typeof config.base_url === "string" ? config.base_url : "",
@@ -42,6 +53,9 @@ type SettingsStore = {
   loadConfig: () => Promise<void>;
   saveConfig: () => Promise<void>;
   setImageRetentionDays: (value: string) => void;
+  setBackgroundTaskMaxWorkers: (value: string) => void;
+  setBackgroundTaskQueueLimit: (value: string) => void;
+  setBackgroundTaskUserLimit: (value: string) => void;
   setLogLevel: (level: string, enabled: boolean) => void;
   patchConfig: (updates: Partial<SettingsConfig>) => void;
   setProxy: (value: string) => void;
@@ -92,6 +106,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         default_image_model: String(config.default_image_model || "").trim() || "gpt-image-2",
         default_text_model: String(config.default_text_model || "").trim() || "gpt-5.5",
         image_retention_days: Math.max(1, Number(config.image_retention_days) || 30),
+        background_task_max_workers: boundedNumber(config.background_task_max_workers, 12, 1, 128),
+        background_task_queue_limit: boundedNumber(config.background_task_queue_limit, 100, 1, 10000),
+        background_task_user_limit: boundedNumber(config.background_task_user_limit, 3, 0, 50),
         proxy: String(config.proxy || "").trim(),
         base_url: String(config.base_url || "").trim(),
         log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
@@ -109,6 +126,18 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setImageRetentionDays: (value) => {
     set((state) => (state.config ? { config: { ...state.config, image_retention_days: value } } : {}));
+  },
+
+  setBackgroundTaskMaxWorkers: (value) => {
+    set((state) => (state.config ? { config: { ...state.config, background_task_max_workers: value } } : {}));
+  },
+
+  setBackgroundTaskQueueLimit: (value) => {
+    set((state) => (state.config ? { config: { ...state.config, background_task_queue_limit: value } } : {}));
+  },
+
+  setBackgroundTaskUserLimit: (value) => {
+    set((state) => (state.config ? { config: { ...state.config, background_task_user_limit: value } } : {}));
   },
 
   setLogLevel: (level, enabled) => {
