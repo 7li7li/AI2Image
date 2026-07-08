@@ -26,13 +26,11 @@ function SettingsDataController() {
 
 function SettingsPageContent() {
   return (
-    <>
+    <section className="h-full min-h-0 space-y-6 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(148,163,184,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/65 [&::-webkit-scrollbar-track]:bg-transparent">
       <SettingsDataController />
       <SettingsHeader />
-      <section className="space-y-6">
-        <ConfigCard />
-      </section>
-    </>
+      <ConfigCard />
+    </section>
   );
 }
 

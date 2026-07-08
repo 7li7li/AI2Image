@@ -87,7 +87,7 @@ function ProfileContent() {
   }
 
   return (
-    <section className="mx-auto w-full max-w-5xl space-y-5">
+    <section className="mx-auto h-full min-h-0 w-full max-w-5xl space-y-5 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(244,114,182,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-rose-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
       <div className="space-y-1">
         <div className="text-xs font-semibold tracking-[0.18em] text-rose-400 uppercase">Profile</div>
         <h1 className="text-2xl font-semibold tracking-tight">个人中心</h1>

@@ -351,7 +351,7 @@ function ChannelsContent() {
   const selectedTestModelSet = new Set(selectedTestModels);
 
   return (
-    <section className="space-y-5">
+    <section className="h-full min-h-0 space-y-5 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(148,163,184,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/65 [&::-webkit-scrollbar-track]:bg-transparent">
       <div className="flex items-end justify-between gap-4">
         <div className="space-y-1">
           <div className="text-xs font-semibold tracking-[0.18em] text-rose-400 uppercase">Channels</div>
