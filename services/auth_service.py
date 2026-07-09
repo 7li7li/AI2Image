@@ -18,6 +18,7 @@ AuthRole = Literal["admin", "user"]
 
 _SESSION_DAYS = 30
 _PASSWORD_ITERATIONS = 210_000
+_EMAIL_VERIFICATION_MINUTES = 10
 IMAGE_CHANNEL_CONFIG_KEY = "image_channel_config"
 DEFAULT_USER_IMAGE_CHANNEL_MODELS = ["gpt-image-2", "gpt-5.5"]
 _UNSET = object()
@@ -33,6 +34,14 @@ def _now_iso() -> str:
 
 def _hash_key(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _hash_verification_code(email: str, code: str) -> str:
+    return _hash_key(f"{email.strip().lower()}:{code.strip()}")
+
+
+def _hash_password_reset_code(email: str, code: str) -> str:
+    return _hash_key(f"password-reset:{email.strip().lower()}:{code.strip()}")
 
 
 def _hash_password(password: str, salt: str | None = None) -> str:
@@ -204,7 +213,7 @@ class AuthService:
             return None
         item_id = self._clean(raw.get("id")) or uuid.uuid4().hex[:12]
         status = self._clean(raw.get("status")).lower() or "active"
-        if status not in {"active", "disabled"}:
+        if status not in {"active", "disabled", "pending"}:
             status = "active"
         try:
             quota = max(0, int(raw.get("quota") or 0))
@@ -226,6 +235,14 @@ class AuthService:
             "quota": quota,
             "quota_used": quota_used,
             "quota_expires_at": quota_expires_at,
+            "email_verified": _bool(raw.get("email_verified"), status != "pending"),
+            "email_verified_at": self._clean(raw.get("email_verified_at")) or None,
+            "email_verification_hash": self._clean(raw.get("email_verification_hash")),
+            "email_verification_expires_at": self._clean(raw.get("email_verification_expires_at")) or None,
+            "email_verification_sent_at": self._clean(raw.get("email_verification_sent_at")) or None,
+            "password_reset_hash": self._clean(raw.get("password_reset_hash")),
+            "password_reset_expires_at": self._clean(raw.get("password_reset_expires_at")) or None,
+            "password_reset_sent_at": self._clean(raw.get("password_reset_sent_at")) or None,
             "auth_provider": self._clean(raw.get("auth_provider")) or "password",
             "webdav_config": raw.get("webdav_config") if isinstance(raw.get("webdav_config"), dict) else {},
             IMAGE_CHANNEL_CONFIG_KEY: _normalize_user_image_channel_config(
@@ -368,6 +385,8 @@ class AuthService:
             "quota": int(user.get("quota") or 0),
             "quota_used": int(user.get("quota_used") or 0),
             "quota_expires_at": user.get("quota_expires_at"),
+            "email_verified": bool(user.get("email_verified", user.get("status") != "pending")),
+            "email_verified_at": user.get("email_verified_at"),
             "created_at": user.get("created_at"),
             "updated_at": user.get("updated_at"),
             "last_login_at": user.get("last_login_at"),
@@ -508,6 +527,8 @@ class AuthService:
         quota_expires_at: str | None = None,
         role: AuthRole = "user",
         status: str = "active",
+        email_verified: bool | None = None,
+        create_session: bool = True,
     ) -> tuple[dict[str, object], str]:
         normalized_email = self._clean_email(email)
         if "@" not in normalized_email:
@@ -518,16 +539,20 @@ class AuthService:
             if self._find_user_index_by_email(normalized_email) >= 0:
                 raise ValueError("email already exists")
             now = _now_iso()
+            normalized_status = self._clean(status).lower() or "active"
+            verified = bool(email_verified) if email_verified is not None else normalized_status != "pending"
             user = self._normalize_user({
                 "id": uuid.uuid4().hex[:12],
                 "email": normalized_email,
                 "name": name or normalized_email.split("@")[0],
                 "role": role,
-                "status": status,
+                "status": normalized_status,
                 "password_hash": _hash_password(password),
                 "quota": quota,
                 "quota_used": 0,
                 "quota_expires_at": quota_expires_at,
+                "email_verified": verified,
+                "email_verified_at": now if verified else None,
                 "created_at": now,
                 "updated_at": now,
                 "last_login_at": None,
@@ -535,10 +560,141 @@ class AuthService:
             if user is None:
                 raise ValueError("user payload is invalid")
             self._users.append(user)
-            token = self._create_session_locked(str(user["id"]))
+            token = self._create_session_locked(str(user["id"])) if create_session and user.get("status") == "active" else ""
+            self._save_users()
+            if token:
+                self._save_sessions()
+            return self._public_user(user), token
+
+    def create_email_verification(self, email: str, password: str | None = None) -> tuple[dict[str, object], str]:
+        normalized_email = self._clean_email(email)
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        now = _now()
+        expires_at = now + timedelta(minutes=_EMAIL_VERIFICATION_MINUTES)
+        with self._lock:
+            index = self._find_user_index_by_email(normalized_email)
+            if index < 0:
+                raise ValueError("user not found")
+            user = dict(self._users[index])
+            if user.get("status") == "active" and bool(user.get("email_verified", True)):
+                raise ValueError("email is already verified")
+            if user.get("status") == "disabled":
+                raise ValueError("user is disabled")
+            if password is not None and not _verify_password(str(password or ""), self._clean(user.get("password_hash"))):
+                raise ValueError("email or password is invalid")
+            user["email_verification_hash"] = _hash_verification_code(normalized_email, code)
+            user["email_verification_expires_at"] = expires_at.isoformat()
+            user["email_verification_sent_at"] = now.isoformat()
+            user["email_verified"] = False
+            user["updated_at"] = now.isoformat()
+            normalized = self._normalize_user(user)
+            if normalized is None:
+                raise ValueError("user payload is invalid")
+            self._users[index] = normalized
+            self._save_users()
+            return self._public_user(normalized), code
+
+    def create_password_reset(self, email: str) -> tuple[dict[str, object], str]:
+        normalized_email = self._clean_email(email)
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        now = _now()
+        expires_at = now + timedelta(minutes=_EMAIL_VERIFICATION_MINUTES)
+        with self._lock:
+            index = self._find_user_index_by_email(normalized_email)
+            if index < 0:
+                raise ValueError("user not found")
+            user = dict(self._users[index])
+            if user.get("status") == "pending" or not bool(user.get("email_verified", True)):
+                raise ValueError("email verification is required")
+            if user.get("status") != "active":
+                raise ValueError("user is disabled")
+            user["password_reset_hash"] = _hash_password_reset_code(normalized_email, code)
+            user["password_reset_expires_at"] = expires_at.isoformat()
+            user["password_reset_sent_at"] = now.isoformat()
+            user["updated_at"] = now.isoformat()
+            normalized = self._normalize_user(user)
+            if normalized is None:
+                raise ValueError("user payload is invalid")
+            self._users[index] = normalized
+            self._save_users()
+            return self._public_user(normalized), code
+
+    def reset_password_with_code(self, *, email: str, code: str, password: str) -> dict[str, object]:
+        normalized_email = self._clean_email(email)
+        normalized_code = self._clean(code)
+        next_password = str(password or "").strip()
+        if not normalized_code:
+            raise ValueError("verification code is required")
+        if len(next_password) < 6:
+            raise ValueError("password must be at least 6 characters")
+        with self._lock:
+            index = self._find_user_index_by_email(normalized_email)
+            if index < 0:
+                raise ValueError("email or verification code is invalid")
+            user = self._users[index]
+            if user.get("status") == "pending" or not bool(user.get("email_verified", True)):
+                raise ValueError("email verification is required")
+            if user.get("status") != "active":
+                raise ValueError("user is disabled")
+            expires_at = _parse_time(user.get("password_reset_expires_at"))
+            if expires_at is None or expires_at < _now():
+                raise ValueError("verification code is expired")
+            expected_hash = self._clean(user.get("password_reset_hash"))
+            candidate_hash = _hash_password_reset_code(normalized_email, normalized_code)
+            if not expected_hash or not hmac.compare_digest(expected_hash, candidate_hash):
+                raise ValueError("email or verification code is invalid")
+            now = _now_iso()
+            next_user = dict(user)
+            next_user["password_hash"] = _hash_password(next_password)
+            next_user["password_reset_hash"] = ""
+            next_user["password_reset_expires_at"] = None
+            next_user["password_reset_sent_at"] = None
+            next_user["updated_at"] = now
+            self._users[index] = self._normalize_user(next_user) or next_user
+            user_id = self._clean(next_user.get("id"))
+            self._sessions = [
+                session
+                for session in self._sessions
+                if self._clean(session.get("user_id")) != user_id
+            ]
             self._save_users()
             self._save_sessions()
-            return self._public_user(user), token
+            return self._public_user(self._users[index])
+
+    def verify_email(self, *, email: str, code: str) -> tuple[dict[str, object], str]:
+        normalized_email = self._clean_email(email)
+        normalized_code = self._clean(code)
+        if not normalized_code:
+            raise ValueError("verification code is required")
+        with self._lock:
+            index = self._find_user_index_by_email(normalized_email)
+            if index < 0:
+                raise ValueError("email or verification code is invalid")
+            user = self._users[index]
+            if user.get("status") == "active" and bool(user.get("email_verified", True)):
+                raise ValueError("email is already verified")
+            if user.get("status") == "disabled":
+                raise ValueError("user is disabled")
+            expires_at = _parse_time(user.get("email_verification_expires_at"))
+            if expires_at is None or expires_at < _now():
+                raise ValueError("verification code is expired")
+            expected_hash = self._clean(user.get("email_verification_hash"))
+            candidate_hash = _hash_verification_code(normalized_email, normalized_code)
+            if not expected_hash or not hmac.compare_digest(expected_hash, candidate_hash):
+                raise ValueError("email or verification code is invalid")
+            now = _now_iso()
+            next_user = dict(user)
+            next_user["status"] = "active"
+            next_user["email_verified"] = True
+            next_user["email_verified_at"] = now
+            next_user["email_verification_hash"] = ""
+            next_user["email_verification_expires_at"] = None
+            next_user["updated_at"] = now
+            self._users[index] = self._normalize_user(next_user) or next_user
+            token = self._create_session_locked(str(next_user["id"]))
+            self._save_users()
+            self._save_sessions()
+            return self._public_user(self._users[index]), token
 
     def login_user(self, *, email: str, password: str) -> tuple[dict[str, object], str]:
         normalized_email = self._clean_email(email)
@@ -547,6 +703,8 @@ class AuthService:
             if index < 0:
                 raise ValueError("email or password is invalid")
             user = self._users[index]
+            if user.get("status") == "pending" or not bool(user.get("email_verified", True)):
+                raise ValueError("email verification is required")
             if user.get("status") != "active":
                 raise ValueError("user is disabled")
             if not _verify_password(str(password or ""), self._clean(user.get("password_hash"))):
@@ -631,9 +789,12 @@ class AuthService:
                 current["name"] = self._clean(updates.get("name")) or current.get("name")
             if "status" in updates and updates.get("status") is not None:
                 status = self._clean(updates.get("status")).lower()
-                if status not in {"active", "disabled"}:
+                if status not in {"active", "disabled", "pending"}:
                     raise ValueError("status is invalid")
                 current["status"] = status
+                if status == "active" and "email_verified" not in updates:
+                    current["email_verified"] = True
+                    current["email_verified_at"] = current.get("email_verified_at") or _now_iso()
             if "quota" in updates and updates.get("quota") is not None:
                 current["quota"] = max(0, int(updates.get("quota") or 0))
             if "quota_expires_at" in updates:
@@ -763,6 +924,9 @@ class AuthService:
                 return None
             user = dict(self._users[index])
             user["password_hash"] = _hash_password(next_password)
+            user["password_reset_hash"] = ""
+            user["password_reset_expires_at"] = None
+            user["password_reset_sent_at"] = None
             user["updated_at"] = _now_iso()
             self._users[index] = user
             self._sessions = [

@@ -18,6 +18,21 @@ export type SettingsConfig = {
   background_task_queue_limit?: number | string;
   background_task_user_limit?: number | string;
   log_levels?: string[];
+  allow_user_registration?: boolean;
+  email_verification_enabled?: boolean;
+  email_domain_whitelist_enabled?: boolean;
+  email_domain_whitelist?: string[] | string;
+  new_user_initial_quota?: number | string;
+  new_user_quota_valid_days?: number | string;
+  smtp_host?: string;
+  smtp_port?: number | string;
+  smtp_username?: string;
+  smtp_password?: string;
+  smtp_password_set?: boolean;
+  smtp_from_email?: string;
+  smtp_use_ssl?: boolean;
+  smtp_use_starttls?: boolean;
+  smtp_force_auth_login?: boolean;
   [key: string]: unknown;
 };
 
@@ -27,6 +42,13 @@ export type PublicSiteSettings = {
   site_background: string;
   default_image_model: string;
   default_text_model: string;
+};
+
+export type PublicAuthSettings = {
+  allow_user_registration: boolean;
+  email_verification_enabled: boolean;
+  email_domain_whitelist_enabled: boolean;
+  email_domain_whitelist: string[];
 };
 
 export type ManagedImage = {
@@ -502,12 +524,13 @@ export function resolveImageRequestSize(size?: string, resolution?: string) {
 export type LoginResponse = {
   ok: boolean;
   version: string;
-  role: AuthRole;
-  subject_id: string;
-  name: string;
+  role?: AuthRole;
+  subject_id?: string;
+  name?: string;
   email?: string;
   quota?: number;
   token?: string;
+  verification_required?: boolean;
 };
 
 export type CurrentUser = {
@@ -515,10 +538,12 @@ export type CurrentUser = {
   email?: string;
   name: string;
   role: AuthRole;
-  status?: "active" | "disabled";
+  status?: "active" | "disabled" | "pending";
   quota?: number;
   quota_used?: number;
   quota_expires_at?: string | null;
+  email_verified?: boolean;
+  email_verified_at?: string | null;
   image_count?: number;
   spent_quota?: number;
   created_at?: string | null;
@@ -551,7 +576,7 @@ export type UserImageChannelModelTestPayload = UserImageChannelPayload & {
 
 export type AdminUser = CurrentUser & {
   email: string;
-  status: "active" | "disabled";
+  status: "active" | "disabled" | "pending";
   quota: number;
   quota_used: number;
 };
@@ -572,6 +597,46 @@ export async function login(input: string | { email: string; password: string })
   return httpRequest<LoginResponse>("/auth/login", {
     method: "POST",
     body: input,
+    redirectOnUnauthorized: false,
+  });
+}
+
+export async function registerUser(payload: { email: string; password: string; name?: string }) {
+  return httpRequest<LoginResponse>("/auth/register", {
+    method: "POST",
+    body: payload,
+    redirectOnUnauthorized: false,
+  });
+}
+
+export async function verifyEmail(payload: { email: string; code: string }) {
+  return httpRequest<LoginResponse>("/auth/verify-email", {
+    method: "POST",
+    body: payload,
+    redirectOnUnauthorized: false,
+  });
+}
+
+export async function resendEmailVerification(payload: { email: string; password: string }) {
+  return httpRequest<LoginResponse>("/auth/resend-verification", {
+    method: "POST",
+    body: payload,
+    redirectOnUnauthorized: false,
+  });
+}
+
+export async function requestPasswordReset(payload: { email: string }) {
+  return httpRequest<{ ok: boolean; version: string }>("/auth/password-reset/request", {
+    method: "POST",
+    body: payload,
+    redirectOnUnauthorized: false,
+  });
+}
+
+export async function confirmPasswordReset(payload: { email: string; code: string; password: string }) {
+  return httpRequest<{ ok: boolean; version: string }>("/auth/password-reset/confirm", {
+    method: "POST",
+    body: payload,
     redirectOnUnauthorized: false,
   });
 }
@@ -1059,10 +1124,23 @@ export async function fetchPublicSettings() {
   });
 }
 
+export async function fetchPublicAuthSettings() {
+  return httpRequest<{ settings: PublicAuthSettings }>("/api/public/auth-settings", {
+    redirectOnUnauthorized: false,
+  });
+}
+
 export async function updateSettingsConfig(settings: SettingsConfig) {
   return httpRequest<{ config: SettingsConfig }>("/api/settings", {
     method: "POST",
     body: settings,
+  });
+}
+
+export async function testSmtpSettings(toEmail?: string) {
+  return httpRequest<{ ok: boolean }>("/api/settings/smtp/test", {
+    method: "POST",
+    body: { to_email: toEmail || "" },
   });
 }
 
@@ -1326,7 +1404,7 @@ export async function createAdminUser(payload: {
   name?: string;
   quota?: number;
   quota_expires_at?: string | null;
-  status?: "active" | "disabled";
+  status?: "active" | "disabled" | "pending";
 }) {
   return httpRequest<{ item: AdminUser; password: string; session_token: string; items: AdminUser[] }>(
     "/api/admin/users",
@@ -1339,7 +1417,7 @@ export async function createAdminUser(payload: {
 
 export async function updateAdminUser(
   userId: string,
-  payload: { email?: string; name?: string; status?: "active" | "disabled"; quota?: number; quota_expires_at?: string | null },
+  payload: { email?: string; name?: string; status?: "active" | "disabled" | "pending"; quota?: number; quota_expires_at?: string | null },
 ) {
   return httpRequest<{ item: AdminUser; items: AdminUser[] }>(`/api/admin/users/${userId}`, {
     method: "POST",

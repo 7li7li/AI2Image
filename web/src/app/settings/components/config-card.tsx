@@ -1,6 +1,6 @@
 "use client";
 
-import { LoaderCircle, PlugZap, Save } from "lucide-react";
+import { LoaderCircle, MailCheck, PlugZap, Save } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -8,13 +8,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { testProxy, type ProxyTestResult } from "@/lib/api";
+import { Textarea } from "@/components/ui/textarea";
+import { testProxy, testSmtpSettings, type ProxyTestResult } from "@/lib/api";
 
 import { useSettingsStore } from "../store";
 
 export function ConfigCard() {
   const [isTestingProxy, setIsTestingProxy] = useState(false);
+  const [isTestingSmtp, setIsTestingSmtp] = useState(false);
   const [proxyTestResult, setProxyTestResult] = useState<ProxyTestResult | null>(null);
+  const [smtpTestEmail, setSmtpTestEmail] = useState("");
   const logLevelOptions = ["debug", "info", "warning", "error"];
   const config = useSettingsStore((state) => state.config);
   const isLoadingConfig = useSettingsStore((state) => state.isLoadingConfig);
@@ -31,6 +34,7 @@ export function ConfigCard() {
   const setSiteBackground = useSettingsStore((state) => state.setSiteBackground);
   const setDefaultImageModel = useSettingsStore((state) => state.setDefaultImageModel);
   const setDefaultTextModel = useSettingsStore((state) => state.setDefaultTextModel);
+  const patchConfig = useSettingsStore((state) => state.patchConfig);
   const saveConfig = useSettingsStore((state) => state.saveConfig);
 
   const handleTestProxy = async () => {
@@ -53,6 +57,18 @@ export function ConfigCard() {
       toast.error(error instanceof Error ? error.message : "测试代理失败");
     } finally {
       setIsTestingProxy(false);
+    }
+  };
+
+  const handleTestSmtp = async () => {
+    setIsTestingSmtp(true);
+    try {
+      await testSmtpSettings(smtpTestEmail.trim());
+      toast.success("测试邮件已发送");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "发送测试邮件失败");
+    } finally {
+      setIsTestingSmtp(false);
     }
   };
 
@@ -107,6 +123,170 @@ export function ConfigCard() {
               <p className="text-xs text-stone-500">
                 留空使用默认浅灰白背景；填写图片 URL 后只会在登录页显示。
               </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-base font-semibold text-stone-900">注册与邮件</h2>
+            <p className="mt-1 text-sm text-stone-500">控制用户自助注册、邮箱验证、白名单和 SMTP 发信配置。</p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(config?.allow_user_registration)}
+                  onCheckedChange={(checked) => patchConfig({ allow_user_registration: checked === true })}
+                />
+                开启用户注册
+              </label>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(config?.email_verification_enabled)}
+                  onCheckedChange={(checked) => patchConfig({ email_verification_enabled: checked === true })}
+                />
+                启用邮箱验证
+              </label>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(config?.email_domain_whitelist_enabled)}
+                  onCheckedChange={(checked) => patchConfig({ email_domain_whitelist_enabled: checked === true })}
+                />
+                启用邮箱白名单
+              </label>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">新用户初始额度</label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={1000000}
+                  value={String(config?.new_user_initial_quota ?? "")}
+                  onChange={(event) => patchConfig({ new_user_initial_quota: event.target.value })}
+                  placeholder="0"
+                  className="h-10 rounded-xl border-stone-200 bg-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">新用户额度有效期（天）</label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={3650}
+                  value={String(config?.new_user_quota_valid_days ?? "")}
+                  onChange={(event) => patchConfig({ new_user_quota_valid_days: event.target.value })}
+                  placeholder="0"
+                  className="h-10 rounded-xl border-stone-200 bg-white"
+                />
+                <p className="text-xs text-stone-500">填 0 表示不限期；例如填 7 表示注册赠送额度 7 天内有效。</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">邮箱白名单</label>
+              <Textarea
+                value={Array.isArray(config?.email_domain_whitelist) ? config.email_domain_whitelist.join("\n") : String(config?.email_domain_whitelist || "")}
+                onChange={(event) => patchConfig({ email_domain_whitelist: event.target.value })}
+                placeholder={"example.com\nuser@example.com\n*.example.org"}
+                className="min-h-36 rounded-xl border-stone-200 bg-white"
+              />
+              <p className="text-xs text-stone-500">每行一个域名、通配域名或完整邮箱；启用白名单后只允许匹配项注册。</p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">SMTP 主机</label>
+              <Input
+                value={String(config?.smtp_host || "")}
+                onChange={(event) => patchConfig({ smtp_host: event.target.value })}
+                placeholder="smtp.example.com"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">SMTP 端口</label>
+              <Input
+                type="number"
+                min={1}
+                max={65535}
+                value={String(config?.smtp_port || "")}
+                onChange={(event) => patchConfig({ smtp_port: event.target.value })}
+                placeholder="587"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">SMTP 用户名</label>
+              <Input
+                value={String(config?.smtp_username || "")}
+                onChange={(event) => patchConfig({ smtp_username: event.target.value })}
+                placeholder="account@example.com"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">SMTP 密码</label>
+              <Input
+                type="password"
+                value={String(config?.smtp_password || "")}
+                onChange={(event) => patchConfig({ smtp_password: event.target.value })}
+                placeholder={config?.smtp_password_set ? "已设置，留空保持不变" : "SMTP 密码或授权码"}
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">发件邮箱</label>
+              <Input
+                value={String(config?.smtp_from_email || "")}
+                onChange={(event) => patchConfig({ smtp_from_email: event.target.value })}
+                placeholder="noreply@example.com"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+            </div>
+            <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(config?.smtp_use_ssl)}
+                  onCheckedChange={(checked) => patchConfig({ smtp_use_ssl: checked === true })}
+                />
+                使用 SSL 连接
+              </label>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(config?.smtp_use_starttls)}
+                  onCheckedChange={(checked) => patchConfig({ smtp_use_starttls: checked === true })}
+                />
+                使用 STARTTLS
+              </label>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(config?.smtp_force_auth_login)}
+                  onCheckedChange={(checked) => patchConfig({ smtp_force_auth_login: checked === true })}
+                />
+                使用账号密码登录
+              </label>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm text-stone-700">测试收件邮箱</label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  type="email"
+                  value={smtpTestEmail}
+                  onChange={(event) => setSmtpTestEmail(event.target.value)}
+                  placeholder="留空使用发件邮箱"
+                  className="h-10 rounded-xl border-stone-200 bg-white"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 rounded-xl border-stone-200 bg-white px-4 text-stone-700"
+                  onClick={() => void handleTestSmtp()}
+                  disabled={isTestingSmtp}
+                >
+                  {isTestingSmtp ? <LoaderCircle className="size-4 animate-spin" /> : <MailCheck className="size-4" />}
+                  发送测试邮件
+                </Button>
+              </div>
+              <p className="text-xs text-stone-500">测试邮件使用已保存配置；修改 SMTP 配置后请先保存再测试。</p>
             </div>
           </div>
         </div>

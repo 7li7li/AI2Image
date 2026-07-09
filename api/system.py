@@ -8,6 +8,7 @@ from api.support import require_admin, require_identity, resolve_image_base_url
 from services.auth_service import auth_service
 from services.background_task_service import background_task_service
 from services.config import config
+from services.email_service import send_email, send_password_reset_email, send_verification_email
 from services.image_service import delete_images, list_images
 from services.log_service import LOG_TYPE_AUDIT, audit_service, log_service
 from services.proxy_service import test_proxy
@@ -25,6 +26,36 @@ class ProxyTestRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str = ""
     password: str = ""
+
+
+class RegisterRequest(BaseModel):
+    email: str = ""
+    password: str = ""
+    name: str = ""
+
+
+class EmailVerificationRequest(BaseModel):
+    email: str = ""
+    code: str = ""
+
+
+class ResendEmailVerificationRequest(BaseModel):
+    email: str = ""
+    password: str = ""
+
+
+class PasswordResetRequest(BaseModel):
+    email: str = ""
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    email: str = ""
+    code: str = ""
+    password: str = ""
+
+
+class SMTPTestRequest(BaseModel):
+    to_email: str = ""
 
 
 class ImageDeleteItem(BaseModel):
@@ -59,6 +90,18 @@ class ImagesWebDAVSyncRequest(BaseModel):
 def create_router(app_version: str) -> APIRouter:
     router = APIRouter()
 
+    def auth_payload(user: dict[str, object], token: str) -> dict[str, object]:
+        return {
+            "ok": True,
+            "version": app_version,
+            "role": user.get("role"),
+            "subject_id": user.get("id"),
+            "name": user.get("name"),
+            "email": user.get("email"),
+            "quota": user.get("quota"),
+            "token": token,
+        }
+
     def health_payload() -> dict[str, object]:
         storage = config.get_storage_backend()
         storage_health = storage.health_check()
@@ -77,16 +120,7 @@ def create_router(app_version: str) -> APIRouter:
                 user, token = auth_service.login_user(email=body.email, password=body.password)
             except ValueError as exc:
                 raise HTTPException(status_code=401, detail={"error": str(exc)}) from exc
-            return {
-                "ok": True,
-                "version": app_version,
-                "role": user.get("role"),
-                "subject_id": user.get("id"),
-                "name": user.get("name"),
-                "email": user.get("email"),
-                "quota": user.get("quota"),
-                "token": token,
-            }
+            return auth_payload(user, token)
         identity = require_identity(authorization)
         return {
             "ok": True,
@@ -97,6 +131,122 @@ def create_router(app_version: str) -> APIRouter:
             "email": identity.get("email"),
             "quota": identity.get("quota"),
         }
+
+    @router.post("/auth/register")
+    async def register(body: RegisterRequest):
+        email = body.email.strip().lower()
+        if not config.allow_user_registration:
+            raise HTTPException(status_code=403, detail={"error": "user registration is disabled"})
+        if not config.email_allowed_for_registration(email):
+            raise HTTPException(status_code=403, detail={"error": "email is not allowed to register"})
+        if config.email_verification_enabled and not config.smtp_configured:
+            raise HTTPException(status_code=400, detail={"error": "smtp is not configured"})
+
+        created_user_id = ""
+        try:
+            if config.email_verification_enabled:
+                user, _ = auth_service.create_user(
+                    email=email,
+                    password=body.password,
+                    name=body.name,
+                    quota=config.new_user_initial_quota,
+                    quota_expires_at=config.new_user_quota_expires_at(),
+                    role="user",
+                    status="pending",
+                    email_verified=False,
+                    create_session=False,
+                )
+                created_user_id = str(user.get("id") or "")
+                user, code = auth_service.create_email_verification(email)
+                try:
+                    await run_in_threadpool(send_verification_email, to_email=email, code=code)
+                except Exception as exc:
+                    if created_user_id:
+                        auth_service.delete_user(created_user_id)
+                    raise HTTPException(
+                        status_code=502,
+                        detail={"error": f"failed to send verification email: {exc}"},
+                    ) from exc
+                return {
+                    "ok": True,
+                    "version": app_version,
+                    "verification_required": True,
+                    "email": user.get("email"),
+                }
+            user, token = auth_service.create_user(
+                email=email,
+                password=body.password,
+                name=body.name,
+                quota=config.new_user_initial_quota,
+                quota_expires_at=config.new_user_quota_expires_at(),
+                role="user",
+                status="active",
+                email_verified=True,
+                create_session=True,
+            )
+            return {**auth_payload(user, token), "verification_required": False}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+
+    @router.post("/auth/verify-email")
+    async def verify_email(body: EmailVerificationRequest):
+        if not config.allow_user_registration:
+            raise HTTPException(status_code=403, detail={"error": "user registration is disabled"})
+        try:
+            user, token = auth_service.verify_email(email=body.email, code=body.code)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        return {**auth_payload(user, token), "verification_required": False}
+
+    @router.post("/auth/resend-verification")
+    async def resend_email_verification(body: ResendEmailVerificationRequest):
+        if not config.allow_user_registration:
+            raise HTTPException(status_code=403, detail={"error": "user registration is disabled"})
+        if not config.email_verification_enabled:
+            raise HTTPException(status_code=400, detail={"error": "email verification is disabled"})
+        if not config.smtp_configured:
+            raise HTTPException(status_code=400, detail={"error": "smtp is not configured"})
+        email = body.email.strip().lower()
+        try:
+            user, code = auth_service.create_email_verification(email, body.password)
+            await run_in_threadpool(send_verification_email, to_email=email, code=code)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail={"error": f"failed to send verification email: {exc}"}) from exc
+        return {
+            "ok": True,
+            "version": app_version,
+            "verification_required": True,
+            "email": user.get("email"),
+        }
+
+    @router.post("/auth/password-reset/request")
+    async def request_password_reset(body: PasswordResetRequest):
+        if not config.smtp_configured:
+            raise HTTPException(status_code=400, detail={"error": "smtp is not configured"})
+        email = body.email.strip().lower()
+        try:
+            _, code = auth_service.create_password_reset(email)
+        except ValueError:
+            return {"ok": True, "version": app_version}
+        try:
+            await run_in_threadpool(send_password_reset_email, to_email=email, code=code)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail={"error": f"failed to send password reset email: {exc}"}) from exc
+        return {"ok": True, "version": app_version}
+
+    @router.post("/auth/password-reset/confirm")
+    async def confirm_password_reset(body: PasswordResetConfirmRequest):
+        try:
+            auth_service.reset_password_with_code(
+                email=body.email,
+                code=body.code,
+                password=body.password,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        return {"ok": True, "version": app_version}
 
     @router.get("/version")
     async def get_version():
@@ -115,6 +265,10 @@ def create_router(app_version: str) -> APIRouter:
     async def get_public_settings():
         return {"settings": config.public_settings()}
 
+    @router.get("/api/public/auth-settings")
+    async def get_public_auth_settings():
+        return {"settings": config.public_auth_settings()}
+
     @router.get("/api/settings")
     async def get_settings(authorization: str | None = Header(default=None)):
         require_admin(authorization)
@@ -124,6 +278,25 @@ def create_router(app_version: str) -> APIRouter:
     async def save_settings(body: SettingsUpdateRequest, authorization: str | None = Header(default=None)):
         require_admin(authorization)
         return {"config": config.update(body.model_dump(mode="python"))}
+
+    @router.post("/api/settings/smtp/test")
+    async def test_smtp(body: SMTPTestRequest, authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        to_email = body.to_email.strip().lower() or config.smtp_from_email
+        if not to_email:
+            raise HTTPException(status_code=400, detail={"error": "test recipient email is required"})
+        try:
+            await run_in_threadpool(
+                send_email,
+                to_email=to_email,
+                subject=f"{config.site_title} SMTP 测试邮件",
+                text=f"这是一封来自 {config.site_title} 的 SMTP 配置测试邮件。",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
+        return {"ok": True}
 
     @router.get("/api/images")
     async def get_images(

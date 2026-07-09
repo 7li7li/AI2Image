@@ -14,6 +14,22 @@ function boundedNumber(value: unknown, fallback: number, min: number, max: numbe
   return Math.max(min, Math.min(max, parsed));
 }
 
+function normalizeStringList(value: unknown): string[] {
+  const items =
+    typeof value === "string"
+      ? value.replace(/;/g, "\n").replace(/,/g, "\n").split(/\r?\n/)
+      : Array.isArray(value)
+        ? value
+        : [];
+  return Array.from(
+    new Set(
+      items
+        .map((item) => String(item || "").trim().toLowerCase().replace(/^@/, ""))
+        .filter(Boolean),
+    ),
+  );
+}
+
 function normalizeConfig(config: SettingsConfig): SettingsConfig {
   return {
     ...config,
@@ -29,6 +45,21 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
     proxy: typeof config.proxy === "string" ? config.proxy : "",
     base_url: typeof config.base_url === "string" ? config.base_url : "",
+    allow_user_registration: Boolean(config.allow_user_registration),
+    email_verification_enabled: Boolean(config.email_verification_enabled),
+    email_domain_whitelist_enabled: Boolean(config.email_domain_whitelist_enabled),
+    email_domain_whitelist: normalizeStringList(config.email_domain_whitelist),
+    new_user_initial_quota: boundedNumber(config.new_user_initial_quota, 0, 0, 1_000_000),
+    new_user_quota_valid_days: boundedNumber(config.new_user_quota_valid_days, 0, 0, 3650),
+    smtp_host: typeof config.smtp_host === "string" ? config.smtp_host : "",
+    smtp_port: boundedNumber(config.smtp_port, 587, 1, 65535),
+    smtp_username: typeof config.smtp_username === "string" ? config.smtp_username : "",
+    smtp_password: "",
+    smtp_password_set: Boolean(config.smtp_password_set),
+    smtp_from_email: typeof config.smtp_from_email === "string" ? config.smtp_from_email : "",
+    smtp_use_ssl: Boolean(config.smtp_use_ssl),
+    smtp_use_starttls: config.smtp_use_starttls === undefined ? true : Boolean(config.smtp_use_starttls),
+    smtp_force_auth_login: config.smtp_force_auth_login === undefined ? true : Boolean(config.smtp_force_auth_login),
   };
 }
 
@@ -98,8 +129,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
     set({ isSavingConfig: true });
     try {
-      const data = await updateSettingsConfig({
-        ...config,
+      const payload: SettingsConfig = {
         site_title: String(config.site_title || "").trim(),
         site_icon: String(config.site_icon || "").trim(),
         site_background: String(config.site_background || "").trim(),
@@ -112,7 +142,22 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         proxy: String(config.proxy || "").trim(),
         base_url: String(config.base_url || "").trim(),
         log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
-      });
+        allow_user_registration: Boolean(config.allow_user_registration),
+        email_verification_enabled: Boolean(config.email_verification_enabled),
+        email_domain_whitelist_enabled: Boolean(config.email_domain_whitelist_enabled),
+        email_domain_whitelist: normalizeStringList(config.email_domain_whitelist),
+        new_user_initial_quota: boundedNumber(config.new_user_initial_quota, 0, 0, 1_000_000),
+        new_user_quota_valid_days: boundedNumber(config.new_user_quota_valid_days, 0, 0, 3650),
+        smtp_host: String(config.smtp_host || "").trim(),
+        smtp_port: boundedNumber(config.smtp_port, 587, 1, 65535),
+        smtp_username: String(config.smtp_username || "").trim(),
+        smtp_password: String(config.smtp_password || ""),
+        smtp_from_email: String(config.smtp_from_email || "").trim(),
+        smtp_use_ssl: Boolean(config.smtp_use_ssl),
+        smtp_use_starttls: Boolean(config.smtp_use_starttls),
+        smtp_force_auth_login: Boolean(config.smtp_force_auth_login),
+      };
+      const data = await updateSettingsConfig(payload);
       const nextConfig = normalizeConfig(data.config);
       set({ config: nextConfig });
       syncSiteSettings(nextConfig);

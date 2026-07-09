@@ -13,7 +13,6 @@ import {
   Copy,
   FileText,
   ImageIcon,
-  Bot,
   LoaderCircle,
   Menu,
   MessageSquare,
@@ -30,6 +29,7 @@ import {
 import { toast } from "sonner";
 
 import { ImageLightbox } from "@/components/image-lightbox";
+import { ModelIcon } from "@/components/model-icon";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -1175,15 +1175,20 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                       回复中
                     </span>
                   ) : null}
-                  <div className="inline-flex min-w-0 max-w-[48vw] items-center gap-1.5 text-xs font-medium text-stone-600 sm:max-w-[310px]">
-                    <Bot className="size-3.5 shrink-0 text-stone-300" />
-                    <span className="min-w-0 truncate">{selectedConversation?.model || defaultTextModel}</span>
+                  <div className="inline-flex min-h-5 min-w-0 max-w-[48vw] items-center gap-1.5 text-xs font-medium text-stone-600 sm:max-w-[310px]">
+                    <ModelIcon
+                      model={selectedConversation?.model || defaultTextModel}
+                      className="block size-4 shrink-0 translate-y-px"
+                    />
+                    <span className="flex h-4 min-w-0 items-center truncate leading-none">
+                      {selectedConversation?.model || defaultTextModel}
+                    </span>
                     <span
-                      className="inline-flex shrink-0 items-center gap-1 border-l border-stone-200 pl-2 text-stone-500"
+                      className="inline-flex h-4 shrink-0 items-center gap-1 border-l border-stone-200 pl-2 text-stone-500"
                       title="每次成功回复扣除 1 点额度"
                     >
-                      <Sparkles className="size-3 shrink-0 text-stone-300" />
-                      1/次
+                      <Sparkles className="block size-3.5 shrink-0 translate-y-px text-stone-300" />
+                      <span className="flex h-4 items-center leading-none">1/次</span>
                     </span>
                   </div>
                   <Button
@@ -1422,8 +1427,8 @@ function ChatMessages({
           return (
             <div key={message.id} className={cn("group flex gap-3", isUser ? "justify-end" : "justify-start")}>
               {!isUser ? (
-                <div className="mt-1 grid size-8 shrink-0 place-items-center rounded-lg border border-rose-100 bg-white/75 text-rose-500">
-                  {isAssistant ? <Bot className="size-4" /> : <MessageSquare className="size-4" />}
+                <div className="grid size-12 shrink-0 place-items-center rounded-lg border border-rose-100 bg-white/75 text-stone-600">
+                  {isAssistant ? <ModelIcon model={conversation.model} className="size-7" /> : <MessageSquare className="size-6" />}
                 </div>
               ) : null}
               <div
@@ -1487,8 +1492,8 @@ function ChatMessages({
                 />
               </div>
               {isUser ? (
-                <div className="mt-1 grid size-8 shrink-0 place-items-center rounded-lg border border-stone-200 bg-white/75 text-stone-500">
-                  <UserRound className="size-4" />
+                <div className="grid size-12 shrink-0 place-items-center rounded-lg border border-stone-200 bg-white/75 text-stone-600">
+                  <UserRound className="size-6" />
                 </div>
               ) : null}
             </div>

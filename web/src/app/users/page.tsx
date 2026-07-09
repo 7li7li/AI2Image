@@ -63,6 +63,18 @@ function createExpiryDate(months: number) {
   return format(addMonths(new Date(), months), "yyyy-MM-dd");
 }
 
+function userStatusLabel(status: AdminUser["status"]) {
+  if (status === "active") return "正常";
+  if (status === "pending") return "待验证";
+  return "禁用";
+}
+
+function userStatusVariant(status: AdminUser["status"]): "success" | "warning" | "secondary" {
+  if (status === "active") return "success";
+  if (status === "pending") return "warning";
+  return "secondary";
+}
+
 type QuotaExpiryPickerProps = {
   value?: string | null;
   onChange: (value: string) => void;
@@ -411,9 +423,7 @@ function UsersPageContent() {
                 </div>
                 <div className="flex items-center justify-between gap-3 2xl:block">
                   <span className="text-xs font-medium text-stone-400 2xl:hidden">状态</span>
-                  <Badge variant={user.status === "active" ? "success" : "secondary"}>
-                    {user.status === "active" ? "正常" : "禁用"}
-                  </Badge>
+                  <Badge variant={userStatusVariant(user.status)}>{userStatusLabel(user.status)}</Badge>
                 </div>
                 <div className="flex items-center justify-between gap-3 2xl:block">
                   <span className="text-xs font-medium text-stone-400 2xl:hidden">额度</span>

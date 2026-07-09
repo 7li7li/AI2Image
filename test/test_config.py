@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+from services.storage.database_storage import DatabaseStorageBackend
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 ROOT_CONFIG_FILE = ROOT_DIR / "config.json"
@@ -127,7 +129,7 @@ class ConfigLoadingTests(unittest.TestCase):
 
             self.assertEqual(store.auth_key, "file-auth")
 
-    def test_removed_registration_settings_are_not_returned(self) -> None:
+    def test_registration_settings_are_admin_only_and_secrets_are_masked(self) -> None:
         module = self.config_module
         with tempfile.TemporaryDirectory() as tmp_dir:
             config_path = Path(tmp_dir) / "config.json"
@@ -137,18 +139,136 @@ class ConfigLoadingTests(unittest.TestCase):
                         "auth-key": "test-auth",
                         "smtp_password": "smtp-secret",
                         "allow_user_registration": True,
-                        "internal_pool_enabled": True,
+                        "email_verification_enabled": True,
+                        "email_domain_whitelist_enabled": True,
+                        "email_domain_whitelist": ["Example.com", "@example.org", "user@example.net", "*.school.edu"],
                     }
                 ),
                 encoding="utf-8",
             )
             store = module.ConfigStore(config_path)
 
-            public = store.get()
-            self.assertNotIn("smtp_password", public)
-            self.assertNotIn("smtp_password_set", public)
+            admin = store.get()
+            self.assertTrue(admin["allow_user_registration"])
+            self.assertTrue(admin["email_verification_enabled"])
+            self.assertTrue(admin["email_domain_whitelist_enabled"])
+            self.assertEqual(admin["email_domain_whitelist"], ["example.com", "example.org", "user@example.net", "*.school.edu"])
+            self.assertEqual(admin["new_user_quota_valid_days"], 0)
+            self.assertTrue(admin["smtp_password_set"])
+            self.assertNotIn("smtp_password", admin)
+
+            public = store.public_settings()
             self.assertNotIn("allow_user_registration", public)
-            self.assertNotIn("internal_pool_enabled", public)
+            self.assertNotIn("email_verification_enabled", public)
+            self.assertNotIn("email_domain_whitelist", public)
+
+            public_auth = store.public_auth_settings()
+            self.assertEqual(
+                public_auth,
+                {
+                    "allow_user_registration": True,
+                    "email_verification_enabled": True,
+                    "email_domain_whitelist_enabled": True,
+                    "email_domain_whitelist": ["example.com", "example.org"],
+                },
+            )
+
+    def test_update_registration_settings_ignores_transient_status_fields(self) -> None:
+        module = self.config_module
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps({"auth-key": "test-auth", "smtp_password": "existing-secret"}),
+                encoding="utf-8",
+            )
+            store = module.ConfigStore(config_path)
+
+            updated = store.update(
+                {
+                    "allow_user_registration": "true",
+                    "email_verification_enabled": "false",
+                    "email_domain_whitelist_enabled": "on",
+                    "email_domain_whitelist": "Example.com\n@example.org,user@example.net",
+                    "new_user_initial_quota": "25",
+                    "new_user_quota_valid_days": "7",
+                    "smtp_password": "",
+                    "smtp_password_set": False,
+                    "linuxdo_client_secret_set": True,
+                    "image_webdav_password_set": True,
+                }
+            )
+
+            self.assertTrue(updated["allow_user_registration"])
+            self.assertFalse(updated["email_verification_enabled"])
+            self.assertTrue(updated["email_domain_whitelist_enabled"])
+            self.assertEqual(updated["email_domain_whitelist"], ["example.com", "example.org", "user@example.net"])
+            self.assertEqual(updated["new_user_initial_quota"], 25)
+            self.assertEqual(updated["new_user_quota_valid_days"], 7)
+            self.assertTrue(updated["smtp_password_set"])
+            self.assertEqual(store.smtp_password, "existing-secret")
+            self.assertNotIn("smtp_password_set", store.data)
+            self.assertNotIn("linuxdo_client_secret_set", store.data)
+            self.assertNotIn("image_webdav_password_set", store.data)
+            self.assertEqual(store.public_auth_settings()["allow_user_registration"], True)
+
+    def test_new_user_quota_valid_days_calculates_expiry(self) -> None:
+        module = self.config_module
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+            store = module.ConfigStore(config_path)
+
+            self.assertEqual(store.new_user_quota_valid_days, 0)
+            self.assertIsNone(store.new_user_quota_expires_at(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+
+            updated = store.update({"new_user_initial_quota": 25, "new_user_quota_valid_days": "7"})
+            expires_at = store.new_user_quota_expires_at(datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+            self.assertEqual(updated["new_user_quota_valid_days"], 7)
+            self.assertEqual(expires_at, "2026-01-08T00:00:00+00:00")
+
+            updated = store.update({"new_user_quota_valid_days": "99999"})
+            self.assertEqual(updated["new_user_quota_valid_days"], 3650)
+
+    def test_database_backed_registration_update_takes_effect_immediately(self) -> None:
+        module = self.config_module
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+            storage = DatabaseStorageBackend(f"sqlite:///{(Path(tmp_dir) / 'settings.db').as_posix()}")
+            try:
+                store = module.ConfigStore(config_path)
+                store._storage_backend = storage
+
+                updated = store.update({"allow_user_registration": True})
+
+                self.assertTrue(updated["allow_user_registration"])
+                self.assertTrue(store.public_auth_settings()["allow_user_registration"])
+                self.assertTrue(storage.repository_provider.system_config.get_setting("allow_user_registration"))
+            finally:
+                storage.close()
+
+    def test_email_registration_whitelist_supports_domains_wildcards_and_addresses(self) -> None:
+        module = self.config_module
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "auth-key": "test-auth",
+                        "email_domain_whitelist_enabled": True,
+                        "email_domain_whitelist": ["example.com", "*.school.edu", "invited@example.net"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            store = module.ConfigStore(config_path)
+
+            self.assertTrue(store.email_allowed_for_registration("person@example.com"))
+            self.assertTrue(store.email_allowed_for_registration("student@dept.school.edu"))
+            self.assertTrue(store.email_allowed_for_registration("invited@example.net"))
+            self.assertFalse(store.email_allowed_for_registration("person@other.com"))
+            self.assertFalse(store.email_allowed_for_registration("person@school.edu"))
 
     def test_cleanup_old_images_keeps_recent_recorded_files_and_removes_old_orphans(self) -> None:
         module = self.config_module

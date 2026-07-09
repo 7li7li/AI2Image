@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import sys
@@ -17,33 +17,6 @@ CONFIG_FILE = BASE_DIR / "config.json"
 VERSION_FILE = BASE_DIR / "VERSION"
 SYSTEM_SETTING_SECRET_KEYS = {"auth-key", "smtp_password", "linuxdo_client_secret", "image_webdav_config"}
 SYSTEM_SETTING_TRANSIENT_KEYS = {"smtp_password_set", "linuxdo_client_secret_set", "image_webdav_password_set"}
-REMOVED_PUBLIC_SETTING_KEYS = {
-    "account_lease_ttl_seconds",
-    "allow_user_registration",
-    "auto_remove_invalid_accounts",
-    "auto_remove_rate_limited_accounts",
-    "email_alias_restriction_enabled",
-    "email_domain_whitelist",
-    "email_domain_whitelist_enabled",
-    "email_verification_enabled",
-    "internal_pool_enabled",
-    "linuxdo_callback_url",
-    "linuxdo_client_id",
-    "linuxdo_minimum_trust_level",
-    "linuxdo_oauth_enabled",
-    "linuxdo_start_url",
-    "new_user_initial_quota",
-    "refresh_account_interval_minute",
-    "smtp_force_auth_login",
-    "smtp_from_email",
-    "smtp_host",
-    "smtp_password",
-    "smtp_password_set",
-    "smtp_port",
-    "smtp_use_ssl",
-    "smtp_use_starttls",
-    "smtp_username",
-}
 DEFAULT_SITE_TITLE = "Image Studio"
 DEFAULT_SITE_ICON = "/favicon.ico"
 DEFAULT_SITE_BACKGROUND = ""
@@ -52,6 +25,8 @@ DEFAULT_TEXT_MODEL = "gpt-5.5"
 DEFAULT_BACKGROUND_TASK_MAX_WORKERS = 12
 DEFAULT_BACKGROUND_TASK_QUEUE_LIMIT = 100
 DEFAULT_BACKGROUND_TASK_USER_LIMIT = 3
+DEFAULT_SMTP_PORT = 587
+DEFAULT_VERIFICATION_CODE_MINUTES = 10
 
 
 def _normalize_auth_key(value: object) -> str:
@@ -96,6 +71,22 @@ def _clean_list(value: object) -> list[str]:
     return items
 
 
+def _clean_email(value: object) -> str:
+    return str(value or "").strip().lower()
+
+
+def _public_email_domain_choices(value: object) -> list[str]:
+    seen: set[str] = set()
+    domains: list[str] = []
+    for entry in _clean_list(value):
+        domain = entry.lstrip("@")
+        if not domain or "@" in domain or domain.startswith("*.") or domain in seen:
+            continue
+        seen.add(domain)
+        domains.append(domain)
+    return domains
+
+
 def _clean_site_text(value: object, *, default: str, max_length: int) -> str:
     text = str(value or "").strip()
     if not text:
@@ -121,6 +112,122 @@ def _image_relative_path(url: object) -> str:
     if not parsed_path.startswith("/images/"):
         return ""
     return parsed_path.removeprefix("/images/").strip("/")
+
+
+def _normalize_update_data(data: dict[str, object]) -> dict[str, object]:
+    updates = dict(data or {})
+    for transient_key in SYSTEM_SETTING_TRANSIENT_KEYS:
+        updates.pop(transient_key, None)
+
+    for secret_key in ("smtp_password", "linuxdo_client_secret"):
+        if secret_key not in updates:
+            continue
+        secret_value = str(updates.get(secret_key) or "").strip()
+        if not secret_value:
+            updates.pop(secret_key, None)
+        else:
+            updates[secret_key] = secret_value
+
+    for key in ("allow_user_registration", "email_verification_enabled", "email_domain_whitelist_enabled"):
+        if key in updates:
+            updates[key] = _bool(updates.get(key), False)
+    for key in ("smtp_use_ssl", "smtp_use_starttls", "smtp_force_auth_login"):
+        if key in updates:
+            updates[key] = _bool(updates.get(key), key != "smtp_use_ssl")
+
+    if "email_domain_whitelist" in updates:
+        updates["email_domain_whitelist"] = _clean_list(updates.get("email_domain_whitelist"))
+    if "new_user_initial_quota" in updates:
+        updates["new_user_initial_quota"] = _bounded_int(
+            updates.get("new_user_initial_quota"),
+            default=0,
+            minimum=0,
+            maximum=1_000_000,
+        )
+    if "new_user_quota_valid_days" in updates:
+        updates["new_user_quota_valid_days"] = _bounded_int(
+            updates.get("new_user_quota_valid_days"),
+            default=0,
+            minimum=0,
+            maximum=3650,
+        )
+    if "smtp_port" in updates:
+        updates["smtp_port"] = _bounded_int(
+            updates.get("smtp_port"),
+            default=DEFAULT_SMTP_PORT,
+            minimum=1,
+            maximum=65535,
+        )
+
+    for key in ("proxy", "smtp_host", "smtp_username"):
+        if key in updates:
+            updates[key] = str(updates.get(key) or "").strip()
+    if "base_url" in updates:
+        updates["base_url"] = str(updates.get("base_url") or "").strip().rstrip("/")
+    if "smtp_from_email" in updates:
+        updates["smtp_from_email"] = _clean_email(updates.get("smtp_from_email"))
+
+    if "site_title" in updates:
+        updates["site_title"] = _clean_site_text(updates.get("site_title"), default=DEFAULT_SITE_TITLE, max_length=80)
+    if "site_icon" in updates:
+        updates["site_icon"] = _clean_site_text(updates.get("site_icon"), default=DEFAULT_SITE_ICON, max_length=500)
+    if "site_background" in updates:
+        updates["site_background"] = _clean_site_text(
+            updates.get("site_background"),
+            default=DEFAULT_SITE_BACKGROUND,
+            max_length=1000,
+        )
+    if "default_image_model" in updates:
+        updates["default_image_model"] = _clean_site_text(
+            updates.get("default_image_model"),
+            default=DEFAULT_IMAGE_MODEL,
+            max_length=120,
+        )
+    if "default_text_model" in updates:
+        updates["default_text_model"] = _clean_site_text(
+            updates.get("default_text_model"),
+            default=DEFAULT_TEXT_MODEL,
+            max_length=120,
+        )
+
+    if "background_task_max_workers" in updates:
+        updates["background_task_max_workers"] = _bounded_int(
+            updates.get("background_task_max_workers"),
+            default=DEFAULT_BACKGROUND_TASK_MAX_WORKERS,
+            minimum=1,
+            maximum=128,
+        )
+    if "background_task_queue_limit" in updates:
+        updates["background_task_queue_limit"] = _bounded_int(
+            updates.get("background_task_queue_limit"),
+            default=DEFAULT_BACKGROUND_TASK_QUEUE_LIMIT,
+            minimum=1,
+            maximum=10000,
+        )
+    if "background_task_user_limit" in updates:
+        updates["background_task_user_limit"] = _bounded_int(
+            updates.get("background_task_user_limit"),
+            default=DEFAULT_BACKGROUND_TASK_USER_LIMIT,
+            minimum=0,
+            maximum=50,
+        )
+    if "image_retention_days" in updates:
+        updates["image_retention_days"] = _bounded_int(
+            updates.get("image_retention_days"),
+            default=30,
+            minimum=1,
+            maximum=3650,
+        )
+    if "log_levels" in updates:
+        allowed = {"debug", "info", "warning", "error"}
+        levels = updates.get("log_levels")
+        updates["log_levels"] = [
+            level
+            for item in (levels if isinstance(levels, list) else [])
+            if (level := str(item or "").strip().lower()) in allowed
+        ]
+
+    return updates
 
 
 def _read_json_object(path: Path, *, name: str) -> dict[str, object]:
@@ -352,6 +459,115 @@ class ConfigStore:
         )
 
     @property
+    def allow_user_registration(self) -> bool:
+        return _bool(self._get_config_value("allow_user_registration"), False)
+
+    @property
+    def email_verification_enabled(self) -> bool:
+        return _bool(self._get_config_value("email_verification_enabled"), False)
+
+    @property
+    def email_domain_whitelist_enabled(self) -> bool:
+        return _bool(self._get_config_value("email_domain_whitelist_enabled"), False)
+
+    @property
+    def email_domain_whitelist(self) -> list[str]:
+        return _clean_list(self._get_config_value("email_domain_whitelist"))
+
+    @property
+    def public_email_domain_whitelist(self) -> list[str]:
+        return _public_email_domain_choices(self.email_domain_whitelist)
+
+    @property
+    def new_user_initial_quota(self) -> int:
+        return _bounded_int(
+            self._get_config_value("new_user_initial_quota"),
+            default=0,
+            minimum=0,
+            maximum=1_000_000,
+        )
+
+    @property
+    def new_user_quota_valid_days(self) -> int:
+        return _bounded_int(
+            self._get_config_value("new_user_quota_valid_days"),
+            default=0,
+            minimum=0,
+            maximum=3650,
+        )
+
+    def new_user_quota_expires_at(self, now: datetime | None = None) -> str | None:
+        if self.new_user_initial_quota <= 0 or self.new_user_quota_valid_days <= 0:
+            return None
+        base_time = now or datetime.now(timezone.utc)
+        if base_time.tzinfo is None:
+            base_time = base_time.replace(tzinfo=timezone.utc)
+        return (base_time.astimezone(timezone.utc) + timedelta(days=self.new_user_quota_valid_days)).isoformat()
+
+    @property
+    def smtp_host(self) -> str:
+        return str(self._get_config_value("smtp_host") or "").strip()
+
+    @property
+    def smtp_port(self) -> int:
+        return _bounded_int(
+            self._get_config_value("smtp_port"),
+            default=DEFAULT_SMTP_PORT,
+            minimum=1,
+            maximum=65535,
+        )
+
+    @property
+    def smtp_username(self) -> str:
+        return str(self._get_config_value("smtp_username") or "").strip()
+
+    @property
+    def smtp_password(self) -> str:
+        return str(self.data.get("smtp_password") or "").strip()
+
+    @property
+    def smtp_from_email(self) -> str:
+        return _clean_email(self._get_config_value("smtp_from_email")) or _clean_email(self.smtp_username)
+
+    @property
+    def smtp_use_ssl(self) -> bool:
+        return _bool(self._get_config_value("smtp_use_ssl"), False)
+
+    @property
+    def smtp_use_starttls(self) -> bool:
+        return _bool(self._get_config_value("smtp_use_starttls"), True)
+
+    @property
+    def smtp_force_auth_login(self) -> bool:
+        return _bool(self._get_config_value("smtp_force_auth_login"), True)
+
+    @property
+    def smtp_configured(self) -> bool:
+        return bool(self.smtp_host and self.smtp_from_email)
+
+    def email_allowed_for_registration(self, email: str) -> bool:
+        normalized_email = _clean_email(email)
+        if not self.email_domain_whitelist_enabled:
+            return True
+        if "@" not in normalized_email:
+            return False
+        _, domain = normalized_email.rsplit("@", 1)
+        if not domain:
+            return False
+        for entry in self.email_domain_whitelist:
+            if "@" in entry and normalized_email == entry:
+                return True
+            candidate = entry.lstrip("@")
+            if candidate.startswith("*."):
+                base_domain = candidate[2:]
+                if domain.endswith(f".{base_domain}"):
+                    return True
+                continue
+            if domain == candidate:
+                return True
+        return False
+
+    @property
     def image_model_mappings(self) -> dict[str, str]:
         defaults: dict[str, str] = {}
         raw = self._get_config_value("image_model_mappings")
@@ -375,6 +591,8 @@ class ConfigStore:
 
     def get(self) -> dict[str, object]:
         data = self._effective_data()
+        for transient_key in SYSTEM_SETTING_TRANSIENT_KEYS:
+            data.pop(transient_key, None)
         data["site_title"] = self.site_title
         data["site_icon"] = self.site_icon
         data["site_background"] = self.site_background
@@ -386,12 +604,24 @@ class ConfigStore:
         data["background_task_max_workers"] = self.background_task_max_workers
         data["background_task_queue_limit"] = self.background_task_queue_limit
         data["background_task_user_limit"] = self.background_task_user_limit
+        data["allow_user_registration"] = self.allow_user_registration
+        data["email_verification_enabled"] = self.email_verification_enabled
+        data["email_domain_whitelist_enabled"] = self.email_domain_whitelist_enabled
+        data["email_domain_whitelist"] = self.email_domain_whitelist
+        data["new_user_initial_quota"] = self.new_user_initial_quota
+        data["new_user_quota_valid_days"] = self.new_user_quota_valid_days
+        data["smtp_host"] = self.smtp_host
+        data["smtp_port"] = self.smtp_port
+        data["smtp_username"] = self.smtp_username
+        data["smtp_from_email"] = self.smtp_from_email
+        data["smtp_use_ssl"] = self.smtp_use_ssl
+        data["smtp_use_starttls"] = self.smtp_use_starttls
+        data["smtp_force_auth_login"] = self.smtp_force_auth_login
+        data["smtp_password_set"] = bool(self.smtp_password)
         data.pop("auth-key", None)
         data.pop("smtp_password", None)
         data.pop("linuxdo_client_secret", None)
         data.pop("image_webdav_config", None)
-        for key in REMOVED_PUBLIC_SETTING_KEYS:
-            data.pop(key, None)
         return data
 
     def public_settings(self) -> dict[str, object]:
@@ -403,16 +633,19 @@ class ConfigStore:
             "default_text_model": self.default_text_model,
         }
 
+    def public_auth_settings(self) -> dict[str, object]:
+        return {
+            "allow_user_registration": self.allow_user_registration,
+            "email_verification_enabled": self.email_verification_enabled,
+            "email_domain_whitelist_enabled": self.email_domain_whitelist_enabled,
+            "email_domain_whitelist": self.public_email_domain_whitelist if self.email_domain_whitelist_enabled else [],
+        }
+
     def get_proxy_settings(self) -> str:
         return str(self._get_config_value("proxy") or "").strip()
 
     def update(self, data: dict[str, object]) -> dict[str, object]:
-        updates = dict(data or {})
-        for transient_key in ("smtp_password_set", "linuxdo_client_secret_set"):
-            updates.pop(transient_key, None)
-        for secret_key in ("smtp_password", "linuxdo_client_secret"):
-            if secret_key in updates and not str(updates.get(secret_key) or "").strip():
-                updates.pop(secret_key, None)
+        updates = _normalize_update_data(data)
         provider = self._provider_if_initialized()
         if provider is not None:
             for key, value in updates.items():
