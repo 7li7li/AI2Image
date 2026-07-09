@@ -1248,7 +1248,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
             <div
               ref={messagesViewportRef}
-              className="min-h-0 flex-1 overflow-y-auto px-3 py-4 pb-56 [scrollbar-color:rgba(148,163,184,.45)_transparent] [scrollbar-width:thin] sm:px-5 sm:pb-60 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/65 [&::-webkit-scrollbar-track]:bg-transparent"
+              className="min-h-0 flex-1 overflow-y-auto px-3 py-4 pb-48 [scrollbar-color:rgba(148,163,184,.45)_transparent] [scrollbar-width:thin] sm:px-5 sm:pb-52 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/65 [&::-webkit-scrollbar-track]:bg-transparent"
             >
               <div className="mx-auto w-full max-w-6xl">
                 <ChatMessages
@@ -1573,7 +1573,7 @@ function ChatMessages({
 
   if (!conversation || conversation.messages.length === 0) {
     return (
-      <div className="flex min-h-[calc(100dvh-260px)] items-center justify-center pb-20">
+      <div className="flex min-h-[360px] items-center justify-center pb-20 sm:min-h-[calc(100dvh-460px)]">
         <div className="text-center">
           <h1 className="text-2xl font-semibold tracking-tight text-stone-950">你好，想聊些什么？</h1>
         </div>

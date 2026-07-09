@@ -1379,7 +1379,7 @@ export function ImageComposer({
                   type="button"
                   onClick={() => void onSubmit()}
                   disabled={!canSubmit}
-                  className="yan-gradient grid size-10 shrink-0 place-items-center rounded-full text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:brightness-100"
+                  className="yan-gradient grid size-10 shrink-0 place-items-center rounded-full text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50 disabled:brightness-100"
                   aria-label={mode === "edit" ? "编辑图片" : "生成图片"}
                   title={mode === "edit" ? "编辑图片" : "生成图片"}
                 >
