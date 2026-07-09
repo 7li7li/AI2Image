@@ -258,11 +258,22 @@ export type ModelListItem = {
   object?: string;
   created?: number;
   owned_by?: string;
+  quota_cost?: number;
 };
 
 export type ModelListResponse = {
   object: string;
   data: ModelListItem[];
+};
+
+export type ModelQuotaCostItem = {
+  model: string;
+  quota_cost: number;
+};
+
+export type ModelQuotaCostResponse = {
+  items: ModelQuotaCostItem[];
+  costs: Record<string, number>;
 };
 
 export type BackgroundTaskStatus<T = unknown> = {
@@ -659,6 +670,10 @@ export async function fetchMe() {
 
 export async function fetchAvailableModels() {
   return httpRequest<ModelListResponse>("/v1/models");
+}
+
+export async function fetchModelQuotaCosts() {
+  return httpRequest<ModelQuotaCostResponse>("/api/model-quota-costs");
 }
 
 export async function updateMyProfile(payload: { name?: string }) {

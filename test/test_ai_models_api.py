@@ -33,6 +33,18 @@ class FakeChannelService:
         ]
 
 
+class FakeModelService:
+    def quota_cost(self, model: str) -> int:
+        return {"gpt-image-2": 3, "gemini-3.1-flash-image": 2}.get(model, 1)
+
+    def list_quota_costs(self) -> dict[str, int]:
+        return {
+            "gemini-3.1-flash-image": 2,
+            "gpt-5.5": 1,
+            "gpt-image-2": 3,
+        }
+
+
 class AiModelsApiTests(unittest.TestCase):
     def test_v1_models_only_returns_models_from_enabled_channels(self) -> None:
         app = FastAPI()
@@ -41,15 +53,37 @@ class AiModelsApiTests(unittest.TestCase):
         with (
             mock.patch.object(api_ai, "require_identity", return_value={"id": "user-a", "role": "user"}),
             mock.patch.object(api_ai, "channel_service", FakeChannelService()),
+            mock.patch.object(api_ai, "model_service", FakeModelService()),
         ):
             response = TestClient(app).get("/v1/models", headers={"Authorization": "Bearer user-token"})
 
         self.assertEqual(response.status_code, 200, response.text)
-        model_ids = [item["id"] for item in response.json()["data"]]
+        models = response.json()["data"]
+        model_ids = [item["id"] for item in models]
+        quota_costs = {item["id"]: item["quota_cost"] for item in models}
 
         self.assertEqual(model_ids, ["gpt-5.5", "gpt-image-2", "gemini-3.1-flash-image"])
+        self.assertEqual(quota_costs["gpt-5.5"], 1)
+        self.assertEqual(quota_costs["gpt-image-2"], 3)
+        self.assertEqual(quota_costs["gemini-3.1-flash-image"], 2)
         self.assertNotIn("gemini-3-pro", model_ids)
         self.assertNotIn("disabled-only-model", model_ids)
+
+    def test_model_quota_costs_returns_cost_mapping(self) -> None:
+        app = FastAPI()
+        app.include_router(api_ai.create_router())
+
+        with (
+            mock.patch.object(api_ai, "require_identity", return_value={"id": "user-a", "role": "user"}),
+            mock.patch.object(api_ai, "model_service", FakeModelService()),
+        ):
+            response = TestClient(app).get("/api/model-quota-costs", headers={"Authorization": "Bearer user-token"})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["costs"]["gpt-image-2"], 3)
+        self.assertEqual(payload["costs"]["gemini-3.1-flash-image"], 2)
+        self.assertIn({"model": "gpt-5.5", "quota_cost": 1}, payload["items"])
 
 
 if __name__ == "__main__":

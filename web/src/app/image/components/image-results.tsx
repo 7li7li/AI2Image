@@ -228,7 +228,7 @@ export function ImageResults({
 
         return (
           <section key={turn.id} className="group overflow-hidden rounded-lg border border-white/70 bg-white/46 shadow-sm">
-            <div className="border-b border-rose-100/70 bg-white/56 px-4 py-3">
+            <div className="bg-white/56 px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="mb-2 flex flex-wrap gap-2 text-[11px] font-medium text-stone-400">
@@ -243,9 +243,9 @@ export function ImageResults({
                   <div className="pointer-events-none flex items-center gap-1.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="ghost"
                     size="icon"
-                    className="size-8 rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
+                    className="size-8 rounded-full text-stone-500 hover:bg-stone-100 hover:text-stone-800"
                     onClick={() => onRegenerate(selectedConversation.id, turn)}
                     disabled={turn.status === "queued" || turn.status === "generating"}
                     title="重新生成"
@@ -255,9 +255,9 @@ export function ImageResults({
                   </Button>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="ghost"
                     size="icon"
-                    className="size-8 rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
+                    className="size-8 rounded-full text-stone-500 hover:bg-stone-100 hover:text-stone-800"
                     onClick={() => void onDeleteTurn(selectedConversation.id, turn.id)}
                     disabled={turn.status === "queued" || turn.status === "generating"}
                     title="删除"
@@ -267,9 +267,9 @@ export function ImageResults({
                   </Button>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="ghost"
                     size="icon"
-                    className="size-8 rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
+                    className="size-8 rounded-full text-stone-500 hover:bg-stone-100 hover:text-stone-800"
                     onClick={() => void copyTurnPrompt(turn.prompt)}
                     title="复制"
                     aria-label="复制"
@@ -278,9 +278,9 @@ export function ImageResults({
                   </Button>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="ghost"
                     size="icon"
-                    className="size-8 rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
+                    className="size-8 rounded-full text-stone-500 hover:bg-stone-100 hover:text-stone-800"
                     onClick={() => void shareTurnPrompt(turn)}
                     title="分享"
                     aria-label="分享"
@@ -314,9 +314,9 @@ export function ImageResults({
                         />
                       </button>
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
-                        className="rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
+                        className="rounded-full text-stone-600 hover:bg-stone-100 hover:text-stone-900"
                         onClick={() => onContinueEdit(selectedConversation.id, image)}
                       >
                         <Sparkles className="size-4" />
@@ -374,9 +374,9 @@ export function ImageResults({
                         </div>
                         <div className="flex shrink-0 items-center gap-1.5">
                           <Button
-                            variant="outline"
+                            variant="ghost"
                             size="sm"
-                            className="rounded-lg border-rose-100 bg-white/85 text-stone-700 hover:bg-white"
+                            className="rounded-full text-stone-600 hover:bg-stone-100 hover:text-stone-900"
                             onClick={() => onContinueEdit(selectedConversation.id, image)}
                           >
                             <Sparkles className="size-4" />

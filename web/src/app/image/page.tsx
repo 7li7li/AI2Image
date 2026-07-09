@@ -34,6 +34,7 @@ import {
   createImageGenerationTask,
   fetchBackgroundTask,
   fetchAvailableModels,
+  fetchModelQuotaCosts,
   fetchMyImages,
   polishImagePrompt,
   type BackgroundTaskStatus,
@@ -87,6 +88,41 @@ type PreparedReferenceImage = {
   referenceImage: StoredReferenceImage;
   file: File;
 };
+
+function normalizeQuotaCost(value: unknown) {
+  const parsed = Number(value ?? 1);
+  if (!Number.isFinite(parsed)) {
+    return 1;
+  }
+  return Math.max(0, Math.ceil(parsed));
+}
+
+function buildModelQuotaCosts(models: Array<{ id?: string; quota_cost?: number }>) {
+  const costs: Record<string, number> = {};
+  for (const model of models) {
+    const modelId = String(model.id || "").trim().toLowerCase();
+    if (modelId) {
+      costs[modelId] = normalizeQuotaCost(model.quota_cost);
+    }
+  }
+  return costs;
+}
+
+function normalizeModelQuotaCostMap(costs: Record<string, number> | undefined) {
+  const normalized: Record<string, number> = {};
+  for (const [model, cost] of Object.entries(costs || {})) {
+    const modelId = model.trim().toLowerCase();
+    if (modelId) {
+      normalized[modelId] = normalizeQuotaCost(cost);
+    }
+  }
+  return normalized;
+}
+
+function quotaCostForModel(costs: Record<string, number>, model: string) {
+  const modelId = model.trim().toLowerCase();
+  return modelId ? costs[modelId] ?? 1 : 1;
+}
 
 function getScopedStorageKey(baseKey: string, ownerKey: string) {
   return ownerKey ? `${baseKey}:${ownerKey}` : baseKey;
@@ -426,6 +462,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   const [imageTransparentBackground, setImageTransparentBackground] = useState(DEFAULT_IMAGE_TRANSPARENT_BACKGROUND);
   const [selectedImageModel, setSelectedImageModel] = useState("");
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [modelQuotaCosts, setModelQuotaCosts] = useState<Record<string, number>>({});
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [referenceImageFiles, setReferenceImageFiles] = useState<File[]>([]);
   const [referenceImages, setReferenceImages] = useState<StoredReferenceImage[]>([]);
@@ -488,6 +525,10 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     }
     return selectableImageModels[0] || "";
   }, [selectableImageModels, selectedImageModel]);
+  const activeImageQuotaCost = useMemo(
+    () => quotaCostForModel(modelQuotaCosts, activeImageModel),
+    [activeImageModel, modelQuotaCosts],
+  );
   const parsedCount = useMemo(() => Math.max(1, Math.min(10, Number(imageCount) || 1)), [imageCount]);
   const selectedConversation = useMemo(
     () => conversations.find((item) => item.id === selectedConversationId) ?? null,
@@ -512,17 +553,32 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetchAvailableModels()
-      .then((payload) => {
+    const loadModels = async () => {
+      try {
+        const modelsPayload = await fetchAvailableModels();
         if (!cancelled) {
-          setAvailableModels(payload.data.map((item) => item.id).filter(Boolean));
+          setAvailableModels(modelsPayload.data.map((item) => item.id).filter(Boolean));
+          setModelQuotaCosts(buildModelQuotaCosts(modelsPayload.data));
         }
-      })
-      .catch(() => {
+        try {
+          const costsPayload = await fetchModelQuotaCosts();
+          if (!cancelled) {
+            setModelQuotaCosts((current) => ({
+              ...current,
+              ...normalizeModelQuotaCostMap(costsPayload.costs),
+            }));
+          }
+        } catch {
+          // Keep quota costs returned by /v1/models for older deployments.
+        }
+      } catch {
         if (!cancelled) {
           setAvailableModels([]);
+          setModelQuotaCosts({});
         }
-      });
+      }
+    };
+    void loadModels();
     return () => {
       cancelled = true;
     };
@@ -1536,6 +1592,8 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
                   imageModeration={imageModeration}
                   imageTransparentBackground={imageTransparentBackground}
                   selectedImageModel={activeImageModel}
+                  selectedImageQuotaCost={activeImageQuotaCost}
+                  imageModelQuotaCosts={modelQuotaCosts}
                   imageModelOptions={selectableImageModels}
                   referenceImages={referenceImages}
                   textareaRef={textareaRef}

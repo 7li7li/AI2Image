@@ -1,21 +1,25 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from services.channel_service import (
     ChannelService,
+    DEFAULT_CHANNEL_TIMEOUT,
     DEFAULT_GEMINI_BASE_URL,
     DEFAULT_GEMINI_MODELS,
     GEMINI_CHANNEL_TYPE,
     _inline_data_from_part,
 )
+from services.storage.json_storage import JSONStorageBackend
 
 
 class GeminiChannelServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.service = object.__new__(ChannelService)
 
-    def test_normalize_preserves_gemini_channel_type_and_default_base_url(self) -> None:
+    def test_normalize_preserves_gemini_channel_type_and_empty_base_url(self) -> None:
         channel = self.service._normalize(
             {
                 "type": GEMINI_CHANNEL_TYPE,
@@ -27,8 +31,24 @@ class GeminiChannelServiceTests(unittest.TestCase):
         self.assertIsNotNone(channel)
         assert channel is not None
         self.assertEqual(channel["type"], GEMINI_CHANNEL_TYPE)
-        self.assertEqual(channel["base_url"], DEFAULT_GEMINI_BASE_URL)
+        self.assertEqual(channel["base_url"], "")
         self.assertEqual(channel["models"], ["gemini-3.5-flash"])
+
+    def test_create_gemini_channel_allows_empty_base_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = ChannelService(JSONStorageBackend(Path(tmp_dir) / "storage.json"))
+
+            channel = service.create_channel(
+                {
+                    "type": GEMINI_CHANNEL_TYPE,
+                    "api_key": "gemini-key",
+                    "models": ["gemini-3.5-flash"],
+                }
+            )
+
+        self.assertEqual(channel["type"], GEMINI_CHANNEL_TYPE)
+        self.assertEqual(channel["base_url"], "")
+        self.assertEqual(channel["timeout"], DEFAULT_CHANNEL_TIMEOUT)
 
     def test_normalize_defaults_models_by_channel_type(self) -> None:
         gemini_channel = self.service._normalize(
@@ -53,6 +73,13 @@ class GeminiChannelServiceTests(unittest.TestCase):
         self.assertNotIn("gemini-3-pro", openai_channel["models"])
 
     def test_gemini_url_adds_v1beta_for_top_level_domains(self) -> None:
+        self.assertEqual(
+            ChannelService._gemini_url(
+                {"base_url": ""},
+                "/models/gemini-2.5-flash-image:generateContent",
+            ),
+            f"{DEFAULT_GEMINI_BASE_URL}/models/gemini-2.5-flash-image:generateContent",
+        )
         self.assertEqual(
             ChannelService._gemini_url(
                 {"base_url": "https://generativelanguage.googleapis.com"},

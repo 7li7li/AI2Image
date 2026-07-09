@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from services.channel_service import channel_service
@@ -9,6 +10,8 @@ from services.config import config
 MODEL_PRICING_KEY = "model_pricing"
 TOKEN_BILLING_MODE = "tokens"
 FIXED_BILLING_MODE = "fixed"
+DEFAULT_BILLING_MODE = FIXED_BILLING_MODE
+DEFAULT_MODEL_PRICE = 1.0
 DEFAULT_CURRENCY = "USD"
 
 
@@ -41,15 +44,25 @@ def _models(value: object) -> list[str]:
 
 def normalize_model_pricing(model: str, raw: object | None = None) -> dict[str, object]:
     data = dict(raw) if isinstance(raw, dict) else {}
-    billing_mode = _clean(data.get("billing_mode") or data.get("quota_type") or TOKEN_BILLING_MODE).lower()
-    if billing_mode not in {TOKEN_BILLING_MODE, FIXED_BILLING_MODE}:
+    raw_billing_mode = _clean(data.get("billing_mode") or data.get("quota_type")).lower()
+    if raw_billing_mode in {TOKEN_BILLING_MODE, FIXED_BILLING_MODE}:
+        billing_mode = raw_billing_mode
+    elif any(key in data for key in ("input_price_per_million", "output_price_per_million", "model_ratio", "completion_ratio")):
         billing_mode = TOKEN_BILLING_MODE
+    else:
+        billing_mode = DEFAULT_BILLING_MODE
+    if billing_mode not in {TOKEN_BILLING_MODE, FIXED_BILLING_MODE}:
+        billing_mode = DEFAULT_BILLING_MODE
 
     input_price = _float(data.get("input_price_per_million"))
     output_price = _float(data.get("output_price_per_million"))
     model_ratio = _float(data.get("model_ratio"), 1.0)
     completion_ratio = _float(data.get("completion_ratio"), 1.0)
-    model_price = _float(data.get("model_price") if "model_price" in data else data.get("fixed_price"))
+    default_model_price = DEFAULT_MODEL_PRICE if billing_mode == FIXED_BILLING_MODE else 0.0
+    model_price = _float(
+        data.get("model_price") if "model_price" in data else data.get("fixed_price"),
+        default_model_price,
+    )
 
     if input_price > 0 and output_price <= 0 and completion_ratio > 0:
         output_price = input_price * completion_ratio
@@ -152,8 +165,9 @@ class ModelService:
         if not normalized_model:
             raise ValueError("model is required")
         pricing = self._pricing_map()
-        current = pricing.get(normalized_model) or normalize_model_pricing(normalized_model)
-        pricing[normalized_model] = normalize_model_pricing(normalized_model, {**current, **updates})
+        current = pricing.get(normalized_model)
+        next_data = {**current, **updates} if current is not None else dict(updates)
+        pricing[normalized_model] = normalize_model_pricing(normalized_model, next_data)
         self._save_pricing_map(pricing)
         return pricing[normalized_model]
 
@@ -186,6 +200,27 @@ class ModelService:
             ) * float(pricing.get("model_ratio") or 1.0) * ratio
             unit = "quota"
         return {"model": model, "amount": round(amount, 8), "unit": unit, "pricing": pricing}
+
+    def quota_cost(self, model: str) -> int:
+        pricing = self.get_pricing(model)
+        if not bool(pricing.get("enabled", True)):
+            return 0
+
+        if pricing.get("billing_mode") == FIXED_BILLING_MODE:
+            amount = float(pricing.get("model_price") or 0.0)
+        else:
+            amount = float(pricing.get("model_price") or pricing.get("model_ratio") or DEFAULT_MODEL_PRICE)
+        if amount <= 0:
+            return 0
+        return max(1, int(math.ceil(amount)))
+
+    def list_quota_costs(self) -> dict[str, int]:
+        models = {
+            str(item.get("model") or "").strip()
+            for item in self.list_catalog().get("items", [])
+            if isinstance(item, dict) and str(item.get("model") or "").strip()
+        }
+        return {model: self.quota_cost(model) for model in sorted(models, key=lambda item: item.lower())}
 
 
 model_service = ModelService(channel_service, config)

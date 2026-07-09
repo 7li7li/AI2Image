@@ -153,13 +153,31 @@ function RedeemCodesContent() {
             批量生成兑换码
           </div>
           <div className="grid gap-3 md:grid-cols-[120px_120px_120px_120px_180px_1fr_auto]">
-            <Input type="number" value={form.quota} onChange={(event) => setForm((current) => ({ ...current, quota: event.target.value }))} placeholder="额度" className="h-10 rounded-xl border-rose-100 bg-white" />
-            <Input type="number" value={form.count} onChange={(event) => setForm((current) => ({ ...current, count: event.target.value }))} placeholder="数量" className="h-10 rounded-xl border-rose-100 bg-white" />
-            <Input type="number" value={form.max_uses} onChange={(event) => setForm((current) => ({ ...current, max_uses: event.target.value }))} placeholder="次数" className="h-10 rounded-xl border-rose-100 bg-white" />
-            <Input type="number" min="0" value={form.valid_months} onChange={(event) => setForm((current) => ({ ...current, valid_months: event.target.value }))} placeholder="有效月数" className="h-10 rounded-xl border-rose-100 bg-white" />
-            <Input value={form.expires_at} onChange={(event) => setForm((current) => ({ ...current, expires_at: event.target.value }))} placeholder="过期时间，可空" className="h-10 rounded-xl border-rose-100 bg-white" />
-            <Input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder="备注" className="h-10 rounded-xl border-rose-100 bg-white" />
-            <Button className="h-10 rounded-xl bg-rose-500 text-white hover:bg-rose-600" onClick={() => void handleCreate()}>
+            <label className="space-y-1.5">
+              <span className="block text-xs font-medium text-stone-500">额度</span>
+              <Input type="number" value={form.quota} onChange={(event) => setForm((current) => ({ ...current, quota: event.target.value }))} placeholder="额度" className="h-10 rounded-xl border-rose-100 bg-white" />
+            </label>
+            <label className="space-y-1.5">
+              <span className="block text-xs font-medium text-stone-500">数量</span>
+              <Input type="number" value={form.count} onChange={(event) => setForm((current) => ({ ...current, count: event.target.value }))} placeholder="数量" className="h-10 rounded-xl border-rose-100 bg-white" />
+            </label>
+            <label className="space-y-1.5">
+              <span className="block text-xs font-medium text-stone-500">使用次数</span>
+              <Input type="number" value={form.max_uses} onChange={(event) => setForm((current) => ({ ...current, max_uses: event.target.value }))} placeholder="次数" className="h-10 rounded-xl border-rose-100 bg-white" />
+            </label>
+            <label className="space-y-1.5">
+              <span className="block text-xs font-medium text-stone-500">有效月数</span>
+              <Input type="number" min="0" value={form.valid_months} onChange={(event) => setForm((current) => ({ ...current, valid_months: event.target.value }))} placeholder="有效月数" className="h-10 rounded-xl border-rose-100 bg-white" />
+            </label>
+            <label className="space-y-1.5">
+              <span className="block text-xs font-medium text-stone-500">过期时间</span>
+              <Input value={form.expires_at} onChange={(event) => setForm((current) => ({ ...current, expires_at: event.target.value }))} placeholder="可空" className="h-10 rounded-xl border-rose-100 bg-white" />
+            </label>
+            <label className="space-y-1.5">
+              <span className="block text-xs font-medium text-stone-500">备注</span>
+              <Input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder="备注" className="h-10 rounded-xl border-rose-100 bg-white" />
+            </label>
+            <Button className="h-10 rounded-xl bg-rose-500 text-white hover:bg-rose-600 md:self-end" onClick={() => void handleCreate()}>
               生成
             </Button>
           </div>

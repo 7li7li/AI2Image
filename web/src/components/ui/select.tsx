@@ -29,7 +29,7 @@ function SelectTrigger({
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
-        "border-input bg-white/78 data-[placeholder]:text-muted-foreground flex h-11 w-full items-center justify-between gap-2 rounded-lg border px-4 py-2 text-sm whitespace-nowrap shadow-sm outline-none focus-visible:border-rose-200 focus-visible:ring-[3px] focus-visible:ring-rose-100/80 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+        "border-input bg-white/78 data-[placeholder]:text-muted-foreground flex h-11 w-full items-center justify-between gap-2 rounded-lg border px-4 py-2 text-sm whitespace-nowrap shadow-sm outline-none focus-visible:border-rose-200 focus-visible:ring-[3px] focus-visible:ring-rose-100/80 disabled:cursor-not-allowed disabled:opacity-50 [&>[data-slot=select-value]]:line-clamp-1",
         className,
       )}
       {...props}
@@ -126,11 +126,16 @@ function SelectLabel({
   );
 }
 
+type SelectItemProps = React.ComponentProps<typeof SelectPrimitive.Item> & {
+  icon?: React.ReactNode;
+};
+
 function SelectItem({
   className,
   children,
+  icon,
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Item>) {
+}: SelectItemProps) {
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
@@ -145,7 +150,8 @@ function SelectItem({
           <Check className="size-4" />
         </SelectPrimitive.ItemIndicator>
       </span>
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      {icon ? <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span> : null}
+      <SelectPrimitive.ItemText className="min-w-0 flex-1">{children}</SelectPrimitive.ItemText>
     </SelectPrimitive.Item>
   );
 }

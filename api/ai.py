@@ -16,6 +16,7 @@ from services.channel_service import channel_service
 from services.config import config
 from services.image_service import record_image_result
 from services.log_service import LOG_TYPE_CALL, log_service
+from services.model_service import model_service
 from services.observability import request_id_from_request
 
 
@@ -154,17 +155,20 @@ def create_router() -> APIRouter:
     def reserve_image_quota(identity: dict[str, object], amount: int, request_id: str) -> str | None:
         if identity.get("role") != "user":
             return None
+        if amount <= 0:
+            return None
         try:
             auth_service.reserve_quota(str(identity.get("id") or ""), amount, request_id)
         except ValueError as exc:
             raise HTTPException(status_code=429, detail={"error": str(exc)}) from exc
         return request_id
 
-    def finalize_quota(request_id: str | None, count: int) -> None:
+    def finalize_quota(request_id: str | None, count: int, quota_cost: int) -> None:
         if not request_id:
             return
-        if count > 0:
-            auth_service.confirm_quota(request_id, count)
+        amount = max(0, int(count or 0)) * max(0, int(quota_cost or 0))
+        if amount > 0:
+            auth_service.confirm_quota(request_id, amount)
         else:
             auth_service.release_quota(request_id)
 
@@ -177,6 +181,7 @@ def create_router() -> APIRouter:
             model: str,
             size: str | None,
             channel: str,
+            quota_cost: int,
             request_id: str,
     ) -> int:
         count = successful_image_count(result)
@@ -190,7 +195,7 @@ def create_router() -> APIRouter:
             model=model,
             size=size,
             channel=channel,
-            quota_cost=image_quota_cost(identity, channel),
+            quota_cost=quota_cost,
             request_id=request_id,
         )
         return count
@@ -225,15 +230,19 @@ def create_router() -> APIRouter:
             user_email=str(identity.get("email") or ""),
         )
 
-    def image_quota_cost(identity: dict[str, object], channel: str) -> int:
+    def model_quota_cost(identity: dict[str, object], model: str) -> int:
         if identity.get("role") != "user":
             return 0
-        return 1
+        normalized_model = str(model or "").strip()
+        if not normalized_model:
+            return 1
+        return model_service.quota_cost(normalized_model)
 
-    def chat_quota_cost(identity: dict[str, object], channel: str) -> int:
-        if identity.get("role") != "user":
-            return 0
-        return 1
+    def image_quota_cost(identity: dict[str, object], model: str) -> int:
+        return model_quota_cost(identity, model)
+
+    def chat_quota_cost(identity: dict[str, object], model: str) -> int:
+        return model_quota_cost(identity, model)
 
     def task_owner_key(identity: dict[str, object]) -> str:
         subject = str(identity.get("id") or identity.get("email") or identity.get("name") or "").strip()
@@ -247,6 +256,7 @@ def create_router() -> APIRouter:
             model: str,
             size: str | None,
             quota_request_id: str | None,
+            quota_cost: int,
             request_id: str,
     ) -> dict[str, object]:
         try:
@@ -270,9 +280,10 @@ def create_router() -> APIRouter:
                     model=model,
                     size=size,
                     channel=channel_name,
+                    quota_cost=quota_cost,
                     request_id=request_id,
                 )
-                finalize_quota(quota_request_id, count)
+                finalize_quota(quota_request_id, count, quota_cost)
                 return result
             log_channel_failure(
                 identity=identity,
@@ -296,6 +307,7 @@ def create_router() -> APIRouter:
             model: str,
             size: str | None,
             quota_request_id: str | None,
+            quota_cost: int,
             request_id: str,
     ) -> dict[str, object]:
         try:
@@ -319,9 +331,10 @@ def create_router() -> APIRouter:
                     model=model,
                     size=size,
                     channel=channel_name,
+                    quota_cost=quota_cost,
                     request_id=request_id,
                 )
-                finalize_quota(quota_request_id, count)
+                finalize_quota(quota_request_id, count, quota_cost)
                 return result
             log_channel_failure(
                 identity=identity,
@@ -343,6 +356,7 @@ def create_router() -> APIRouter:
             identity: dict[str, object],
             payload: dict[str, object],
             quota_request_id: str | None,
+            quota_cost: int,
             request_id: str,
     ) -> dict[str, object]:
         quota_finalized = False
@@ -407,7 +421,7 @@ def create_router() -> APIRouter:
                 request_id=request_id,
             )
             if quota_request_id:
-                auth_service.confirm_quota(quota_request_id, 1)
+                auth_service.confirm_quota(quota_request_id, quota_cost)
                 quota_finalized = True
             return {
                 "content": content,
@@ -490,6 +504,7 @@ def create_router() -> APIRouter:
         require_identity(authorization)
         items: list[dict[str, object]] = []
         seen: set[str] = set()
+        quota_costs = model_service.list_quota_costs()
         for channel in channel_service.list_channels():
             if not channel.get("enabled"):
                 continue
@@ -504,9 +519,19 @@ def create_router() -> APIRouter:
                         "object": "model",
                         "created": 0,
                         "owned_by": str(channel.get("name") or "channel"),
+                        "quota_cost": quota_costs.get(model_id, model_service.quota_cost(model_id)),
                     }
                 )
         return {"object": "list", "data": items}
+
+    @router.get("/api/model-quota-costs")
+    async def list_model_quota_costs(authorization: str | None = Header(default=None)):
+        require_identity(authorization)
+        costs = model_service.list_quota_costs()
+        return {
+            "items": [{"model": model, "quota_cost": cost} for model, cost in costs.items()],
+            "costs": costs,
+        }
 
     @router.post("/v1/images/generations")
     async def generate_images(
@@ -522,7 +547,8 @@ def create_router() -> APIRouter:
         payload["model"] = body.model or config.default_image_model
         payload["base_url"] = resolve_image_base_url(request)
         payload["request_id"] = request_id
-        quota_request_id = reserve_image_quota(identity, int(body.n or 1), request_id)
+        quota_cost = image_quota_cost(identity, str(payload.get("model") or ""))
+        quota_request_id = reserve_image_quota(identity, int(body.n or 1) * quota_cost, request_id)
         return await run_in_threadpool(
             execute_generation_request,
             identity=identity,
@@ -531,6 +557,7 @@ def create_router() -> APIRouter:
             model=str(payload.get("model") or ""),
             size=body.size,
             quota_request_id=quota_request_id,
+            quota_cost=quota_cost,
             request_id=request_id,
         )
 
@@ -585,7 +612,8 @@ def create_router() -> APIRouter:
             "base_url": resolve_image_base_url(request),
             "request_id": request_id,
         }
-        quota_request_id = reserve_image_quota(identity, int(n or 1), request_id)
+        quota_cost = image_quota_cost(identity, str(payload.get("model") or ""))
+        quota_request_id = reserve_image_quota(identity, int(n or 1) * quota_cost, request_id)
         return await run_in_threadpool(
             execute_edit_request,
             identity=identity,
@@ -594,6 +622,7 @@ def create_router() -> APIRouter:
             model=str(payload.get("model") or ""),
             size=size,
             quota_request_id=quota_request_id,
+            quota_cost=quota_cost,
             request_id=request_id,
         )
 
@@ -683,7 +712,8 @@ def create_router() -> APIRouter:
         payload["model"] = body.model or config.default_image_model
         payload["base_url"] = resolve_image_base_url(request)
         payload["request_id"] = request_id
-        quota_request_id = reserve_image_quota(identity, int(body.n or 1), request_id)
+        quota_cost = image_quota_cost(identity, str(payload.get("model") or ""))
+        quota_request_id = reserve_image_quota(identity, int(body.n or 1) * quota_cost, request_id)
         return submit_background_task(
             quota_request_id=quota_request_id,
             task_id=request_id,
@@ -696,6 +726,7 @@ def create_router() -> APIRouter:
                 model=str(payload.get("model") or ""),
                 size=body.size,
                 quota_request_id=quota_request_id,
+                quota_cost=quota_cost,
                 request_id=request_id,
             ),
         )
@@ -760,7 +791,8 @@ def create_router() -> APIRouter:
             "base_url": resolve_image_base_url(request),
             "request_id": request_id,
         }
-        quota_request_id = reserve_image_quota(identity, int(n or 1), request_id)
+        quota_cost = image_quota_cost(identity, str(payload.get("model") or ""))
+        quota_request_id = reserve_image_quota(identity, int(n or 1) * quota_cost, request_id)
         return submit_background_task(
             quota_request_id=quota_request_id,
             task_id=request_id,
@@ -773,6 +805,7 @@ def create_router() -> APIRouter:
                 model=str(payload.get("model") or ""),
                 size=size,
                 quota_request_id=quota_request_id,
+                quota_cost=quota_cost,
                 request_id=request_id,
             ),
         )
@@ -848,10 +881,11 @@ def create_router() -> APIRouter:
             "base_url": resolve_image_base_url(request),
             "request_id": request_id,
         }
+        quota_cost = chat_quota_cost(identity, str(payload.get("model") or ""))
         quota_request_id = None
-        if identity.get("role") == "user":
+        if identity.get("role") == "user" and quota_cost > 0:
             try:
-                auth_service.reserve_quota(str(identity.get("id") or ""), chat_quota_cost(identity, "chat"), request_id)
+                auth_service.reserve_quota(str(identity.get("id") or ""), quota_cost, request_id)
                 quota_request_id = request_id
             except ValueError as exc:
                 raise HTTPException(status_code=429, detail={"error": str(exc)}) from exc
@@ -865,6 +899,7 @@ def create_router() -> APIRouter:
                 identity=identity,
                 payload=payload,
                 quota_request_id=quota_request_id,
+                quota_cost=quota_cost,
                 request_id=request_id,
             ),
         )
@@ -898,10 +933,11 @@ def create_router() -> APIRouter:
             "base_url": resolve_image_base_url(request),
             "request_id": request_id,
         }
+        quota_cost = chat_quota_cost(identity, str(payload.get("model") or ""))
         quota_request_id = None
-        if identity.get("role") == "user":
+        if identity.get("role") == "user" and quota_cost > 0:
             try:
-                auth_service.reserve_quota(str(identity.get("id") or ""), chat_quota_cost(identity, "chat"), request_id)
+                auth_service.reserve_quota(str(identity.get("id") or ""), quota_cost, request_id)
                 quota_request_id = request_id
             except ValueError as exc:
                 raise HTTPException(status_code=429, detail={"error": str(exc)}) from exc
@@ -957,7 +993,7 @@ def create_router() -> APIRouter:
                             request_id=request_id,
                         )
                         if quota_request_id:
-                            auth_service.confirm_quota(quota_request_id, 1)
+                            auth_service.confirm_quota(quota_request_id, quota_cost)
                         yield sse_event(
                             "done",
                             {
@@ -1019,10 +1055,7 @@ def create_router() -> APIRouter:
                 request_id=request_id,
             )
             if quota_request_id:
-                if count > 0:
-                    auth_service.confirm_quota(quota_request_id, count)
-                else:
-                    auth_service.release_quota(quota_request_id)
+                finalize_quota(quota_request_id, count, quota_cost)
             return response_payload
         except Exception:
             if quota_request_id:

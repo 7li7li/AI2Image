@@ -39,12 +39,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createChatCompletionTask,
   fetchAvailableModels,
   fetchBackgroundTask,
+  fetchModelQuotaCosts,
   streamBackgroundTask,
   streamChatCompletion,
   type ChatCompletionContent,
@@ -94,6 +95,41 @@ type ChatAttachmentLightboxImage = {
   sizeLabel?: string;
   dimensions?: string;
 };
+
+function normalizeQuotaCost(value: unknown) {
+  const parsed = Number(value ?? 1);
+  if (!Number.isFinite(parsed)) {
+    return 1;
+  }
+  return Math.max(0, Math.ceil(parsed));
+}
+
+function buildModelQuotaCosts(models: Array<{ id?: string; quota_cost?: number }>) {
+  const costs: Record<string, number> = {};
+  for (const model of models) {
+    const modelId = String(model.id || "").trim().toLowerCase();
+    if (modelId) {
+      costs[modelId] = normalizeQuotaCost(model.quota_cost);
+    }
+  }
+  return costs;
+}
+
+function normalizeModelQuotaCostMap(costs: Record<string, number> | undefined) {
+  const normalized: Record<string, number> = {};
+  for (const [model, cost] of Object.entries(costs || {})) {
+    const modelId = model.trim().toLowerCase();
+    if (modelId) {
+      normalized[modelId] = normalizeQuotaCost(cost);
+    }
+  }
+  return normalized;
+}
+
+function quotaCostForModel(costs: Record<string, number>, model: string) {
+  const modelId = model.trim().toLowerCase();
+  return modelId ? costs[modelId] ?? 1 : 1;
+}
 
 function getScopedStorageKey(baseKey: string, ownerKey: string) {
   return ownerKey ? `${baseKey}:${ownerKey}` : baseKey;
@@ -390,6 +426,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [selectedTextModel, setSelectedTextModel] = useState("");
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [modelQuotaCosts, setModelQuotaCosts] = useState<Record<string, number>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: "one"; id: string } | { type: "all" } | null>(null);
 
   const defaultTextModel = useSiteSettingsStore((state) => state.settings.default_text_model || "gpt-5.5");
@@ -432,6 +469,10 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
     }
     return selectableTextModels[0] || "";
   }, [defaultTextModel, selectableTextModels, selectedConversation?.model, selectedTextModel]);
+  const activeTextQuotaCost = useMemo(
+    () => quotaCostForModel(modelQuotaCosts, activeTextModel),
+    [activeTextModel, modelQuotaCosts],
+  );
   const deleteConfirmTitle = deleteConfirm?.type === "all" ? "清空对话记录" : deleteConfirm?.type === "one" ? "删除对话" : "";
   const deleteConfirmDescription =
     deleteConfirm?.type === "all"
@@ -446,17 +487,32 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetchAvailableModels()
-      .then((payload) => {
+    const loadModels = async () => {
+      try {
+        const modelsPayload = await fetchAvailableModels();
         if (!cancelled) {
-          setAvailableModels(payload.data.map((item) => item.id).filter(Boolean));
+          setAvailableModels(modelsPayload.data.map((item) => item.id).filter(Boolean));
+          setModelQuotaCosts(buildModelQuotaCosts(modelsPayload.data));
         }
-      })
-      .catch(() => {
+        try {
+          const costsPayload = await fetchModelQuotaCosts();
+          if (!cancelled) {
+            setModelQuotaCosts((current) => ({
+              ...current,
+              ...normalizeModelQuotaCostMap(costsPayload.costs),
+            }));
+          }
+        } catch {
+          // Keep quota costs returned by /v1/models for older deployments.
+        }
+      } catch {
         if (!cancelled) {
           setAvailableModels([]);
+          setModelQuotaCosts({});
         }
-      });
+      }
+    };
+    void loadModels();
     return () => {
       cancelled = true;
     };
@@ -1266,35 +1322,39 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                       回复中
                     </span>
                   ) : null}
-                  <div className="inline-flex h-8 min-w-0 max-w-[52vw] items-center gap-1.5 rounded-lg border border-stone-200 bg-white/65 px-2 text-xs font-medium text-stone-600 sm:max-w-[360px]">
-                    <ModelIcon
-                      model={activeTextModel}
-                      className="block size-4 shrink-0 translate-y-px"
-                    />
-                    <Select
-                      value={activeTextModel || undefined}
-                      onValueChange={handleTextModelChange}
-                      disabled={selectedConversationSending || selectableTextModels.length === 0}
-                    >
-                      <SelectTrigger className="h-6 min-w-0 flex-1 border-0 bg-transparent px-0 py-0 text-xs font-semibold text-stone-700 shadow-none focus:ring-0 focus-visible:ring-0 [&>svg]:size-3.5">
-                        <SelectValue placeholder="无可用对话模型" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72">
-                        {selectableTextModels.map((model) => (
-                          <SelectItem key={model} value={model}>
-                            {model}
+                  <Select
+                    value={activeTextModel || undefined}
+                    onValueChange={handleTextModelChange}
+                    disabled={selectedConversationSending || selectableTextModels.length === 0}
+                  >
+                    <SelectTrigger className="h-8 w-auto max-w-[52vw] justify-start border-0 bg-transparent px-1.5 py-0 text-xs font-semibold text-stone-700 shadow-none focus:ring-0 focus-visible:ring-0 sm:max-w-[360px] [&>svg]:order-3 [&>svg]:size-3.5">
+                      <ModelIcon
+                        model={activeTextModel}
+                        className="order-1 block size-4 shrink-0 translate-y-px"
+                      />
+                      <span className="order-2 min-w-0 truncate">{activeTextModel || "无可用对话模型"}</span>
+                      <span
+                        className="order-4 inline-flex h-4 shrink-0 items-center gap-1 text-stone-500"
+                        title={`每次成功回复扣除 ${activeTextQuotaCost} 点额度`}
+                      >
+                        <Sparkles className="block size-3.5 shrink-0 translate-y-px text-stone-300" />
+                        <span className="flex h-4 items-center leading-none">{activeTextQuotaCost}/次</span>
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent side="top" align="start" className="max-h-72 min-w-64">
+                      {selectableTextModels.map((model) => {
+                        const quotaCost = quotaCostForModel(modelQuotaCosts, model);
+                        return (
+                          <SelectItem key={model} value={model} className="whitespace-nowrap" icon={<ModelIcon model={model} className="size-4" />}>
+                            <span className="flex min-w-0 items-center justify-between gap-3">
+                              <span className="truncate">{model}</span>
+                              <span className="shrink-0 text-xs font-medium text-stone-400">{quotaCost}/次</span>
+                            </span>
                           </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <span
-                      className="inline-flex h-4 shrink-0 items-center gap-1 border-l border-stone-200 pl-2 text-stone-500"
-                      title="每次成功回复扣除 1 点额度"
-                    >
-                      <Sparkles className="block size-3.5 shrink-0 translate-y-px text-stone-300" />
-                      <span className="flex h-4 items-center leading-none">1/次</span>
-                    </span>
-                  </div>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
                   <Button
                     variant="ghost"
                     size="icon"

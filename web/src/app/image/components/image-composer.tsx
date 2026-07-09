@@ -613,6 +613,8 @@ type ImageComposerProps = {
   imageModeration: ImageModeration;
   imageTransparentBackground: boolean;
   selectedImageModel: string;
+  selectedImageQuotaCost: number;
+  imageModelQuotaCosts: Record<string, number>;
   imageModelOptions: string[];
   referenceImages: Array<{ name: string; dataUrl: string }>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -649,6 +651,8 @@ export function ImageComposer({
   imageModeration,
   imageTransparentBackground,
   selectedImageModel,
+  selectedImageQuotaCost,
+  imageModelQuotaCosts,
   imageModelOptions,
   referenceImages,
   textareaRef,
@@ -823,6 +827,12 @@ export function ImageComposer({
   const imageResolutionCompactLabel = imageResolution === "auto" ? "自动" : imageResolution.toUpperCase();
   const imageQualityLabel = imageQualityOptions.find((option) => option.value === imageQuality)?.label || "自动";
   const activeImageModel = selectedImageModel;
+  const activeImageQuotaCost = Math.max(0, Math.ceil(Number(selectedImageQuotaCost) || 0));
+  const imageQuotaCostForModel = (model: string) => {
+    const modelId = model.trim().toLowerCase();
+    const parsed = Number((modelId ? imageModelQuotaCosts[modelId] : undefined) ?? 1);
+    return Number.isFinite(parsed) ? Math.max(0, Math.ceil(parsed)) : 1;
+  };
   const canSubmit = Boolean(prompt.trim()) && Boolean(activeImageModel) && (mode !== "edit" || referenceImages.length > 0);
   const promptPlaceholder =
     mode === "edit" ? "描述你希望如何修改这张参考图，可直接粘贴图片" : "畅想你想要的画面，可直接粘贴图片";
@@ -1089,12 +1099,12 @@ export function ImageComposer({
 
       <div className="shrink-0 rounded-[24px] border border-stone-200/80 bg-white/95 p-3 shadow-[0_24px_90px_-45px_rgba(15,23,42,0.55)] backdrop-blur-xl">
         <div className="rounded-[18px] bg-white/70">
-          <div className="flex items-start gap-2 px-3 pt-3">
+          <div className="flex items-start gap-2 px-3 pt-3 pb-3">
             <div className="mt-1 flex shrink-0 flex-col items-center gap-2">
               <button
                 type="button"
                 onClick={handlePickReferenceImage}
-                className="grid size-8 place-items-center rounded-lg border border-rose-100 bg-white/85 text-stone-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                className="grid size-8 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-rose-600"
                 aria-label="上传参考图"
                 title="上传参考图"
               >
@@ -1104,7 +1114,7 @@ export function ImageComposer({
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="grid size-8 place-items-center rounded-lg border border-rose-100 bg-white/85 text-stone-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                    className="grid size-8 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-rose-600"
                     aria-label="快捷工具"
                     title="快捷工具"
                   >
@@ -1115,7 +1125,7 @@ export function ImageComposer({
                   side="right"
                   align="start"
                   sideOffset={10}
-                  className="w-[min(620px,calc(100vw-2rem))] border-rose-100 bg-white/95 p-3 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.28)]"
+                  className="w-[min(620px,calc(100vw-2rem))] border-transparent bg-white/95 p-3 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.28)]"
                 >
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                     {QUICK_IMAGE_TOOL_PRESETS.map((item) => {
@@ -1125,10 +1135,10 @@ export function ImageComposer({
                           key={item.label}
                           type="button"
                           onClick={() => handleQuickToolSelect(item)}
-                          className="flex h-20 flex-col items-center justify-center gap-2 rounded-lg border border-rose-100 bg-white/80 px-2 text-center text-sm font-medium text-stone-800 transition hover:border-rose-200 hover:bg-rose-50"
+                          className="flex h-20 flex-col items-center justify-center gap-2 rounded-lg px-2 text-center text-sm font-medium text-stone-800 transition hover:bg-stone-100"
                           title={item.prompt}
                         >
-                          <span className="grid size-8 place-items-center rounded-lg bg-rose-50 text-rose-600">
+                          <span className="grid size-8 place-items-center rounded-full bg-rose-50 text-rose-600">
                             <Icon className="size-4" />
                           </span>
                           <span className="leading-none">{item.label}</span>
@@ -1141,11 +1151,11 @@ export function ImageComposer({
               <button
                 type="button"
                 onClick={() => setIsPromptLibraryOpen(true)}
-                className="grid size-8 place-items-center rounded-lg border border-rose-100 bg-white/85 text-stone-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                className="grid size-8 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-rose-600"
                 aria-label="提示词"
                 title="提示词"
               >
-                <Images className="size-4" />
+                <NotebookPen className="size-4" />
               </button>
             </div>
             <Textarea
@@ -1164,10 +1174,10 @@ export function ImageComposer({
             />
           </div>
 
-          <div className="border-t border-stone-200/70 px-3 py-2.5">
+          <div className="px-3 pt-0 pb-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <div className="flex h-9 items-center gap-1 rounded-lg border border-rose-100 bg-white/72 p-1">
+                <div className="flex h-9 items-center gap-1 rounded-full bg-stone-100/70 p-1">
                   <ModeButton active={mode === "generate"} onClick={() => onModeChange("generate")}>
                     文生图
                   </ModeButton>
@@ -1179,7 +1189,7 @@ export function ImageComposer({
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className="inline-flex h-9 max-w-full items-center gap-2 rounded-lg border border-rose-100 bg-white/72 px-3 text-xs font-bold text-stone-700 transition hover:border-rose-200 hover:bg-white"
+                      className="inline-flex h-9 max-w-full items-center gap-2 rounded-full px-3 text-xs font-bold text-stone-700 transition hover:bg-stone-100"
                     >
                       <SlidersHorizontal className="size-3.5 shrink-0 text-stone-500" />
                       <span className="truncate">{settingsSummaryLabel}</span>
@@ -1318,40 +1328,44 @@ export function ImageComposer({
               </div>
 
               <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-                <div className="inline-flex h-9 max-w-[280px] items-center gap-2 rounded-lg border border-rose-100 bg-white/72 px-3 text-xs font-medium text-stone-600">
-                  <ModelIcon
-                    model={activeImageModel}
-                    className="block size-4 shrink-0 translate-y-px"
-                  />
-                  <Select
-                    value={activeImageModel || undefined}
-                    onValueChange={onImageModelChange}
-                    disabled={imageModelSelectOptions.length === 0}
-                  >
-                    <SelectTrigger className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 py-0 text-xs font-semibold text-stone-700 shadow-none focus:ring-0 focus-visible:ring-0 [&>svg]:size-3.5">
-                      <SelectValue placeholder="无可用图片模型" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-72">
-                      {imageModelSelectOptions.map((model) => (
-                        <SelectItem key={model} value={model}>
-                          {model}
+                <Select
+                  value={activeImageModel || undefined}
+                  onValueChange={onImageModelChange}
+                  disabled={imageModelSelectOptions.length === 0}
+                >
+                  <SelectTrigger className="h-9 w-auto max-w-[280px] justify-start border-0 bg-transparent px-1.5 py-0 text-xs font-semibold text-stone-700 shadow-none focus:ring-0 focus-visible:ring-0 [&>svg]:order-3 [&>svg]:size-3.5">
+                    <ModelIcon
+                      model={activeImageModel}
+                      className="order-1 block size-4 shrink-0 translate-y-px"
+                    />
+                    <span className="order-2 min-w-0 truncate">{activeImageModel || "无可用图片模型"}</span>
+                    <span
+                      className="order-4 inline-flex shrink-0 items-center gap-1 text-stone-500"
+                      title={`每张图片扣除 ${activeImageQuotaCost} 点额度`}
+                    >
+                      <Sparkles className="size-3 shrink-0 text-stone-300" />
+                      {activeImageQuotaCost}/张
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent side="top" align="start" className="max-h-72 min-w-64">
+                    {imageModelSelectOptions.map((model) => {
+                      const quotaCost = imageQuotaCostForModel(model);
+                      return (
+                        <SelectItem key={model} value={model} className="whitespace-nowrap" icon={<ModelIcon model={model} className="size-4" />}>
+                          <span className="flex min-w-0 items-center justify-between gap-3">
+                            <span className="truncate">{model}</span>
+                            <span className="shrink-0 text-xs font-medium text-stone-400">{quotaCost}/张</span>
+                          </span>
                         </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <span
-                    className="inline-flex shrink-0 items-center gap-1 border-l border-rose-100 pl-2 text-stone-500"
-                    title="每张图片扣除 1 点额度"
-                  >
-                    <Sparkles className="size-3 shrink-0 text-stone-300" />
-                    1/张
-                  </span>
-                </div>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
                 <button
                   type="button"
                   onClick={() => void onPolishPrompt()}
                   disabled={!prompt.trim() || isPolishingPrompt}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-rose-100 bg-white/72 px-2.5 text-xs font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-stone-700 transition hover:bg-stone-100 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-stone-300"
                   aria-label="AI 润色当前提示词"
                   title="AI 润色会扣除 1 点额度"
                 >
@@ -1365,7 +1379,7 @@ export function ImageComposer({
                   type="button"
                   onClick={() => void onSubmit()}
                   disabled={!canSubmit}
-                  className="yan-gradient grid size-10 shrink-0 place-items-center rounded-lg text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:brightness-100"
+                  className="yan-gradient grid size-10 shrink-0 place-items-center rounded-full text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:brightness-100"
                   aria-label={mode === "edit" ? "编辑图片" : "生成图片"}
                   title={mode === "edit" ? "编辑图片" : "生成图片"}
                 >
@@ -1394,8 +1408,8 @@ function ModeButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex h-7 items-center rounded-md px-2.5 text-xs font-medium transition",
-        active ? "bg-[#2d1d26] text-white" : "text-stone-600 hover:bg-rose-50",
+        "inline-flex h-7 items-center rounded-full px-2.5 text-xs font-medium transition",
+        active ? "bg-[#2d1d26] text-white" : "text-stone-600 hover:bg-white",
       )}
     >
       {children}
@@ -1507,7 +1521,7 @@ function IconToolButton({
       disabled={disabled}
       aria-label={label}
       title={label}
-      className="grid size-9 place-items-center rounded-lg border border-rose-100 bg-white/72 text-stone-600 transition hover:border-rose-200 hover:bg-white hover:text-rose-600 disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-300"
+      className="grid size-9 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-rose-600 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-stone-300"
     >
       {children}
     </button>

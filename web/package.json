@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prebuild": "node scripts/clean-build.mjs",
     "dev": "next dev --webpack -H 0.0.0.0",
     "build": "next build && node scripts/sync-web-dist.mjs",
     "start": "next start"

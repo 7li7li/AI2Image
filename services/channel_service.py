@@ -26,15 +26,12 @@ OPENAI_CHANNEL_TYPE = "openai_image"
 GEMINI_CHANNEL_TYPE = "gemini"
 SUPPORTED_CHANNEL_TYPES = {OPENAI_CHANNEL_TYPE, GEMINI_CHANNEL_TYPE}
 DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
-DEFAULT_OPENAI_IMAGE_MODELS = ["gpt-image-1", "gpt-image-2"]
+DEFAULT_OPENAI_IMAGE_MODELS = ["gpt-5.5", "gpt-image-2"]
 DEFAULT_GEMINI_MODELS = [
+    "gemini-3-pro-image-preview",
     "gemini-3.5-flash",
-    "gemini-3-pro",
-    "gemini-3.1-flash-image",
-    "gemini-3.1-flash-lite-image",
-    "gemini-3-pro-image",
-    "gemini-2.5-flash-image",
 ]
+DEFAULT_CHANNEL_TIMEOUT = 600
 
 
 def _now_iso() -> str:
@@ -436,8 +433,6 @@ class ChannelService:
         if channel_type not in SUPPORTED_CHANNEL_TYPES:
             channel_type = OPENAI_CHANNEL_TYPE
         base_url = _clean(raw.get("base_url")).rstrip("/")
-        if channel_type == GEMINI_CHANNEL_TYPE and not base_url:
-            base_url = DEFAULT_GEMINI_BASE_URL
         if channel_type == GEMINI_CHANNEL_TYPE and not _clean(raw.get("name")):
             name = "Gemini native channel"
         api_key = _clean(raw.get("api_key"))
@@ -450,9 +445,9 @@ class ChannelService:
         except (TypeError, ValueError):
             priority = 0
         try:
-            timeout = max(5, int(raw.get("timeout") or 60))
+            timeout = max(5, int(raw.get("timeout") or DEFAULT_CHANNEL_TIMEOUT))
         except (TypeError, ValueError):
-            timeout = 60
+            timeout = DEFAULT_CHANNEL_TIMEOUT
         return {
             "id": channel_id,
             "name": name,
@@ -704,7 +699,7 @@ class ChannelService:
         channel = self._normalize({**data, "id": uuid.uuid4().hex[:12], "created_at": _now_iso(), "updated_at": _now_iso()})
         if channel is None:
             raise ValueError("channel payload is invalid")
-        if not _clean(channel.get("base_url")):
+        if channel.get("type") != GEMINI_CHANNEL_TYPE and not _clean(channel.get("base_url")):
             raise ValueError("base_url is required")
         if not _clean(channel.get("api_key")):
             raise ValueError("api_key is required")
@@ -796,7 +791,7 @@ class ChannelService:
         url = self._openai_compatible_url(channel, "/v1/models")
         response = self._session(channel).get(
             url,
-            timeout=int(channel.get("timeout") or 60),
+            timeout=int(channel.get("timeout") or DEFAULT_CHANNEL_TIMEOUT),
         )
         if not response.ok:
             detail = _response_preview(response)
@@ -819,7 +814,7 @@ class ChannelService:
     def _fetch_gemini_channel_models(self, channel: dict[str, object]) -> list[str]:
         response = self._session(channel).get(
             self._gemini_url(channel, "/models?pageSize=1000"),
-            timeout=int(channel.get("timeout") or 60),
+            timeout=int(channel.get("timeout") or DEFAULT_CHANNEL_TIMEOUT),
         )
         if not response.ok:
             raise RuntimeError(f"gemini model list request failed HTTP {response.status_code}: {response.text[:300]}")
@@ -917,7 +912,7 @@ class ChannelService:
                     "models": [],
                     "weight": 1,
                     "priority": 0,
-                    "timeout": 60,
+                    "timeout": DEFAULT_CHANNEL_TIMEOUT,
                     "enabled": False,
                     "has_api_key": False,
                     "created_at": None,
@@ -1345,7 +1340,7 @@ class ChannelService:
         response = self._session(channel).post(
             self._gemini_generate_url(channel, payload.get("model")),
             json=body,
-            timeout=int(channel.get("timeout") or 60),
+            timeout=int(channel.get("timeout") or DEFAULT_CHANNEL_TIMEOUT),
         )
         if not response.ok:
             raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
@@ -1358,7 +1353,7 @@ class ChannelService:
         response = self._session(channel).post(
             self._gemini_generate_url(channel, model),
             json=body,
-            timeout=int(channel.get("timeout") or 60),
+            timeout=int(channel.get("timeout") or DEFAULT_CHANNEL_TIMEOUT),
         )
         if not response.ok:
             raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
@@ -1373,7 +1368,7 @@ class ChannelService:
             response = session.post(
                 self._gemini_generate_url(channel, model, stream=True),
                 json=body,
-                timeout=int(channel.get("timeout") or 60),
+                timeout=int(channel.get("timeout") or DEFAULT_CHANNEL_TIMEOUT),
                 stream=True,
             )
             if not response.ok:
@@ -1450,7 +1445,7 @@ class ChannelService:
         response = self._session(channel).post(
             self._openai_compatible_url(channel, "/v1/images/generations"),
             json=body,
-            timeout=int(channel.get("timeout") or 60),
+            timeout=int(channel.get("timeout") or DEFAULT_CHANNEL_TIMEOUT),
         )
         return self._normalize_response(response, payload)
 
@@ -1492,7 +1487,7 @@ class ChannelService:
             response = self._session(channel).post(
                 self._openai_compatible_url(channel, "/v1/images/edits"),
                 multipart=multipart,
-                timeout=int(channel.get("timeout") or 60),
+                timeout=int(channel.get("timeout") or DEFAULT_CHANNEL_TIMEOUT),
             )
         finally:
             multipart.close()
@@ -1534,7 +1529,7 @@ class ChannelService:
         response = self._session(channel).post(
             self._openai_compatible_url(channel, "/v1/chat/completions"),
             json=body,
-            timeout=int(channel.get("timeout") or 60),
+            timeout=int(channel.get("timeout") or DEFAULT_CHANNEL_TIMEOUT),
         )
         return self._normalize_chat_response(response)
 
@@ -1547,7 +1542,7 @@ class ChannelService:
             response = session.post(
                 self._openai_compatible_url(channel, "/v1/chat/completions"),
                 json=body,
-                timeout=int(channel.get("timeout") or 60),
+                timeout=int(channel.get("timeout") or DEFAULT_CHANNEL_TIMEOUT),
                 stream=True,
             )
             if not response.ok:

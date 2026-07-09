@@ -219,7 +219,7 @@ python scripts/migrate_storage.py --from json --to postgres --verify-only
 - 管理员可在「模型管理」页面查看所有渠道模型；内置账号池默认提供与 New API 接入常用配置一致的 10 个模型，外部渠道则读取渠道自身 `models` 配置。
 - 每个 OpenAI 兼容外部渠道都可以通过「获取」按钮请求该渠道的 `/v1/models`，成功后自动写回渠道模型列表。
 - 模型计费配置保存在系统配置 `model_pricing` 中，兼容 JSON、SQLite、PostgreSQL 等现有存储后端，不需要额外迁移表结构。
-- 计费标准支持按 Token 和按次两种模式；可配置输入价 / 1M tokens、输出价 / 1M tokens、`model_ratio`、`completion_ratio`、`model_price`、币种和启停状态，方便对接 New API 风格的倍率或固定价格计费。
+- 计费标准默认按次计费，未配置模型每次默认扣除 1 额度；可手动配置按 Token 或按次模式、输入价 / 1M tokens、输出价 / 1M tokens、`model_ratio`、`completion_ratio`、`model_price`、币种和启停状态，方便对接 New API 风格的倍率或固定额度计费。
 
 ### 多用户稳定并发改造
 

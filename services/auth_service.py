@@ -21,6 +21,7 @@ _PASSWORD_ITERATIONS = 210_000
 _EMAIL_VERIFICATION_MINUTES = 10
 IMAGE_CHANNEL_CONFIG_KEY = "image_channel_config"
 DEFAULT_USER_IMAGE_CHANNEL_MODELS = ["gpt-image-2", "gpt-5.5"]
+DEFAULT_USER_IMAGE_CHANNEL_TIMEOUT = 600
 _UNSET = object()
 
 
@@ -142,9 +143,12 @@ def _normalize_user_image_channel_config(
         api_key = _clean_text(current_config.get("api_key"))
 
     try:
-        timeout = max(5, int(pick("timeout", 60) or 60))
+        timeout = max(
+            5,
+            int(pick("timeout", DEFAULT_USER_IMAGE_CHANNEL_TIMEOUT) or DEFAULT_USER_IMAGE_CHANNEL_TIMEOUT),
+        )
     except (TypeError, ValueError):
-        timeout = 60
+        timeout = DEFAULT_USER_IMAGE_CHANNEL_TIMEOUT
 
     normalized = {
         "enabled": _bool(pick("enabled", False), False),

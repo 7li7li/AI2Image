@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, LoaderCircle, Pencil, Plus, RefreshCw, TestTube, Trash2, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  LoaderCircle,
+  Pencil,
+  Plus,
+  RefreshCw,
+  TestTube,
+  Trash2,
+  XCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +26,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createChannel,
@@ -30,11 +45,8 @@ import {
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
-const DEFAULT_CHANNEL_MODELS =
-  "gpt-5,gpt-5-1,gpt-5-2,gpt-5-3,gpt-5-3-mini,gpt-5.5,gpt-5-mini,gpt-image-2,auto";
-const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
-const DEFAULT_GEMINI_MODELS =
-  "gemini-3.5-flash,gemini-3-pro,gemini-3.1-flash-image,gemini-3.1-flash-lite-image,gemini-3-pro-image,gemini-2.5-flash-image";
+const DEFAULT_CHANNEL_MODELS = "gpt-5.5,gpt-image-2";
+const DEFAULT_GEMINI_MODELS = "gemini-3-pro-image-preview,gemini-3.5-flash";
 
 type ChannelType = Channel["type"];
 
@@ -60,7 +72,7 @@ const EMPTY_FORM: ChannelForm = {
   models: DEFAULT_CHANNEL_MODELS,
   weight: "1",
   priority: "0",
-  timeout: "60",
+  timeout: "600",
   enabled: true,
 };
 
@@ -80,7 +92,7 @@ const CHANNEL_FIELDS: Array<{
   {
     key: "base_url",
     label: "Base URL",
-    description: "兼容 OpenAI 的服务根地址。",
+    description: "OpenAI 服务根地址。",
     placeholder: "https://api.example.com",
   },
   {
@@ -114,13 +126,14 @@ const CHANNEL_FIELDS: Array<{
     key: "timeout",
     label: "超时",
     description: "请求超时时间，单位秒。",
-    placeholder: "60",
+    placeholder: "600",
     type: "number",
   },
 ];
 
 const PRIMARY_FIELDS = CHANNEL_FIELDS.slice(0, 3);
-const MODEL_FIELD = CHANNEL_FIELDS.find((field) => field.key === "models") ?? CHANNEL_FIELDS[3];
+const MODEL_FIELD =
+  CHANNEL_FIELDS.find((field) => field.key === "models") ?? CHANNEL_FIELDS[3];
 const ROUTING_FIELDS = CHANNEL_FIELDS.slice(4);
 
 const resetForm = (): ChannelForm => ({ ...EMPTY_FORM });
@@ -133,7 +146,7 @@ const channelToForm = (channel: Channel): ChannelForm => ({
   models: channel.models?.join(",") || "",
   weight: String(channel.weight ?? 1),
   priority: String(channel.priority ?? 0),
-  timeout: String(channel.timeout ?? 60),
+  timeout: String(channel.timeout ?? 600),
   enabled: channel.enabled,
 });
 
@@ -143,7 +156,11 @@ const toNumber = (value: string, fallback: number) => {
 };
 
 const channelTypeLabel = (channel: Channel) =>
-  channel.type === "gemini" ? "Google Gemini" : channel.type === "openai_image" ? "OpenAI 图片兼容" : channel.type;
+  channel.type === "gemini"
+    ? "Google Gemini"
+    : channel.type === "openai_image"
+      ? "OpenAI"
+      : channel.type;
 
 const uniqueModels = (models: string[] | undefined) => {
   const seen = new Set<string>();
@@ -186,11 +203,15 @@ function ChannelsContent() {
   const [isCreating, setIsCreating] = useState(false);
   const [savingChannelId, setSavingChannelId] = useState<string | null>(null);
   const [testingChannelId, setTestingChannelId] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, ChannelModelTestResult>>({});
+  const [testResults, setTestResults] = useState<
+    Record<string, ChannelModelTestResult>
+  >({});
   const [form, setForm] = useState<ChannelForm>(resetForm);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [editForm, setEditForm] = useState<ChannelForm>(resetForm);
-  const [modelTestChannel, setModelTestChannel] = useState<Channel | null>(null);
+  const [modelTestChannel, setModelTestChannel] = useState<Channel | null>(
+    null,
+  );
   const [selectedTestModels, setSelectedTestModels] = useState<string[]>([]);
 
   const load = async () => {
@@ -238,19 +259,27 @@ function ChannelsContent() {
     setEditForm((current) => ({ ...current, [key]: value }));
   };
 
-  const applyChannelTypeDefaults = (current: ChannelForm, type: ChannelType): ChannelForm => {
+  const applyChannelTypeDefaults = (
+    current: ChannelForm,
+    type: ChannelType,
+  ): ChannelForm => {
     if (type === "gemini") {
       return {
         ...current,
         type,
-        base_url: current.base_url || DEFAULT_GEMINI_BASE_URL,
-        models: current.models === DEFAULT_CHANNEL_MODELS || !current.models.trim() ? DEFAULT_GEMINI_MODELS : current.models,
+        models:
+          current.models === DEFAULT_CHANNEL_MODELS || !current.models.trim()
+            ? DEFAULT_GEMINI_MODELS
+            : current.models,
       };
     }
     return {
       ...current,
       type,
-      models: current.models === DEFAULT_GEMINI_MODELS || !current.models.trim() ? DEFAULT_CHANNEL_MODELS : current.models,
+      models:
+        current.models === DEFAULT_GEMINI_MODELS || !current.models.trim()
+          ? DEFAULT_CHANNEL_MODELS
+          : current.models,
     };
   };
 
@@ -273,7 +302,7 @@ function ChannelsContent() {
         models: form.models,
         weight: toNumber(form.weight, 1),
         priority: toNumber(form.priority, 0),
-        timeout: toNumber(form.timeout, 60),
+        timeout: toNumber(form.timeout, 600),
         enabled: form.enabled,
       });
       setItems(data.items);
@@ -289,7 +318,9 @@ function ChannelsContent() {
   const handleToggle = async (channel: Channel) => {
     setSavingChannelId(channel.id);
     try {
-      const data = await updateChannel(channel.id, { enabled: !channel.enabled });
+      const data = await updateChannel(channel.id, {
+        enabled: !channel.enabled,
+      });
       setItems(data.items);
       toast.success(channel.enabled ? "渠道已禁用" : "渠道已启用");
     } catch (error) {
@@ -339,7 +370,9 @@ function ChannelsContent() {
       const result = await testChannelModels(channel.id, selectedTestModels);
       setTestResults((current) => ({ ...current, [channel.id]: result }));
       if (result.ok) {
-        toast.success(`${channel.name} 模型测试通过：${result.tested_models.length} 个模型，${result.latency_ms}ms`);
+        toast.success(
+          `${channel.name} 模型测试通过：${result.tested_models.length} 个模型，${result.latency_ms}ms`,
+        );
         setModelTestChannel(null);
       } else {
         toast.error(result.error || `${channel.name} 模型测试失败`);
@@ -364,11 +397,13 @@ function ChannelsContent() {
         type: editForm.type,
         name: editForm.name.trim(),
         base_url: editForm.base_url.trim(),
-        ...(editForm.api_key.trim() ? { api_key: editForm.api_key.trim() } : {}),
+        ...(editForm.api_key.trim()
+          ? { api_key: editForm.api_key.trim() }
+          : {}),
         models: editForm.models,
         weight: toNumber(editForm.weight, 1),
         priority: toNumber(editForm.priority, 0),
-        timeout: toNumber(editForm.timeout, 60),
+        timeout: toNumber(editForm.timeout, 600),
         enabled: editForm.enabled,
       };
       const data = await updateChannel(editingChannel.id, payload);
@@ -389,10 +424,16 @@ function ChannelsContent() {
     <section className="h-full min-h-0 space-y-5 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(148,163,184,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/65 [&::-webkit-scrollbar-track]:bg-transparent">
       <div className="flex items-end justify-between gap-4">
         <div className="space-y-1">
-          <div className="text-xs font-semibold tracking-[0.18em] text-rose-400 uppercase">Channels</div>
+          <div className="text-xs font-semibold tracking-[0.18em] text-rose-400 uppercase">
+            Channels
+          </div>
           <h1 className="text-2xl font-semibold tracking-tight">渠道管理</h1>
         </div>
-        <Button variant="outline" className="h-10 rounded-xl border-rose-100 bg-white" onClick={() => void load()}>
+        <Button
+          variant="outline"
+          className="h-10 rounded-xl border-rose-100 bg-white"
+          onClick={() => void load()}
+        >
           <RefreshCw className="size-4" />
           刷新
         </Button>
@@ -403,21 +444,30 @@ function ChannelsContent() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
               <Plus className="size-4 text-rose-500" />
-              新增 OpenAI 图片兼容渠道
+              新增 OpenAI 渠道
             </div>
-            <div className="text-xs text-stone-400">填写 OpenAI 兼容地址后，可在列表中测试模型接口。</div>
+            <div className="text-xs text-stone-400">
+              填写 OpenAI 服务地址后，可在列表中测试模型接口。
+            </div>
           </div>
           <div className="grid gap-3 lg:grid-cols-[180px_1fr_1.4fr_1.15fr]">
             <div className="space-y-1.5">
               <label className="block text-xs">
-                <span className="block font-semibold text-stone-700">渠道类型</span>
+                <span className="block font-semibold text-stone-700">
+                  渠道类型
+                </span>
               </label>
-              <Select value={form.type} onValueChange={(value) => handleCreateTypeChange(value as ChannelType)}>
+              <Select
+                value={form.type}
+                onValueChange={(value) =>
+                  handleCreateTypeChange(value as ChannelType)
+                }
+              >
                 <SelectTrigger className="h-10 rounded-xl border-rose-100 bg-white">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="openai_image">OpenAI 兼容</SelectItem>
+                  <SelectItem value="openai_image">OpenAI</SelectItem>
                   <SelectItem value="gemini">Google Gemini</SelectItem>
                 </SelectContent>
               </Select>
@@ -428,9 +478,13 @@ function ChannelsContent() {
                 <Input
                   type={field.type || "text"}
                   value={form[field.key]}
-                  onChange={(event) => updateCreateField(field.key, event.target.value)}
+                  onChange={(event) =>
+                    updateCreateField(field.key, event.target.value)
+                  }
                   placeholder={field.placeholder}
-                  autoComplete={field.key === "api_key" ? "new-password" : undefined}
+                  autoComplete={
+                    field.key === "api_key" ? "new-password" : undefined
+                  }
                   className="h-10 rounded-xl border-rose-100 bg-white"
                 />
               </div>
@@ -441,7 +495,9 @@ function ChannelsContent() {
               <FieldCaption field={MODEL_FIELD} />
               <Input
                 value={form.models}
-                onChange={(event) => updateCreateField("models", event.target.value)}
+                onChange={(event) =>
+                  updateCreateField("models", event.target.value)
+                }
                 placeholder={MODEL_FIELD.placeholder}
                 className="h-10 rounded-xl border-rose-100 bg-white"
               />
@@ -452,7 +508,9 @@ function ChannelsContent() {
                 <Input
                   type={field.type || "text"}
                   value={form[field.key]}
-                  onChange={(event) => updateCreateField(field.key, event.target.value)}
+                  onChange={(event) =>
+                    updateCreateField(field.key, event.target.value)
+                  }
                   placeholder={field.placeholder}
                   className="h-10 rounded-xl border-rose-100 bg-white"
                 />
@@ -463,7 +521,9 @@ function ChannelsContent() {
               disabled={isCreating}
               onClick={() => void handleCreate()}
             >
-              {isCreating ? <LoaderCircle className="size-4 animate-spin" /> : null}
+              {isCreating ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : null}
               创建
             </Button>
           </div>
@@ -494,21 +554,36 @@ function ChannelsContent() {
                   className="grid gap-3 border-b border-rose-50 px-5 py-4 text-sm last:border-0 lg:grid-cols-[1.05fr_1.4fr_1.6fr_1fr_90px_230px] lg:items-center"
                 >
                   <div>
-                    <div className="font-medium text-stone-900">{channel.name}</div>
-                    <div className="text-xs text-stone-400">{channelTypeLabel(channel)}</div>
+                    <div className="font-medium text-stone-900">
+                      {channel.name}
+                    </div>
+                    <div className="text-xs text-stone-400">
+                      {channelTypeLabel(channel)}
+                    </div>
                   </div>
-                  <div className="truncate text-stone-600" title={channel.base_url || "未配置"}>
+                  <div
+                    className="truncate text-stone-600"
+                    title={channel.base_url || "未配置"}
+                  >
                     {channel.base_url || "未配置"}
                   </div>
-                  <div className="truncate text-stone-500" title={channel.models?.join(", ")}>
+                  <div
+                    className="truncate text-stone-500"
+                    title={channel.models?.join(", ")}
+                  >
                     {channel.models?.join(", ")}
                   </div>
                   <div className="flex flex-wrap gap-1.5 text-xs text-stone-500">
                     <Badge variant="outline">权重 {channel.weight}</Badge>
                     <Badge variant="outline">优先级 {channel.priority}</Badge>
-                    <Badge variant="outline">{channel.timeout ? `${channel.timeout}s` : "无超时"}</Badge>
+                    <Badge variant="outline">
+                      {channel.timeout ? `${channel.timeout}s` : "无超时"}
+                    </Badge>
                   </div>
-                  <Badge variant={channel.enabled ? "success" : "secondary"} className="w-fit">
+                  <Badge
+                    variant={channel.enabled ? "success" : "secondary"}
+                    className="w-fit"
+                  >
                     {channel.enabled ? "启用" : "禁用"}
                   </Badge>
                   <div className="min-w-0 space-y-2">
@@ -530,7 +605,11 @@ function ChannelsContent() {
                         disabled={testingChannelId === channel.id}
                         onClick={() => openModelTestDialog(channel)}
                       >
-                        {testingChannelId === channel.id ? <LoaderCircle className="size-4 animate-spin" /> : <TestTube className="size-4" />}
+                        {testingChannelId === channel.id ? (
+                          <LoaderCircle className="size-4 animate-spin" />
+                        ) : (
+                          <TestTube className="size-4" />
+                        )}
                         测试
                       </Button>
                       <Button
@@ -540,7 +619,9 @@ function ChannelsContent() {
                         disabled={savingChannelId === channel.id}
                         onClick={() => void handleToggle(channel)}
                       >
-                        {savingChannelId === channel.id ? <LoaderCircle className="size-4 animate-spin" /> : null}
+                        {savingChannelId === channel.id ? (
+                          <LoaderCircle className="size-4 animate-spin" />
+                        ) : null}
                         {channel.enabled ? "禁用" : "启用"}
                       </Button>
                       <Button
@@ -562,9 +643,18 @@ function ChannelsContent() {
                             ? "flex min-w-0 items-center gap-1.5 text-xs text-emerald-700"
                             : "flex min-w-0 items-center gap-1.5 text-xs text-rose-600"
                         }
-                        title={testResult.ok ? testResult.tested_models.join(", ") : testResult.missing_models.join(", ") || testResult.error}
+                        title={
+                          testResult.ok
+                            ? testResult.tested_models.join(", ")
+                            : testResult.missing_models.join(", ") ||
+                              testResult.error
+                        }
                       >
-                        {testResult.ok ? <CheckCircle2 className="size-3.5 shrink-0" /> : <XCircle className="size-3.5 shrink-0" />}
+                        {testResult.ok ? (
+                          <CheckCircle2 className="size-3.5 shrink-0" />
+                        ) : (
+                          <XCircle className="size-3.5 shrink-0" />
+                        )}
                         <span className="truncate">
                           {testResult.ok
                             ? `${testResult.tested_models.length} 个选中模型可用 · ${testResult.latency_ms}ms`
@@ -582,18 +672,28 @@ function ChannelsContent() {
         </CardContent>
       </Card>
 
-      <Dialog open={Boolean(modelTestChannel)} onOpenChange={(open) => (!open ? setModelTestChannel(null) : null)}>
-        <DialogContent showCloseButton={false} className="flex max-h-[86vh] w-[min(94vw,680px)] max-w-none flex-col overflow-hidden rounded-lg p-0">
+      <Dialog
+        open={Boolean(modelTestChannel)}
+        onOpenChange={(open) => (!open ? setModelTestChannel(null) : null)}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="flex max-h-[86vh] w-[min(94vw,680px)] max-w-none flex-col overflow-hidden rounded-lg p-0"
+        >
           <DialogHeader className="border-b border-rose-100 px-5 pt-5 pb-4 sm:px-6">
             <DialogTitle>选择测试模型</DialogTitle>
             <DialogDescription className="leading-6 text-stone-500">
-              {modelTestChannel ? `${modelTestChannel.name} · ${channelTypeLabel(modelTestChannel)}` : "选择要测试的模型"}
+              {modelTestChannel
+                ? `${modelTestChannel.name} · ${channelTypeLabel(modelTestChannel)}`
+                : "选择要测试的模型"}
             </DialogDescription>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5 sm:px-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm font-medium text-stone-800">已选 {selectedTestModels.length} / {candidateTestModels.length}</div>
+              <div className="text-sm font-medium text-stone-800">
+                已选 {selectedTestModels.length} / {candidateTestModels.length}
+              </div>
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -619,12 +719,19 @@ function ChannelsContent() {
             {candidateTestModels.length > 0 ? (
               <div className="grid max-h-[46vh] gap-2 overflow-y-auto rounded-lg border border-rose-100 bg-white/70 p-3 sm:grid-cols-2">
                 {candidateTestModels.map((model) => (
-                  <label key={model} className="flex min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-rose-50/80">
+                  <label
+                    key={model}
+                    className="flex min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-rose-50/80"
+                  >
                     <Checkbox
                       checked={selectedTestModelSet.has(model)}
-                      onCheckedChange={(checked) => toggleTestModel(model, checked === true)}
+                      onCheckedChange={(checked) =>
+                        toggleTestModel(model, checked === true)
+                      }
                     />
-                    <span className="truncate text-stone-700" title={model}>{model}</span>
+                    <span className="truncate text-stone-700" title={model}>
+                      {model}
+                    </span>
                   </label>
                 ))}
               </div>
@@ -636,23 +743,41 @@ function ChannelsContent() {
           </div>
 
           <DialogFooter className="border-t border-rose-100 px-5 py-4 sm:px-6">
-            <Button variant="outline" className="h-10 rounded-xl border-rose-100 bg-white" onClick={() => setModelTestChannel(null)}>
+            <Button
+              variant="outline"
+              className="h-10 rounded-xl border-rose-100 bg-white"
+              onClick={() => setModelTestChannel(null)}
+            >
               取消
             </Button>
             <Button
               className="h-10 rounded-xl bg-rose-500 text-white hover:bg-rose-600"
-              disabled={!modelTestChannel || selectedTestModels.length <= 0 || testingChannelId === modelTestChannel.id}
+              disabled={
+                !modelTestChannel ||
+                selectedTestModels.length <= 0 ||
+                testingChannelId === modelTestChannel.id
+              }
               onClick={() => void handleTestModels()}
             >
-              {modelTestChannel && testingChannelId === modelTestChannel.id ? <LoaderCircle className="size-4 animate-spin" /> : <TestTube className="size-4" />}
+              {modelTestChannel && testingChannelId === modelTestChannel.id ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <TestTube className="size-4" />
+              )}
               开始测试
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(editingChannel)} onOpenChange={(open) => (!open ? setEditingChannel(null) : null)}>
-        <DialogContent showCloseButton={false} className="flex max-h-[88vh] w-[min(94vw,760px)] max-w-none flex-col overflow-hidden rounded-lg p-0">
+      <Dialog
+        open={Boolean(editingChannel)}
+        onOpenChange={(open) => (!open ? setEditingChannel(null) : null)}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="flex max-h-[88vh] w-[min(94vw,760px)] max-w-none flex-col overflow-hidden rounded-lg p-0"
+        >
           <DialogHeader className="border-b border-rose-100 px-5 pt-5 pb-4 sm:px-6">
             <DialogTitle>编辑渠道配置</DialogTitle>
             <DialogDescription className="leading-6 text-stone-500">
@@ -664,7 +789,12 @@ function ChannelsContent() {
             <label className="flex items-center gap-3 rounded-lg border border-rose-100 bg-white/70 px-4 py-3 text-sm">
               <Checkbox
                 checked={editForm.enabled}
-                onCheckedChange={(checked) => setEditForm((current) => ({ ...current, enabled: checked === true }))}
+                onCheckedChange={(checked) =>
+                  setEditForm((current) => ({
+                    ...current,
+                    enabled: checked === true,
+                  }))
+                }
               />
               <span className="font-medium text-stone-800">启用该渠道</span>
             </label>
@@ -672,25 +802,41 @@ function ChannelsContent() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
                 <label className="block text-xs">
-                  <span className="block font-semibold text-stone-700">渠道类型</span>
+                  <span className="block font-semibold text-stone-700">
+                    渠道类型
+                  </span>
                 </label>
-                <Select value={editForm.type} onValueChange={(value) => handleEditTypeChange(value as ChannelType)}>
+                <Select
+                  value={editForm.type}
+                  onValueChange={(value) =>
+                    handleEditTypeChange(value as ChannelType)
+                  }
+                >
                   <SelectTrigger className="h-10 rounded-xl border-rose-100 bg-white">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="openai_image">OpenAI 兼容</SelectItem>
+                    <SelectItem value="openai_image">OpenAI</SelectItem>
                     <SelectItem value="gemini">Google Gemini</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               {CHANNEL_FIELDS.map((field) => (
-                <div key={field.key} className={field.key === "models" ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}>
+                <div
+                  key={field.key}
+                  className={
+                    field.key === "models"
+                      ? "space-y-1.5 sm:col-span-2"
+                      : "space-y-1.5"
+                  }
+                >
                   <FieldCaption field={field} />
                   {field.key === "models" ? (
                     <Textarea
                       value={editForm.models}
-                      onChange={(event) => updateEditField("models", event.target.value)}
+                      onChange={(event) =>
+                        updateEditField("models", event.target.value)
+                      }
                       placeholder={field.placeholder}
                       className="min-h-24 rounded-xl border-rose-100 bg-white"
                     />
@@ -698,9 +844,13 @@ function ChannelsContent() {
                     <Input
                       type={field.type || "text"}
                       value={editForm[field.key]}
-                      onChange={(event) => updateEditField(field.key, event.target.value)}
+                      onChange={(event) =>
+                        updateEditField(field.key, event.target.value)
+                      }
                       placeholder={field.placeholder}
-                      autoComplete={field.key === "api_key" ? "new-password" : undefined}
+                      autoComplete={
+                        field.key === "api_key" ? "new-password" : undefined
+                      }
                       className="h-10 rounded-xl border-rose-100 bg-white"
                     />
                   )}
@@ -710,15 +860,23 @@ function ChannelsContent() {
           </div>
 
           <DialogFooter className="border-t border-rose-100 px-5 py-4 sm:px-6">
-            <Button variant="outline" className="h-10 rounded-xl border-rose-100 bg-white" onClick={() => setEditingChannel(null)}>
+            <Button
+              variant="outline"
+              className="h-10 rounded-xl border-rose-100 bg-white"
+              onClick={() => setEditingChannel(null)}
+            >
               取消
             </Button>
             <Button
               className="h-10 rounded-xl bg-rose-500 text-white hover:bg-rose-600"
-              disabled={Boolean(editingChannel && savingChannelId === editingChannel.id)}
+              disabled={Boolean(
+                editingChannel && savingChannelId === editingChannel.id,
+              )}
               onClick={() => void handleSaveEdit()}
             >
-              {editingChannel && savingChannelId === editingChannel.id ? <LoaderCircle className="size-4 animate-spin" /> : null}
+              {editingChannel && savingChannelId === editingChannel.id ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : null}
               保存
             </Button>
           </DialogFooter>

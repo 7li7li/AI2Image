@@ -250,7 +250,7 @@ function ModelsContent() {
               <div>输入价/1M</div>
               <div>输出价/1M</div>
               <div>补全倍率</div>
-              <div>固定价/次</div>
+              <div>额度/次</div>
               <div>操作</div>
             </div>
             {isLoading ? (
@@ -323,7 +323,7 @@ function ModelsContent() {
                     <Input
                       type="number"
                       min="0"
-                      step="0.000001"
+                      step="1"
                       value={draft.model_price}
                       onChange={(event) => updateDraft(model, { model_price: event.target.value })}
                       className="h-10 rounded-xl border-rose-100 bg-white"

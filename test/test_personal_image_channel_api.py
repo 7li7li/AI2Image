@@ -128,7 +128,21 @@ class FakeConfig:
     default_text_model = "gpt-text-custom"
 
 
+class FakeModelService:
+    def __init__(self) -> None:
+        self.costs: dict[str, int] = {}
+
+    def quota_cost(self, model: str) -> int:
+        return self.costs.get(model, 1)
+
+
 class PersonalImageChannelApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.model_service = FakeModelService()
+        self.model_service_patcher = mock.patch.object(api_ai, "model_service", self.model_service)
+        self.model_service_patcher.start()
+        self.addCleanup(self.model_service_patcher.stop)
+
     def test_generation_ignores_legacy_personal_channel_config_and_charges_quota(self) -> None:
         app = FastAPI()
         app.include_router(api_ai.create_router())
@@ -169,6 +183,40 @@ class PersonalImageChannelApiTests(unittest.TestCase):
         self.assertEqual(auth.released, [])
         self.assertEqual(record_calls[0]["channel"], "Global")
         self.assertEqual(record_calls[0]["quota_cost"], 1)
+
+    def test_generation_charges_configured_model_quota_per_successful_image(self) -> None:
+        self.model_service.costs["gpt-image-2"] = 3
+        app = FastAPI()
+        app.include_router(api_ai.create_router())
+        auth = FakeAuthService()
+        channels = FakeChannelService()
+        record_calls: list[dict[str, object]] = []
+
+        def fake_record_image_result(identity: dict[str, object], result: dict[str, object], **kwargs: object):
+            record_calls.append(dict(kwargs))
+            return []
+
+        with (
+            mock.patch.object(api_support, "auth_service", auth),
+            mock.patch.object(api_ai, "auth_service", auth),
+            mock.patch.object(api_ai, "channel_service", channels),
+            mock.patch.object(api_ai, "record_image_result", fake_record_image_result),
+        ):
+            response = TestClient(app).post(
+                "/v1/images/generations",
+                headers={"Authorization": "Bearer user-token"},
+                json={
+                    "model": "gpt-image-2",
+                    "prompt": "draw",
+                    "n": 2,
+                    "response_format": "url",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(auth.reserved[0][1], 6)
+        self.assertEqual(auth.confirmed, [(auth.reserved[0][2], 3)])
+        self.assertEqual(record_calls[0]["quota_cost"], 3)
 
     def test_generation_failure_releases_reserved_quota(self) -> None:
         app = FastAPI()

@@ -29,7 +29,7 @@ class UserImageChannelRequest(BaseModel):
     base_url: str = ""
     api_key: str = ""
     models: list[str] | str = Field(default_factory=lambda: list(DEFAULT_USER_IMAGE_CHANNEL_MODELS))
-    timeout: int = 60
+    timeout: int = 600
 
 
 class UserImageChannelTestRequest(UserImageChannelRequest):
@@ -123,7 +123,7 @@ class ChannelRequest(BaseModel):
     models: list[str] | str | None = None
     weight: int = 1
     priority: int = 0
-    timeout: int = 60
+    timeout: int = 600
     enabled: bool = True
 
 

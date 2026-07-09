@@ -412,7 +412,7 @@ export function ConfigCard() {
                 placeholder="gpt-5.5"
                 className="h-10 rounded-xl border-stone-200 bg-white"
               />
-              <p className="text-xs text-stone-500">用于文本对话，每次成功回复扣除 1 额度。</p>
+              <p className="text-xs text-stone-500">用于文本对话，每次成功回复按模型计费配置扣除额度。</p>
             </div>
             <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
               <div>
