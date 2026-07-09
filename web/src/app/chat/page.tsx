@@ -1180,7 +1180,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
   return (
     <>
       <section className="grid h-full min-h-0 w-full grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[280px_minmax(0,1fr)] lg:overflow-hidden">
-        <div className="hidden min-h-0 overflow-hidden rounded-xl border border-white/80 bg-white/88 shadow-[0_20px_70px_-45px_rgba(15,23,42,0.45)] backdrop-blur-xl lg:flex">
+        <div className="hidden min-h-0 overflow-hidden rounded-xl bg-white/88 shadow-[0_20px_70px_-45px_rgba(15,23,42,0.45)] backdrop-blur-xl lg:flex">
           <ChatStudioSidebar
             conversations={filteredConversations}
             isLoadingHistory={isLoadingHistory}
@@ -1591,7 +1591,7 @@ function ChatMessages({
           return (
             <div key={message.id} className={cn("group flex gap-3", isUser ? "justify-end" : "justify-start")}>
               {!isUser ? (
-                <div className="grid size-12 shrink-0 place-items-center rounded-lg border border-rose-100 bg-white/75 text-stone-600">
+                <div className="grid size-12 shrink-0 place-items-center rounded-lg bg-white/75 text-stone-600">
                   {isAssistant ? <ModelIcon model={conversation.model} className="size-7" /> : <MessageSquare className="size-6" />}
                 </div>
               ) : null}
@@ -1608,7 +1608,7 @@ function ChatMessages({
                       ? "bg-[#2d1d26] text-white"
                       : message.status === "error"
                         ? "border border-red-100 bg-red-50 text-red-700"
-                        : "border border-rose-100/80 bg-white/82 text-stone-800",
+                        : "bg-white/82 text-stone-800",
                   )}
                 >
                 {message.status === "sending" ? (
@@ -1656,7 +1656,7 @@ function ChatMessages({
                 />
               </div>
               {isUser ? (
-                <div className="grid size-12 shrink-0 place-items-center rounded-lg border border-stone-200 bg-white/75 text-stone-600">
+                <div className="grid size-12 shrink-0 place-items-center rounded-lg bg-white/75 text-stone-600">
                   <UserRound className="size-6" />
                 </div>
               ) : null}
@@ -1708,7 +1708,7 @@ function ChatMessageActions({
   };
 
   const buttonClassName =
-    "grid size-7 place-items-center rounded-full border border-stone-200 bg-white/82 text-stone-500 shadow-sm transition hover:bg-white hover:text-stone-800 disabled:cursor-not-allowed disabled:opacity-45";
+    "grid size-7 place-items-center rounded-full bg-white/82 text-stone-500 shadow-sm transition hover:bg-white hover:text-stone-800 disabled:cursor-not-allowed disabled:opacity-45";
 
   return (
     <div

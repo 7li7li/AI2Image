@@ -227,7 +227,7 @@ export function ImageResults({
         });
 
         return (
-          <section key={turn.id} className="group overflow-hidden rounded-lg border border-white/70 bg-white/46 shadow-sm">
+          <section key={turn.id} className="group overflow-hidden rounded-lg bg-white/46 shadow-sm">
             <div className="bg-white/56 px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
