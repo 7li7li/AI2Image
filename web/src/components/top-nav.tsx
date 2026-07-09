@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   BadgeDollarSign,
+  ExternalLink,
   FileText,
   Gift,
   Image,
@@ -12,6 +13,7 @@ import {
   MessagesSquare,
   PenLine,
   Settings,
+  ShoppingCart,
   Sparkles,
   User,
   Users,
@@ -21,7 +23,7 @@ import {
 
 import webConfig from "@/constants/common-env";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { fetchMe, type CurrentUser } from "@/lib/api";
+import { fetchMe, fetchPublicSettings, type CurrentUser } from "@/lib/api";
 import { getRouteHref, normalizeAppPath } from "@/lib/routes";
 import { useSiteSettingsStore } from "@/lib/site-settings";
 import { cn } from "@/lib/utils";
@@ -78,6 +80,21 @@ function getStoredQuotaSummary(session: StoredAuthSession | null | undefined): Q
   return UNKNOWN_QUOTA_SUMMARY;
 }
 
+function safeConfiguredHref(value: string) {
+  const href = value.trim();
+  if (/^(https?:|mailto:|\/)/i.test(href)) {
+    return href;
+  }
+  if (!/[\s<>]/.test(href) && /^[\w.-]+\.[a-z]{2,}(?::\d+)?(?:[/?#]|$)/i.test(href)) {
+    return `https://${href}`;
+  }
+  return "";
+}
+
+function isExternalHref(href: string) {
+  return /^(https?:|mailto:)/i.test(href);
+}
+
 const adminNavItems = [
   { href: "/chat", label: "对话", icon: MessagesSquare },
   { href: "/image", label: "画图", icon: Sparkles },
@@ -105,10 +122,15 @@ export function TopNav() {
   const [quotaSummary, setQuotaSummary] = useState<QuotaSummary>(UNKNOWN_QUOTA_SUMMARY);
   const siteTitle = useSiteSettingsStore((state) => state.settings.site_title);
   const siteIcon = useSiteSettingsStore((state) => state.settings.site_icon);
+  const quotaPurchaseUrl = useSiteSettingsStore((state) => state.settings.quota_purchase_url);
+  const setSiteSettings = useSiteSettingsStore((state) => state.setSettings);
   const [failedSiteIcon, setFailedSiteIcon] = useState("");
+  const [quotaPurchaseHrefOverride, setQuotaPurchaseHrefOverride] = useState<string | null>(null);
   const normalizedSiteIcon = siteIcon.trim();
   const showSiteIcon = Boolean(normalizedSiteIcon && failedSiteIcon !== normalizedSiteIcon);
   const brandMark = siteTitle.trim().slice(0, 1) || "颜";
+  const quotaPurchaseHref = safeConfiguredHref(quotaPurchaseUrl);
+  const visibleQuotaPurchaseHref = quotaPurchaseHrefOverride ?? quotaPurchaseHref;
 
   useEffect(() => {
     let active = true;
@@ -167,6 +189,20 @@ export function TopNav() {
     window.location.replace(getRouteHref("/login"));
   };
 
+  const handleQuotaPopoverOpenChange = (open: boolean) => {
+    if (open) {
+      void (async () => {
+        try {
+          const data = await fetchPublicSettings();
+          setSiteSettings(data.settings);
+          setQuotaPurchaseHrefOverride(safeConfiguredHref(data.settings.quota_purchase_url));
+        } catch {
+          setQuotaPurchaseHrefOverride(null);
+        }
+      })();
+    }
+  };
+
   if (normalizedPathname === "/login" || session === undefined || !session) {
     return null;
   }
@@ -181,7 +217,7 @@ export function TopNav() {
     <aside className="flex h-full w-[72px] shrink-0 flex-col items-center border-r border-stone-200/70 bg-white/92 px-2 py-4 backdrop-blur-xl sm:w-[76px]">
       <a
         href={getRouteHref("/image")}
-        className="group grid size-11 shrink-0 place-items-center overflow-hidden rounded-lg transition hover:bg-stone-100"
+        className="group grid h-9 w-11 shrink-0 place-items-center overflow-hidden rounded-lg transition hover:bg-stone-100"
         title={siteTitle}
         aria-label={siteTitle}
       >
@@ -200,7 +236,7 @@ export function TopNav() {
         </span>
       </a>
 
-      <div className="mt-2 w-full text-center text-[10px] font-semibold leading-tight text-stone-500">
+      <div className="mt-0.5 w-full text-center text-[10px] font-semibold leading-tight text-stone-500">
         <span className="block truncate">ikun</span>
         <span className="block truncate">studio</span>
       </div>
@@ -231,7 +267,7 @@ export function TopNav() {
       <div className="mt-4 flex w-full shrink-0 flex-col items-center gap-1.5">
         {session.role === "user" ? (
           <>
-            <Popover>
+            <Popover onOpenChange={handleQuotaPopoverOpenChange}>
               <PopoverTrigger asChild>
                 <button
                   type="button"
@@ -263,6 +299,18 @@ export function TopNav() {
                     {quotaExpiryLabel}
                   </span>
                 </div>
+                {visibleQuotaPurchaseHref ? (
+                  <a
+                    href={visibleQuotaPurchaseHref}
+                    target={isExternalHref(visibleQuotaPurchaseHref) ? "_blank" : undefined}
+                    rel={isExternalHref(visibleQuotaPurchaseHref) ? "noreferrer" : undefined}
+                    className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-stone-950 px-3 text-sm font-medium text-white transition hover:bg-stone-800"
+                  >
+                    <ShoppingCart className="size-4" />
+                    <span>购买额度</span>
+                    <ExternalLink className="size-3.5 opacity-70" />
+                  </a>
+                ) : null}
               </PopoverContent>
             </Popover>
             <a

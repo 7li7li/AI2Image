@@ -36,6 +36,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     site_title: typeof config.site_title === "string" ? config.site_title : "Image Studio",
     site_icon: typeof config.site_icon === "string" ? config.site_icon : "/favicon.ico",
     site_background: typeof config.site_background === "string" ? config.site_background : "",
+    quota_purchase_url: typeof config.quota_purchase_url === "string" ? config.quota_purchase_url : "",
     default_image_model: typeof config.default_image_model === "string" ? config.default_image_model : "gpt-image-2",
     default_text_model: typeof config.default_text_model === "string" ? config.default_text_model : "gpt-5.5",
     image_retention_days: Number(config.image_retention_days || 30),
@@ -68,6 +69,7 @@ function syncSiteSettings(config: SettingsConfig) {
     site_title: String(config.site_title || "Image Studio"),
     site_icon: String(config.site_icon || "/favicon.ico"),
     site_background: String(config.site_background || ""),
+    quota_purchase_url: String(config.quota_purchase_url || ""),
     default_image_model: String(config.default_image_model || "gpt-image-2"),
     default_text_model: String(config.default_text_model || "gpt-5.5"),
   };
@@ -133,6 +135,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         site_title: String(config.site_title || "").trim(),
         site_icon: String(config.site_icon || "").trim(),
         site_background: String(config.site_background || "").trim(),
+        quota_purchase_url: String(config.quota_purchase_url || "").trim(),
         default_image_model: String(config.default_image_model || "").trim() || "gpt-image-2",
         default_text_model: String(config.default_text_model || "").trim() || "gpt-5.5",
         image_retention_days: Math.max(1, Number(config.image_retention_days) || 30),

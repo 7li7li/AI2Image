@@ -10,6 +10,7 @@ export type SettingsConfig = {
   site_title?: string;
   site_icon?: string;
   site_background?: string;
+  quota_purchase_url?: string;
   base_url?: string;
   default_image_model?: string;
   default_text_model?: string;
@@ -40,6 +41,7 @@ export type PublicSiteSettings = {
   site_title: string;
   site_icon: string;
   site_background: string;
+  quota_purchase_url: string;
   default_image_model: string;
   default_text_model: string;
 };
@@ -1150,7 +1152,8 @@ export async function fetchSettingsConfig() {
 }
 
 export async function fetchPublicSettings() {
-  return httpRequest<{ settings: PublicSiteSettings }>("/api/public/settings", {
+  const cacheBust = typeof Date !== "undefined" ? `?_=${Date.now()}` : "";
+  return httpRequest<{ settings: PublicSiteSettings }>(`/api/public/settings${cacheBust}`, {
     redirectOnUnauthorized: false,
   });
 }

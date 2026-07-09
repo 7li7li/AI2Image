@@ -65,6 +65,31 @@ class ConfigLoadingTests(unittest.TestCase):
             self.assertEqual(store.get()["default_image_model"], "custom-image")
             self.assertEqual(store.get()["default_text_model"], "custom-chat")
 
+    def test_quota_purchase_url_is_admin_configured_and_public(self) -> None:
+        module = self.config_module
+        original_env_value = os.environ.get("YANAI_QUOTA_PURCHASE_URL")
+        os.environ.pop("YANAI_QUOTA_PURCHASE_URL", None)
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                config_path = Path(tmp_dir) / "config.json"
+                config_path.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+                store = module.ConfigStore(config_path)
+
+                self.assertEqual(store.quota_purchase_url, "")
+                self.assertEqual(store.get()["quota_purchase_url"], "")
+                self.assertEqual(store.public_settings()["quota_purchase_url"], "")
+
+                store.update({"quota_purchase_url": " https://pay.example.com/quota "})
+
+                self.assertEqual(store.quota_purchase_url, "https://pay.example.com/quota")
+                self.assertEqual(store.get()["quota_purchase_url"], "https://pay.example.com/quota")
+                self.assertEqual(store.public_settings()["quota_purchase_url"], "https://pay.example.com/quota")
+        finally:
+            if original_env_value is None:
+                os.environ.pop("YANAI_QUOTA_PURCHASE_URL", None)
+            else:
+                os.environ["YANAI_QUOTA_PURCHASE_URL"] = original_env_value
+
     def test_background_task_limits_default_override_and_env(self) -> None:
         module = self.config_module
         env_keys = [

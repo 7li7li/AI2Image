@@ -20,6 +20,7 @@ SYSTEM_SETTING_TRANSIENT_KEYS = {"smtp_password_set", "linuxdo_client_secret_set
 DEFAULT_SITE_TITLE = "Image Studio"
 DEFAULT_SITE_ICON = "/favicon.ico"
 DEFAULT_SITE_BACKGROUND = ""
+DEFAULT_QUOTA_PURCHASE_URL = ""
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_TEXT_MODEL = "gpt-5.5"
 DEFAULT_BACKGROUND_TASK_MAX_WORKERS = 12
@@ -175,6 +176,12 @@ def _normalize_update_data(data: dict[str, object]) -> dict[str, object]:
         updates["site_background"] = _clean_site_text(
             updates.get("site_background"),
             default=DEFAULT_SITE_BACKGROUND,
+            max_length=1000,
+        )
+    if "quota_purchase_url" in updates:
+        updates["quota_purchase_url"] = _clean_site_text(
+            updates.get("quota_purchase_url"),
+            default=DEFAULT_QUOTA_PURCHASE_URL,
             max_length=1000,
         )
     if "default_image_model" in updates:
@@ -413,6 +420,14 @@ class ConfigStore:
         )
 
     @property
+    def quota_purchase_url(self) -> str:
+        return _clean_site_text(
+            os.getenv("YANAI_QUOTA_PURCHASE_URL") or self._get_config_value("quota_purchase_url"),
+            default=DEFAULT_QUOTA_PURCHASE_URL,
+            max_length=1000,
+        )
+
+    @property
     def default_image_model(self) -> str:
         return _clean_site_text(
             os.getenv("YANAI_DEFAULT_IMAGE_MODEL") or self._get_config_value("default_image_model"),
@@ -596,6 +611,7 @@ class ConfigStore:
         data["site_title"] = self.site_title
         data["site_icon"] = self.site_icon
         data["site_background"] = self.site_background
+        data["quota_purchase_url"] = self.quota_purchase_url
         data["default_image_model"] = self.default_image_model
         data["default_text_model"] = self.default_text_model
         data["image_retention_days"] = self.image_retention_days
@@ -629,6 +645,7 @@ class ConfigStore:
             "site_title": self.site_title,
             "site_icon": self.site_icon,
             "site_background": self.site_background,
+            "quota_purchase_url": self.quota_purchase_url,
             "default_image_model": self.default_image_model,
             "default_text_model": self.default_text_model,
         }

@@ -1813,7 +1813,7 @@ function ChatAttachmentList({
 
 function parseInlineMarkdown(text: string) {
   const nodes: React.ReactNode[] = [];
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g;
+  const pattern = /(`[^`\n]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(text)) !== null) {
@@ -1902,12 +1902,16 @@ type MarkdownBlock =
 type MarkdownTableAlignment = "left" | "center" | "right";
 
 function getFenceMatch(line: string) {
-  return /^ {0,3}(`{3,}|~{3,})[ \t]*([^`]*)?$/.exec(line.trimEnd());
+  const trimmed = line.trimEnd();
+  return (
+    /^[ \t]*(`{3,}|~{3,})[ \t]*([^`]*)?$/.exec(trimmed) ||
+    /^[ \t]*(`{2})[ \t]*([A-Za-z][\w-]*)[ \t]*$/.exec(trimmed)
+  );
 }
 
 function isFenceClose(line: string, fence: string) {
-  const fenceMarker = fence.startsWith("`") ? "`{3,}" : "~{3,}";
-  return new RegExp(`^ {0,3}${fenceMarker}[ \\t]*$`).test(line.trimEnd());
+  const fenceMarker = fence.startsWith("`") ? "`" : "~";
+  return new RegExp(`^[ \\t]*${fenceMarker}{${fence.length},}[ \\t]*$`).test(line.trimEnd());
 }
 
 function getHeadingMatch(line: string) {

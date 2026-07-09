@@ -3,6 +3,7 @@
   "site_title": "Image Studio",
   "site_icon": "/favicon.ico",
   "site_background": "",
+  "quota_purchase_url": "",
   "default_image_model": "gpt-image-2",
   "default_text_model": "gpt-5.5",
   "image_retention_days": 15,
