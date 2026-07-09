@@ -33,6 +33,7 @@ import {
   createImageEditTask,
   createImageGenerationTask,
   fetchBackgroundTask,
+  fetchAvailableModels,
   fetchMyImages,
   polishImagePrompt,
   type BackgroundTaskStatus,
@@ -40,6 +41,7 @@ import {
   type ImageResponse,
 } from "@/lib/api";
 import { resolveApiAssetUrl } from "@/lib/assets";
+import { imageModelOptions } from "@/lib/model-options";
 import { useSiteSettingsStore } from "@/lib/site-settings";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
@@ -75,6 +77,7 @@ const IMAGE_OUTPUT_FORMAT_STORAGE_KEY = "chatgpt2api:image_last_output_format";
 const IMAGE_OUTPUT_COMPRESSION_STORAGE_KEY = "chatgpt2api:image_last_output_compression";
 const IMAGE_MODERATION_STORAGE_KEY = "chatgpt2api:image_last_moderation";
 const IMAGE_TRANSPARENT_BACKGROUND_STORAGE_KEY = "chatgpt2api:image_last_transparent_background";
+const IMAGE_MODEL_STORAGE_KEY = "chatgpt2api:image_last_model";
 const SUPPORTED_IMAGE_SIZES = new Set(["", "1:1", "3:2", "2:3", "16:9", "9:16", "4:3", "3:4", "21:9", "9:21"]);
 const BACKGROUND_TASK_POLL_INTERVAL_MS = 1500;
 const activeConversationQueueIds = new Set<string>();
@@ -421,6 +424,8 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   const [imageOutputCompression, setImageOutputCompression] = useState("");
   const [imageModeration, setImageModeration] = useState(DEFAULT_IMAGE_MODERATION);
   const [imageTransparentBackground, setImageTransparentBackground] = useState(DEFAULT_IMAGE_TRANSPARENT_BACKGROUND);
+  const [selectedImageModel, setSelectedImageModel] = useState("");
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [referenceImageFiles, setReferenceImageFiles] = useState<File[]>([]);
   const [referenceImages, setReferenceImages] = useState<StoredReferenceImage[]>([]);
@@ -468,6 +473,21 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     () => getScopedStorageKey(IMAGE_TRANSPARENT_BACKGROUND_STORAGE_KEY, imageConversationOwnerKey),
     [imageConversationOwnerKey],
   );
+  const imageModelStorageKey = useMemo(
+    () => getScopedStorageKey(IMAGE_MODEL_STORAGE_KEY, imageConversationOwnerKey),
+    [imageConversationOwnerKey],
+  );
+  const selectableImageModels = useMemo(
+    () => imageModelOptions(defaultImageModel, availableModels),
+    [availableModels, defaultImageModel],
+  );
+  const activeImageModel = useMemo(() => {
+    const selected = selectedImageModel.trim();
+    if (selected && selectableImageModels.some((model) => model.toLowerCase() === selected.toLowerCase())) {
+      return selectableImageModels.find((model) => model.toLowerCase() === selected.toLowerCase()) || selected;
+    }
+    return selectableImageModels[0] || "";
+  }, [selectableImageModels, selectedImageModel]);
   const parsedCount = useMemo(() => Math.max(1, Math.min(10, Number(imageCount) || 1)), [imageCount]);
   const selectedConversation = useMemo(
     () => conversations.find((item) => item.id === selectedConversationId) ?? null,
@@ -489,6 +509,24 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAvailableModels()
+      .then((payload) => {
+        if (!cancelled) {
+          setAvailableModels(payload.data.map((item) => item.id).filter(Boolean));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAvailableModels([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -516,6 +554,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             typeof window !== "undefined" ? window.localStorage.getItem(imageModerationStorageKey) : null;
           const storedTransparentBackground =
             typeof window !== "undefined" ? window.localStorage.getItem(imageTransparentBackgroundStorageKey) : null;
+          const storedImageModel = typeof window !== "undefined" ? window.localStorage.getItem(imageModelStorageKey) : null;
           setImageSize(normalizeImageSize(storedSize));
           setImageResolution(storedResolution || "auto");
           if (storedQuality === "auto" || storedQuality === "low" || storedQuality === "medium" || storedQuality === "high") {
@@ -535,6 +574,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             setImageModeration(DEFAULT_IMAGE_MODERATION);
           }
           setImageTransparentBackground(storedTransparentBackground === "true");
+          setSelectedImageModel(storedImageModel || defaultImageModel);
         }
 
         const items = await listImageConversations(imageConversationOwnerKey);
@@ -588,7 +628,9 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     };
   }, [
     activeConversationStorageKey,
+    defaultImageModel,
     imageConversationOwnerKey,
+    imageModelStorageKey,
     imageModerationStorageKey,
     imageOutputCompressionStorageKey,
     imageOutputFormatStorageKey,
@@ -709,6 +751,25 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     }
     window.localStorage.removeItem(imageTransparentBackgroundStorageKey);
   }, [imageTransparentBackground, imageTransparentBackgroundStorageKey, isLoadingHistory]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || isLoadingHistory) {
+      return;
+    }
+    const model = activeImageModel.trim();
+    if (model) {
+      window.localStorage.setItem(imageModelStorageKey, model);
+    }
+  }, [activeImageModel, imageModelStorageKey, isLoadingHistory]);
+
+  useEffect(() => {
+    if (selectableImageModels.length === 0) {
+      return;
+    }
+    if (!selectedImageModel || !selectableImageModels.some((model) => model.toLowerCase() === selectedImageModel.toLowerCase())) {
+      setSelectedImageModel(selectableImageModels[0]);
+    }
+  }, [selectableImageModels, selectedImageModel]);
 
   useEffect(() => {
     if (imageOutputFormat !== "png" && imageTransparentBackground) {
@@ -1207,6 +1268,10 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
       toast.error("请输入提示词");
       return;
     }
+    if (!activeImageModel) {
+      toast.error("没有可用的图片模型，请先启用支持图片生成的渠道");
+      return;
+    }
 
     if (imageMode === "edit" && referenceImageFiles.length === 0) {
       toast.error("请先上传参考图");
@@ -1222,7 +1287,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     const draftTurn: ImageTurn = {
       id: turnId,
       prompt,
-      model: defaultImageModel,
+      model: activeImageModel,
       mode: imageMode,
       referenceImages: imageMode === "edit" ? referenceImages : [],
       count: parsedCount,
@@ -1470,7 +1535,8 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
                   imageOutputCompression={imageOutputCompression}
                   imageModeration={imageModeration}
                   imageTransparentBackground={imageTransparentBackground}
-                  defaultImageModel={defaultImageModel}
+                  selectedImageModel={activeImageModel}
+                  imageModelOptions={selectableImageModels}
                   referenceImages={referenceImages}
                   textareaRef={textareaRef}
                   fileInputRef={fileInputRef}
@@ -1484,6 +1550,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
                   onImageOutputCompressionChange={setImageOutputCompression}
                   onImageModerationChange={setImageModeration}
                   onImageTransparentBackgroundChange={setImageTransparentBackground}
+                  onImageModelChange={setSelectedImageModel}
                   onSubmit={handleSubmit}
                   onPolishPrompt={handlePolishPrompt}
                   isPolishingPrompt={isPolishingPrompt}

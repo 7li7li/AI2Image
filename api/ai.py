@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile
@@ -19,6 +20,63 @@ from services.observability import request_id_from_request
 
 
 PUBLIC_CHANNEL_ERROR = "服务暂时不可用，请稍后重试"
+
+
+URL_PATTERN = re.compile(r"https?://[^\s\"'<>)]*", re.IGNORECASE)
+DOMAIN_PATTERN = re.compile(r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?::\d+)?\b")
+
+
+def _redact_api_domains(message: str) -> str:
+    text = URL_PATTERN.sub("[redacted-url]", message)
+    return DOMAIN_PATTERN.sub("[redacted-domain]", text)
+
+
+def _extract_error_message_from_value(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        error_value = value.get("error")
+        if isinstance(error_value, dict):
+            code = str(error_value.get("code") or "").strip()
+            message = _extract_error_message_from_value(
+                error_value.get("message") or error_value.get("detail") or error_value.get("error")
+            )
+            if code and message:
+                return f"{code}: {message}"
+            return message or code
+        message = _extract_error_message_from_value(
+            value.get("message") or value.get("detail") or error_value
+        )
+        if message:
+            return message
+    if isinstance(value, list):
+        for item in value:
+            message = _extract_error_message_from_value(item)
+            if message:
+                return message
+    return ""
+
+
+def _extract_json_error_message(message: str) -> str:
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(message):
+        if char not in "[{":
+            continue
+        try:
+            payload, _end = decoder.raw_decode(message[index:])
+        except json.JSONDecodeError:
+            continue
+        extracted = _extract_error_message_from_value(payload)
+        if extracted:
+            return extracted
+    return ""
+
+
+def public_image_channel_error(channel_error: object) -> str:
+    raw_message = str(channel_error or "").strip()
+    extracted = _extract_json_error_message(raw_message) or raw_message
+    redacted = _redact_api_domains(extracted).strip()
+    return redacted or PUBLIC_CHANNEL_ERROR
 
 
 class ImageGenerationRequest(BaseModel):
@@ -140,7 +198,7 @@ def create_router() -> APIRouter:
     def require_channel_success(payload: dict[str, object]) -> None:
         channel_error = str(payload.get("_channel_error") or "").strip()
         if channel_error:
-            raise HTTPException(status_code=502, detail={"error": PUBLIC_CHANNEL_ERROR})
+            raise HTTPException(status_code=502, detail={"error": public_image_channel_error(channel_error)})
         raise HTTPException(status_code=503, detail={"error": "no enabled image channel supports this request"})
 
     def log_channel_failure(

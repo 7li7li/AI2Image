@@ -253,6 +253,18 @@ export type ChatStreamEvent =
   | { type: "done"; model?: string; channel?: string; request_id?: string }
   | { type: "error"; error: string; request_id?: string };
 
+export type ModelListItem = {
+  id: string;
+  object?: string;
+  created?: number;
+  owned_by?: string;
+};
+
+export type ModelListResponse = {
+  object: string;
+  data: ModelListItem[];
+};
+
 export type BackgroundTaskStatus<T = unknown> = {
   id: string;
   task_id: string;
@@ -643,6 +655,10 @@ export async function confirmPasswordReset(payload: { email: string; code: strin
 
 export async function fetchMe() {
   return httpRequest<{ user: CurrentUser }>("/api/me");
+}
+
+export async function fetchAvailableModels() {
+  return httpRequest<ModelListResponse>("/v1/models");
 }
 
 export async function updateMyProfile(payload: { name?: string }) {
@@ -1527,7 +1543,7 @@ export async function deleteRedeemCodes(codeIds: string[]) {
 export type Channel = {
   id: string;
   name: string;
-  type: "openai_image";
+  type: "openai_image" | "gemini";
   base_url: string;
   models: string[];
   weight: number;
@@ -1599,6 +1615,7 @@ export async function fetchChannels() {
 }
 
 export async function createChannel(payload: {
+  type?: Channel["type"];
   name: string;
   base_url: string;
   api_key: string;
@@ -1617,6 +1634,7 @@ export async function createChannel(payload: {
 export async function updateChannel(
   channelId: string,
   payload: Partial<{
+    type: Channel["type"];
     name: string;
     base_url: string;
     api_key: string;

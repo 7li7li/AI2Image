@@ -6,7 +6,6 @@ import {
   Camera,
   ChevronDown,
   Clapperboard,
-  Copy,
   Eraser,
   Expand,
   ExternalLink,
@@ -35,6 +34,7 @@ import {
   type AnnotationEditResult,
 } from "@/app/image/components/annotation-editor-dialog";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { ModelIcon } from "@/components/model-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -612,7 +612,8 @@ type ImageComposerProps = {
   imageOutputCompression: string;
   imageModeration: ImageModeration;
   imageTransparentBackground: boolean;
-  defaultImageModel: string;
+  selectedImageModel: string;
+  imageModelOptions: string[];
   referenceImages: Array<{ name: string; dataUrl: string }>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -626,6 +627,7 @@ type ImageComposerProps = {
   onImageOutputCompressionChange: (value: string) => void;
   onImageModerationChange: (value: ImageModeration) => void;
   onImageTransparentBackgroundChange: (value: boolean) => void;
+  onImageModelChange: (value: string) => void;
   onSubmit: () => void | Promise<void>;
   onPolishPrompt: () => void | Promise<void>;
   isPolishingPrompt: boolean;
@@ -646,7 +648,8 @@ export function ImageComposer({
   imageOutputCompression,
   imageModeration,
   imageTransparentBackground,
-  defaultImageModel,
+  selectedImageModel,
+  imageModelOptions,
   referenceImages,
   textareaRef,
   fileInputRef,
@@ -660,6 +663,7 @@ export function ImageComposer({
   onImageOutputCompressionChange,
   onImageModerationChange,
   onImageTransparentBackgroundChange,
+  onImageModelChange,
   onSubmit,
   onPolishPrompt,
   isPolishingPrompt,
@@ -774,16 +778,6 @@ export function ImageComposer({
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
-  const handleCopyPrompt = async () => {
-    const cleaned = prompt.trim();
-    if (!cleaned) {
-      toast.error("没有可复制的提示词");
-      return;
-    }
-    await navigator.clipboard.writeText(cleaned);
-    toast.success("提示词已复制");
-  };
-
   useEffect(() => {
     const controller = new AbortController();
     const loadBananaPrompts = async () => {
@@ -828,10 +822,23 @@ export function ImageComposer({
   const imageSizeCompactLabel = imageSize || "自动";
   const imageResolutionCompactLabel = imageResolution === "auto" ? "自动" : imageResolution.toUpperCase();
   const imageQualityLabel = imageQualityOptions.find((option) => option.value === imageQuality)?.label || "自动";
-  const canSubmit = Boolean(prompt.trim()) && (mode !== "edit" || referenceImages.length > 0);
+  const activeImageModel = selectedImageModel;
+  const canSubmit = Boolean(prompt.trim()) && Boolean(activeImageModel) && (mode !== "edit" || referenceImages.length > 0);
   const promptPlaceholder =
     mode === "edit" ? "描述你希望如何修改这张参考图，可直接粘贴图片" : "畅想你想要的画面，可直接粘贴图片";
   const settingsSummaryLabel = `${imageQualityLabel} · ${imageResolutionCompactLabel} · ${imageSizeCompactLabel} · ${imageCountValue}张`;
+  const imageModelSelectOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return imageModelOptions
+      .map((model) => model.trim())
+      .filter((model) => {
+        if (!model || seen.has(model)) {
+          return false;
+        }
+        seen.add(model);
+        return true;
+      });
+  }, [imageModelOptions]);
 
   const handlePickReferenceImage = () => {
     if (mode !== "edit") {
@@ -1083,15 +1090,64 @@ export function ImageComposer({
       <div className="shrink-0 rounded-[24px] border border-stone-200/80 bg-white/95 p-3 shadow-[0_24px_90px_-45px_rgba(15,23,42,0.55)] backdrop-blur-xl">
         <div className="rounded-[18px] bg-white/70">
           <div className="flex items-start gap-2 px-3 pt-3">
-            <button
-              type="button"
-              onClick={handlePickReferenceImage}
-              className="mt-1 grid size-8 shrink-0 place-items-center rounded-lg border border-rose-100 bg-white/85 text-stone-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
-              aria-label="上传参考图"
-              title="上传参考图"
-            >
-              <ImagePlus className="size-4" />
-            </button>
+            <div className="mt-1 flex shrink-0 flex-col items-center gap-2">
+              <button
+                type="button"
+                onClick={handlePickReferenceImage}
+                className="grid size-8 place-items-center rounded-lg border border-rose-100 bg-white/85 text-stone-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                aria-label="上传参考图"
+                title="上传参考图"
+              >
+                <ImagePlus className="size-4" />
+              </button>
+              <Popover open={isQuickToolsOpen} onOpenChange={setIsQuickToolsOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="grid size-8 place-items-center rounded-lg border border-rose-100 bg-white/85 text-stone-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                    aria-label="快捷工具"
+                    title="快捷工具"
+                  >
+                    <Sparkles className="size-4" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="right"
+                  align="start"
+                  sideOffset={10}
+                  className="w-[min(620px,calc(100vw-2rem))] border-rose-100 bg-white/95 p-3 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.28)]"
+                >
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                    {QUICK_IMAGE_TOOL_PRESETS.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          key={item.label}
+                          type="button"
+                          onClick={() => handleQuickToolSelect(item)}
+                          className="flex h-20 flex-col items-center justify-center gap-2 rounded-lg border border-rose-100 bg-white/80 px-2 text-center text-sm font-medium text-stone-800 transition hover:border-rose-200 hover:bg-rose-50"
+                          title={item.prompt}
+                        >
+                          <span className="grid size-8 place-items-center rounded-lg bg-rose-50 text-rose-600">
+                            <Icon className="size-4" />
+                          </span>
+                          <span className="leading-none">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <button
+                type="button"
+                onClick={() => setIsPromptLibraryOpen(true)}
+                className="grid size-8 place-items-center rounded-lg border border-rose-100 bg-white/85 text-stone-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                aria-label="提示词"
+                title="提示词"
+              >
+                <Images className="size-4" />
+              </button>
+            </div>
             <Textarea
               ref={textareaRef}
               value={prompt}
@@ -1118,17 +1174,6 @@ export function ImageComposer({
                   <ModeButton active={mode === "edit"} onClick={() => onModeChange("edit")}>
                     图生图
                   </ModeButton>
-                </div>
-                <div className="inline-flex h-9 max-w-[250px] items-center gap-2 rounded-lg border border-rose-100 bg-white/72 px-3 text-xs font-medium text-stone-600">
-                  <Sparkles className="size-3.5 shrink-0 text-rose-500" />
-                  <span className="min-w-0 truncate">{defaultImageModel}</span>
-                  <span
-                    className="inline-flex shrink-0 items-center gap-1 border-l border-rose-100 pl-2 text-stone-500"
-                    title="每张图片扣除 1 点额度"
-                  >
-                    <Sparkles className="size-3 shrink-0 text-stone-300" />
-                    1/张
-                  </span>
                 </div>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -1273,52 +1318,35 @@ export function ImageComposer({
               </div>
 
               <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-                <Popover open={isQuickToolsOpen} onOpenChange={setIsQuickToolsOpen}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-rose-100 bg-white/72 px-2.5 text-xs font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white"
-                      aria-label="快捷工具"
-                    >
-                      <Sparkles className="size-4" />
-                      <span>快捷工具</span>
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    side="top"
-                    align="end"
-                    sideOffset={10}
-                    className="w-[min(620px,calc(100vw-2rem))] border-rose-100 bg-white/95 p-3 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.28)]"
+                <div className="inline-flex h-9 max-w-[280px] items-center gap-2 rounded-lg border border-rose-100 bg-white/72 px-3 text-xs font-medium text-stone-600">
+                  <ModelIcon
+                    model={activeImageModel}
+                    className="block size-4 shrink-0 translate-y-px"
+                  />
+                  <Select
+                    value={activeImageModel || undefined}
+                    onValueChange={onImageModelChange}
+                    disabled={imageModelSelectOptions.length === 0}
                   >
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                      {QUICK_IMAGE_TOOL_PRESETS.map((item) => {
-                        const Icon = item.icon;
-                        return (
-                          <button
-                            key={item.label}
-                            type="button"
-                            onClick={() => handleQuickToolSelect(item)}
-                            className="flex h-20 flex-col items-center justify-center gap-2 rounded-lg border border-rose-100 bg-white/80 px-2 text-center text-sm font-medium text-stone-800 transition hover:border-rose-200 hover:bg-rose-50"
-                            title={item.prompt}
-                          >
-                            <span className="grid size-8 place-items-center rounded-lg bg-rose-50 text-rose-600">
-                              <Icon className="size-4" />
-                            </span>
-                            <span className="leading-none">{item.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-                <button
-                  type="button"
-                  onClick={() => setIsPromptLibraryOpen(true)}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-rose-100 bg-white/72 px-2.5 text-xs font-medium text-stone-700 transition hover:border-rose-200 hover:bg-white"
-                >
-                  <Images className="size-4" />
-                  <span>提示词</span>
-                </button>
+                    <SelectTrigger className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 py-0 text-xs font-semibold text-stone-700 shadow-none focus:ring-0 focus-visible:ring-0 [&>svg]:size-3.5">
+                      <SelectValue placeholder="无可用图片模型" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {imageModelSelectOptions.map((model) => (
+                        <SelectItem key={model} value={model}>
+                          {model}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span
+                    className="inline-flex shrink-0 items-center gap-1 border-l border-rose-100 pl-2 text-stone-500"
+                    title="每张图片扣除 1 点额度"
+                  >
+                    <Sparkles className="size-3 shrink-0 text-stone-300" />
+                    1/张
+                  </span>
+                </div>
                 <button
                   type="button"
                   onClick={() => void onPolishPrompt()}
@@ -1330,9 +1358,6 @@ export function ImageComposer({
                   {isPolishingPrompt ? <LoaderCircle className="size-4 animate-spin" /> : <WandSparkles className="size-4" />}
                   <span>润色</span>
                 </button>
-                <IconToolButton onClick={() => void handleCopyPrompt()} disabled={!prompt} label="复制当前提示词">
-                  <Copy className="size-4" />
-                </IconToolButton>
                 <IconToolButton onClick={handleClearPrompt} disabled={!prompt} label="清空提示词">
                   <X className="size-4" />
                 </IconToolButton>

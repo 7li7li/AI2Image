@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from curl_cffi import CurlMime
 from curl_cffi.requests import Session
@@ -22,6 +22,19 @@ from services.storage.base import StorageBackend
 from services.transparent_image import build_transparent_prompt, remove_keyed_background
 from utils.timezone import china_now_text
 PERSONAL_CHANNEL_ID_PREFIX = "personal_image_channel"
+OPENAI_CHANNEL_TYPE = "openai_image"
+GEMINI_CHANNEL_TYPE = "gemini"
+SUPPORTED_CHANNEL_TYPES = {OPENAI_CHANNEL_TYPE, GEMINI_CHANNEL_TYPE}
+DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+DEFAULT_OPENAI_IMAGE_MODELS = ["gpt-image-1", "gpt-image-2"]
+DEFAULT_GEMINI_MODELS = [
+    "gemini-3.5-flash",
+    "gemini-3-pro",
+    "gemini-3.1-flash-image",
+    "gemini-3.1-flash-lite-image",
+    "gemini-3-pro-image",
+    "gemini-2.5-flash-image",
+]
 
 
 def _now_iso() -> str:
@@ -154,7 +167,20 @@ def _normalize_models(value: object) -> list[str]:
         return [_clean(item) for item in value if _clean(item)]
     if isinstance(value, str):
         return [item.strip() for item in value.split(",") if item.strip()]
-    return ["gpt-image-1", "gpt-image-2"]
+    return list(DEFAULT_OPENAI_IMAGE_MODELS)
+
+
+def _default_models_for_channel(channel_type: str) -> list[str]:
+    if channel_type == GEMINI_CHANNEL_TYPE:
+        return list(DEFAULT_GEMINI_MODELS)
+    return list(DEFAULT_OPENAI_IMAGE_MODELS)
+
+
+def _normalize_channel_models(value: object, channel_type: str) -> list[str]:
+    models = _normalize_models(value)
+    if value is None:
+        return _default_models_for_channel(channel_type)
+    return models or _default_models_for_channel(channel_type)
 
 
 def _requested_models(value: object) -> list[str]:
@@ -258,6 +284,31 @@ def _dedupe_models(models: list[str]) -> list[str]:
 
 def _model_alias_key(model: str) -> str:
     return model.lower().replace(".", "-")
+
+
+def _data_url_to_inline_data(url: str) -> dict[str, str] | None:
+    prefix, separator, data = _clean(url).partition(",")
+    if not separator or not prefix.lower().startswith("data:") or ";base64" not in prefix.lower():
+        return None
+    mime_type = prefix[5:].split(";", 1)[0].strip() or "image/png"
+    if not data.strip():
+        return None
+    return {"mimeType": mime_type, "data": data.strip()}
+
+
+def _inline_data_from_part(part: object) -> dict[str, str] | None:
+    if not isinstance(part, dict):
+        return None
+    inline_data = part.get("inlineData") or part.get("inline_data")
+    if not isinstance(inline_data, dict):
+        return None
+    data = _clean(inline_data.get("data"))
+    if not data:
+        return None
+    return {
+        "mimeType": _clean(inline_data.get("mimeType") or inline_data.get("mime_type")) or "image/png",
+        "data": data,
+    }
 
 
 def _is_explicit_image_size(value: str) -> bool:
@@ -381,10 +432,14 @@ class ChannelService:
             return None
         channel_id = _clean(raw.get("id")) or uuid.uuid4().hex[:12]
         name = _clean(raw.get("name")) or "OpenAI 图片渠道"
-        channel_type = _clean(raw.get("type")) or "openai_image"
-        if channel_type != "openai_image":
-            channel_type = "openai_image"
+        channel_type = _clean(raw.get("type")) or OPENAI_CHANNEL_TYPE
+        if channel_type not in SUPPORTED_CHANNEL_TYPES:
+            channel_type = OPENAI_CHANNEL_TYPE
         base_url = _clean(raw.get("base_url")).rstrip("/")
+        if channel_type == GEMINI_CHANNEL_TYPE and not base_url:
+            base_url = DEFAULT_GEMINI_BASE_URL
+        if channel_type == GEMINI_CHANNEL_TYPE and not _clean(raw.get("name")):
+            name = "Gemini native channel"
         api_key = _clean(raw.get("api_key"))
         try:
             weight = max(1, int(raw.get("weight") or 1))
@@ -404,7 +459,7 @@ class ChannelService:
             "type": channel_type,
             "base_url": base_url,
             "api_key": api_key,
-            "models": _normalize_models(raw.get("models")),
+            "models": _normalize_channel_models(raw.get("models"), channel_type),
             "weight": weight,
             "priority": priority,
             "timeout": timeout,
@@ -473,6 +528,10 @@ class ChannelService:
             if source_model and target_model:
                 mappings[source_model] = target_model
         return mappings
+
+    @staticmethod
+    def _is_gemini_channel(channel: dict[str, object]) -> bool:
+        return _clean(channel.get("type")) == GEMINI_CHANNEL_TYPE
 
     def _external_model_candidates(self, model: str | None) -> list[str]:
         requested = _clean(model)
@@ -732,6 +791,8 @@ class ChannelService:
             return next((dict(item) for item in self._current_channels() if item.get("id") == channel_id), None)
 
     def _fetch_external_channel_models(self, channel: dict[str, object]) -> list[str]:
+        if self._is_gemini_channel(channel):
+            return self._fetch_gemini_channel_models(channel)
         url = self._openai_compatible_url(channel, "/v1/models")
         response = self._session(channel).get(
             url,
@@ -753,6 +814,36 @@ class ChannelService:
         models = self.extract_model_ids(payload)
         if not models:
             raise RuntimeError("channel model response contains no models")
+        return models
+
+    def _fetch_gemini_channel_models(self, channel: dict[str, object]) -> list[str]:
+        response = self._session(channel).get(
+            self._gemini_url(channel, "/models?pageSize=1000"),
+            timeout=int(channel.get("timeout") or 60),
+        )
+        if not response.ok:
+            raise RuntimeError(f"gemini model list request failed HTTP {response.status_code}: {response.text[:300]}")
+        payload = response.json()
+        candidates = payload.get("models") if isinstance(payload, dict) else None
+        if not isinstance(candidates, list):
+            raise RuntimeError("gemini model response contains no models")
+        seen: set[str] = set()
+        models: list[str] = []
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            actions = item.get("supportedGenerationMethods") or item.get("supported_actions") or []
+            if isinstance(actions, list) and actions and "generateContent" not in actions:
+                continue
+            model = _clean(item.get("baseModelId") or item.get("base_model_id"))
+            if not model:
+                model = _clean(item.get("name")).removeprefix("models/")
+            if not model or model in seen:
+                continue
+            seen.add(model)
+            models.append(model)
+        if not models:
+            raise RuntimeError("gemini model response contains no generateContent models")
         return models
 
     def fetch_channel_models(self, channel_id: str) -> list[str] | None:
@@ -1039,7 +1130,304 @@ class ChannelService:
             payload["_channel_error"] = message
         return None
 
+    def _gemini_model_resource(self, model: object) -> str:
+        model_id = _clean(model)
+        if not model_id:
+            raise ValueError("gemini model is required")
+        if model_id.startswith("models/"):
+            return "/".join(quote(part, safe="") for part in model_id.split("/"))
+        return f"models/{quote(model_id, safe='')}"
+
+    def _gemini_generate_url(self, channel: dict[str, object], model: object, *, stream: bool = False) -> str:
+        method = "streamGenerateContent" if stream else "generateContent"
+        url = self._gemini_url(channel, f"/{self._gemini_model_resource(model)}:{method}")
+        return f"{url}?alt=sse" if stream else url
+
+    def _gemini_text_part(self, value: object) -> dict[str, str] | None:
+        text = _clean(value)
+        return {"text": text} if text else None
+
+    def _gemini_parts_from_chat_content(self, content: object) -> list[dict[str, object]]:
+        if isinstance(content, list):
+            parts: list[dict[str, object]] = []
+            for item in content:
+                if isinstance(item, str):
+                    part = self._gemini_text_part(item)
+                    if part:
+                        parts.append(part)
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                item_type = _clean(item.get("type")).lower()
+                if item_type == "text":
+                    part = self._gemini_text_part(item.get("text") or item.get("content"))
+                    if part:
+                        parts.append(part)
+                    continue
+                if item_type == "image_url":
+                    image_url = item.get("image_url")
+                    if isinstance(image_url, dict):
+                        url = _clean(image_url.get("url"))
+                    else:
+                        url = _clean(image_url)
+                    inline_data = _data_url_to_inline_data(url)
+                    if inline_data:
+                        parts.append({"inlineData": inline_data})
+                    elif url:
+                        parts.append({"text": f"Image URL: {url}"})
+            return parts
+        part = self._gemini_text_part(content)
+        return [part] if part else []
+
+    def _gemini_contents_from_messages(self, messages: object) -> tuple[list[dict[str, object]], dict[str, object] | None]:
+        if not isinstance(messages, list) or not messages:
+            raise ValueError("chat messages are required")
+        contents: list[dict[str, object]] = []
+        system_parts: list[dict[str, object]] = []
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role = _clean(message.get("role")).lower()
+            parts = self._gemini_parts_from_chat_content(message.get("content"))
+            if not parts:
+                continue
+            if role == "system":
+                system_parts.extend(parts)
+                continue
+            contents.append({
+                "role": "model" if role == "assistant" else "user",
+                "parts": parts,
+            })
+        if not contents:
+            raise ValueError("chat messages are required")
+        system_instruction = {"parts": system_parts} if system_parts else None
+        return contents, system_instruction
+
+    def _gemini_generation_config(self, payload: dict[str, Any], *, image: bool = False) -> dict[str, object]:
+        config_payload: dict[str, object] = {}
+        if image:
+            config_payload["responseModalities"] = ["IMAGE"]
+        for source, target in {
+            "temperature": "temperature",
+            "top_p": "topP",
+            "max_tokens": "maxOutputTokens",
+            "max_completion_tokens": "maxOutputTokens",
+        }.items():
+            value = payload.get(source)
+            if value is not None and value != "":
+                config_payload[target] = value
+        stop = payload.get("stop")
+        if isinstance(stop, str) and stop:
+            config_payload["stopSequences"] = [stop]
+        elif isinstance(stop, list):
+            config_payload["stopSequences"] = [_clean(item) for item in stop if _clean(item)]
+        return config_payload
+
+    def _gemini_request_body(
+            self,
+            payload: dict[str, Any],
+            contents: list[dict[str, object]],
+            *,
+            image: bool = False,
+            system_instruction: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        body: dict[str, object] = {"contents": contents}
+        generation_config = self._gemini_generation_config(payload, image=image)
+        if generation_config:
+            body["generationConfig"] = generation_config
+        if system_instruction:
+            body["systemInstruction"] = system_instruction
+        return body
+
+    def _gemini_image_contents(self, payload: dict[str, Any], prompt: str) -> list[dict[str, object]]:
+        parts: list[dict[str, object]] = [{"text": prompt}]
+        for image in payload.get("images") or []:
+            if not isinstance(image, tuple) or len(image) != 3:
+                continue
+            data, _filename, content_type = image
+            if not isinstance(data, bytes) or not data:
+                continue
+            parts.append({
+                "inlineData": {
+                    "mimeType": content_type or "image/png",
+                    "data": base64.b64encode(data).decode("ascii"),
+                }
+            })
+        return [{"role": "user", "parts": parts}]
+
+    def _gemini_candidate_parts(self, payload: object) -> list[dict[str, object]]:
+        if not isinstance(payload, dict):
+            return []
+        parts: list[dict[str, object]] = []
+        candidates = payload.get("candidates")
+        if not isinstance(candidates, list):
+            return parts
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            content = candidate.get("content")
+            if not isinstance(content, dict):
+                continue
+            candidate_parts = content.get("parts")
+            if isinstance(candidate_parts, list):
+                parts.extend(part for part in candidate_parts if isinstance(part, dict))
+        return parts
+
+    def _gemini_text_from_payload(self, payload: object) -> str:
+        texts: list[str] = []
+        for part in self._gemini_candidate_parts(payload):
+            text = part.get("text")
+            if isinstance(text, str):
+                texts.append(text)
+        return "".join(texts)
+
+    def _gemini_openai_chat_response(
+            self,
+            payload: object,
+            model: str,
+            request_id: str,
+    ) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise RuntimeError("gemini chat response is invalid")
+        content = self._gemini_text_from_payload(payload)
+        return {
+            "id": f"chatcmpl-{request_id or uuid.uuid4().hex}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": payload.get("usageMetadata") or payload.get("usage_metadata") or {},
+        }
+
+    def _normalize_gemini_image_response(self, payload: object, original_payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise RuntimeError("gemini image response is invalid")
+        items: list[dict[str, Any]] = []
+        for part in self._gemini_candidate_parts(payload):
+            inline_data = _inline_data_from_part(part)
+            if not inline_data:
+                continue
+            data = _clean(inline_data.get("data"))
+            if data:
+                items.append({"b64_json": data})
+        if not items:
+            raise RuntimeError("gemini response missing image data")
+        return _format_image_result(
+            items,
+            _clean(original_payload.get("prompt")),
+            _clean(original_payload.get("response_format")) or "url",
+            _clean(original_payload.get("base_url")) or None,
+            transparent_background=_is_transparent_background_request(original_payload),
+        )
+
+    def _call_gemini_generation(self, channel: dict[str, object], payload: dict[str, Any]) -> dict[str, Any]:
+        prompt, size = _normalize_external_image_request(
+            payload.get("prompt"),
+            payload.get("size"),
+            payload.get("resolution"),
+        )
+        prompt = prompt or ""
+        if size and size != "auto":
+            prompt = f"{prompt}\n\nRequested image size or aspect ratio: {size}".strip()
+        if _is_transparent_background_request(payload):
+            prompt = build_transparent_prompt(prompt)
+        body = self._gemini_request_body(
+            payload,
+            self._gemini_image_contents(payload, prompt),
+            image=True,
+        )
+        response = self._session(channel).post(
+            self._gemini_generate_url(channel, payload.get("model")),
+            json=body,
+            timeout=int(channel.get("timeout") or 60),
+        )
+        if not response.ok:
+            raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
+        return self._normalize_gemini_image_response(response.json(), payload)
+
+    def _call_gemini_chat_completion(self, channel: dict[str, object], payload: dict[str, Any]) -> dict[str, Any]:
+        model = _clean(payload.get("model")) or (channel.get("models") or [DEFAULT_GEMINI_MODELS[0]])[0]
+        contents, system_instruction = self._gemini_contents_from_messages(payload.get("messages"))
+        body = self._gemini_request_body(payload, contents, system_instruction=system_instruction)
+        response = self._session(channel).post(
+            self._gemini_generate_url(channel, model),
+            json=body,
+            timeout=int(channel.get("timeout") or 60),
+        )
+        if not response.ok:
+            raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
+        return self._gemini_openai_chat_response(response.json(), model, _clean(payload.get("request_id")))
+
+    def _call_gemini_chat_completion_stream(self, channel: dict[str, object], payload: dict[str, Any]):
+        model = _clean(payload.get("model")) or (channel.get("models") or [DEFAULT_GEMINI_MODELS[0]])[0]
+        contents, system_instruction = self._gemini_contents_from_messages(payload.get("messages"))
+        body = self._gemini_request_body(payload, contents, system_instruction=system_instruction)
+        session = self._session(channel)
+        try:
+            response = session.post(
+                self._gemini_generate_url(channel, model, stream=True),
+                json=body,
+                timeout=int(channel.get("timeout") or 60),
+                stream=True,
+            )
+            if not response.ok:
+                raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
+        except Exception:
+            session.close()
+            raise
+
+        def chunks():
+            try:
+                pending = b""
+                for chunk in response.iter_content():
+                    if not chunk:
+                        continue
+                    if isinstance(chunk, str):
+                        chunk = chunk.encode("utf-8")
+                    pending += chunk
+                    lines = pending.split(b"\n")
+                    pending = lines.pop() if lines else b""
+                    for raw_line in lines:
+                        text = raw_line.rstrip(b"\r").decode("utf-8", errors="replace").strip()
+                        if not text:
+                            continue
+                        if text.startswith("data:"):
+                            text = text.removeprefix("data:").strip()
+                        if not text or text == "[DONE]":
+                            continue
+                        try:
+                            event_payload = json.loads(text)
+                        except json.JSONDecodeError:
+                            continue
+                        delta = self._gemini_text_from_payload(event_payload)
+                        if delta:
+                            yield delta
+                if pending:
+                    text = pending.rstrip(b"\r").decode("utf-8", errors="replace").strip()
+                    if text.startswith("data:"):
+                        text = text.removeprefix("data:").strip()
+                    if text:
+                        try:
+                            event_payload = json.loads(text)
+                        except json.JSONDecodeError:
+                            event_payload = None
+                        delta = self._gemini_text_from_payload(event_payload)
+                        if delta:
+                            yield delta
+            finally:
+                session.close()
+
+        return chunks()
+
     def _call_generation(self, channel: dict[str, object], payload: dict[str, Any]) -> dict[str, Any]:
+        if self._is_gemini_channel(channel):
+            return self._call_gemini_generation(channel, payload)
         prompt, size = _normalize_external_image_request(
             payload.get("prompt"),
             payload.get("size"),
@@ -1067,6 +1455,8 @@ class ChannelService:
         return self._normalize_response(response, payload)
 
     def _call_edit(self, channel: dict[str, object], payload: dict[str, Any]) -> dict[str, Any]:
+        if self._is_gemini_channel(channel):
+            return self._call_gemini_generation(channel, payload)
         prompt, size = _normalize_external_image_request(
             payload.get("prompt"),
             payload.get("size"),
@@ -1138,6 +1528,8 @@ class ChannelService:
         return body
 
     def _call_chat_completion(self, channel: dict[str, object], payload: dict[str, Any]) -> dict[str, Any]:
+        if self._is_gemini_channel(channel):
+            return self._call_gemini_chat_completion(channel, payload)
         body = self._chat_completion_body(channel, {**payload, "stream": False})
         response = self._session(channel).post(
             self._openai_compatible_url(channel, "/v1/chat/completions"),
@@ -1147,6 +1539,8 @@ class ChannelService:
         return self._normalize_chat_response(response)
 
     def _call_chat_completion_stream(self, channel: dict[str, object], payload: dict[str, Any]):
+        if self._is_gemini_channel(channel):
+            return self._call_gemini_chat_completion_stream(channel, payload)
         body = self._chat_completion_body(channel, {**payload, "stream": True})
         session = self._session(channel)
         try:
@@ -1199,10 +1593,14 @@ class ChannelService:
 
     def _session(self, channel: dict[str, object]) -> Session:
         session = Session(**proxy_settings.build_session_kwargs(verify=True))
-        session.headers.update({
-            "Authorization": f"Bearer {_clean(channel.get('api_key'))}",
-            "Accept": "application/json",
-        })
+        session.headers.update({"Accept": "application/json"})
+        if self._is_gemini_channel(channel):
+            if self._gemini_uses_google_api_key_header(channel):
+                session.headers.update({"x-goog-api-key": _clean(channel.get("api_key"))})
+            else:
+                session.headers.update({"Authorization": f"Bearer {_clean(channel.get('api_key'))}"})
+        else:
+            session.headers.update({"Authorization": f"Bearer {_clean(channel.get('api_key'))}"})
         return session
 
     @staticmethod
@@ -1214,6 +1612,28 @@ class ChannelService:
         if base_url.lower().endswith("/v1") and normalized_path.startswith("/v1/"):
             normalized_path = normalized_path[3:]
         return f"{base_url}{normalized_path}"
+
+    @staticmethod
+    def _gemini_url(channel: dict[str, object], path: str) -> str:
+        base_url = ChannelService._gemini_base_url(channel)
+        normalized_path = "/" + _clean(path).lstrip("/")
+        return f"{base_url}{normalized_path}"
+
+    @staticmethod
+    def _gemini_base_url(channel: dict[str, object]) -> str:
+        base_url = (_clean(channel.get("base_url")) or DEFAULT_GEMINI_BASE_URL).rstrip("/")
+        parsed = urlparse(base_url)
+        segments = [segment for segment in parsed.path.strip("/").split("/") if segment]
+        last_segment = segments[-1].lower() if segments else ""
+        if last_segment not in {"v1", "v1beta", "v1alpha"}:
+            base_url = f"{base_url}/v1beta"
+        return base_url
+
+    @staticmethod
+    def _gemini_uses_google_api_key_header(channel: dict[str, object]) -> bool:
+        api_key = _clean(channel.get("api_key"))
+        host = (urlparse(_clean(channel.get("base_url")) or DEFAULT_GEMINI_BASE_URL).hostname or "").lower()
+        return host == "generativelanguage.googleapis.com" or api_key.startswith("AIza")
 
     @staticmethod
     def _normalize_response(response, original_payload: dict[str, Any]) -> dict[str, Any]:

@@ -39,9 +39,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createChatCompletionTask,
+  fetchAvailableModels,
   fetchBackgroundTask,
   streamBackgroundTask,
   streamChatCompletion,
@@ -49,6 +51,7 @@ import {
   type ChatCompletionMessage,
   type ChatTaskResult,
 } from "@/lib/api";
+import { textModelOptions } from "@/lib/model-options";
 import { useSiteSettingsStore } from "@/lib/site-settings";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { cn } from "@/lib/utils";
@@ -67,6 +70,7 @@ import {
 } from "@/store/chat-conversations";
 
 const ACTIVE_CHAT_CONVERSATION_STORAGE_KEY = "chatgpt2api:chat_active_conversation_id";
+const CHAT_MODEL_STORAGE_KEY = "chatgpt2api:chat_last_model";
 const QUOTA_REFRESH_EVENT = "yanai:quota-refresh";
 const CHAT_CONTEXT_TURN_LIMIT = 4;
 const MAX_CHAT_ATTACHMENTS = 4;
@@ -384,12 +388,18 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [selectedTextModel, setSelectedTextModel] = useState("");
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: "one"; id: string } | { type: "all" } | null>(null);
 
   const defaultTextModel = useSiteSettingsStore((state) => state.settings.default_text_model || "gpt-5.5");
   const chatConversationOwnerKey = useMemo(() => getChatConversationOwnerKey(session), [session]);
   const activeConversationStorageKey = useMemo(
     () => getScopedStorageKey(ACTIVE_CHAT_CONVERSATION_STORAGE_KEY, chatConversationOwnerKey),
+    [chatConversationOwnerKey],
+  );
+  const chatModelStorageKey = useMemo(
+    () => getScopedStorageKey(CHAT_MODEL_STORAGE_KEY, chatConversationOwnerKey),
     [chatConversationOwnerKey],
   );
   const selectedConversation = useMemo(
@@ -404,6 +414,24 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
   const selectedConversationSending = Boolean(
     selectedConversation?.messages.some((message) => message.status === "sending"),
   );
+  const selectableTextModels = useMemo(
+    () => textModelOptions(defaultTextModel, availableModels),
+    [availableModels, defaultTextModel],
+  );
+  const activeTextModel = useMemo(() => {
+    const candidates = [selectedTextModel, selectedConversation?.model || "", defaultTextModel];
+    for (const candidate of candidates) {
+      const normalized = candidate.trim();
+      if (!normalized) {
+        continue;
+      }
+      const matched = selectableTextModels.find((model) => model.toLowerCase() === normalized.toLowerCase());
+      if (matched) {
+        return matched;
+      }
+    }
+    return selectableTextModels[0] || "";
+  }, [defaultTextModel, selectableTextModels, selectedConversation?.model, selectedTextModel]);
   const deleteConfirmTitle = deleteConfirm?.type === "all" ? "清空对话记录" : deleteConfirm?.type === "one" ? "删除对话" : "";
   const deleteConfirmDescription =
     deleteConfirm?.type === "all"
@@ -417,6 +445,24 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
   }, [conversations]);
 
   useEffect(() => {
+    let cancelled = false;
+    fetchAvailableModels()
+      .then((payload) => {
+        if (!cancelled) {
+          setAvailableModels(payload.data.map((item) => item.id).filter(Boolean));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAvailableModels([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     selectedConversationIdRef.current = selectedConversationId;
   }, [selectedConversationId]);
 
@@ -427,6 +473,8 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
       if (options.resetBeforeLoad) {
         setIsLoadingHistory(true);
         selectedConversationIdRef.current = null;
+        const storedTextModel = typeof window !== "undefined" ? window.localStorage.getItem(chatModelStorageKey) : null;
+        setSelectedTextModel(storedTextModel || defaultTextModel);
       }
       try {
         const items = await listChatConversations(chatConversationOwnerKey);
@@ -478,7 +526,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
       cancelled = true;
       window.removeEventListener(CHAT_CONVERSATIONS_CHANGED_EVENT, handleConversationsChanged);
     };
-  }, [activeConversationStorageKey, chatConversationOwnerKey]);
+  }, [activeConversationStorageKey, chatConversationOwnerKey, chatModelStorageKey, defaultTextModel]);
 
   useEffect(() => {
     if (!selectedConversation) {
@@ -500,6 +548,25 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
       window.localStorage.removeItem(activeConversationStorageKey);
     }
   }, [activeConversationStorageKey, isLoadingHistory, selectedConversationId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || isLoadingHistory) {
+      return;
+    }
+    const model = activeTextModel.trim();
+    if (model) {
+      window.localStorage.setItem(chatModelStorageKey, model);
+    }
+  }, [activeTextModel, chatModelStorageKey, isLoadingHistory]);
+
+  useEffect(() => {
+    if (selectableTextModels.length === 0) {
+      return;
+    }
+    if (!selectedTextModel || !selectableTextModels.some((model) => model.toLowerCase() === selectedTextModel.toLowerCase())) {
+      setSelectedTextModel(selectableTextModels[0]);
+    }
+  }, [selectableTextModels, selectedTextModel]);
 
   useEffect(() => {
     if (selectedConversationId && !conversations.some((conversation) => conversation.id === selectedConversationId)) {
@@ -555,7 +622,26 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
     draftModeRef.current = false;
     selectedConversationIdRef.current = id;
     setSelectedConversationId(id);
+    const conversation = conversationsRef.current.find((item) => item.id === id);
+    if (conversation?.model) {
+      setSelectedTextModel(conversation.model);
+    }
   }, []);
+
+  const handleTextModelChange = useCallback(
+    (model: string) => {
+      setSelectedTextModel(model);
+      if (!selectedConversation || selectedConversationSending) {
+        return;
+      }
+      void updateConversation(selectedConversation.id, (current) => ({
+        ...(current ?? selectedConversation),
+        model,
+        updatedAt: new Date().toISOString(),
+      }));
+    },
+    [selectedConversation, selectedConversationSending, updateConversation],
+  );
 
   const handleAttachmentFiles = async (files: FileList | File[] | null) => {
     const selectedFiles = Array.from(files || []);
@@ -975,6 +1061,10 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
       toast.error("当前对话仍在回复中");
       return;
     }
+    if (!activeTextModel) {
+      toast.error("没有可用的对话模型，请先启用支持文本对话的渠道");
+      return;
+    }
 
     const targetConversation = selectedConversationId
       ? conversationsRef.current.find((conversation) => conversation.id === selectedConversationId) ?? null
@@ -1000,6 +1090,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
     const baseConversation: ChatConversation = targetConversation
       ? {
           ...targetConversation,
+          model: activeTextModel,
           ownerKey: chatConversationOwnerKey,
           updatedAt: now,
           messages: [...targetConversation.messages, userMessage, assistantMessage],
@@ -1008,7 +1099,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
           id: conversationId,
           ownerKey: chatConversationOwnerKey,
           title: buildConversationTitle(content),
-          model: defaultTextModel,
+          model: activeTextModel,
           createdAt: now,
           updatedAt: now,
           messages: [userMessage, assistantMessage],
@@ -1175,14 +1266,27 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                       回复中
                     </span>
                   ) : null}
-                  <div className="inline-flex min-h-5 min-w-0 max-w-[48vw] items-center gap-1.5 text-xs font-medium text-stone-600 sm:max-w-[310px]">
+                  <div className="inline-flex h-8 min-w-0 max-w-[52vw] items-center gap-1.5 rounded-lg border border-stone-200 bg-white/65 px-2 text-xs font-medium text-stone-600 sm:max-w-[360px]">
                     <ModelIcon
-                      model={selectedConversation?.model || defaultTextModel}
+                      model={activeTextModel}
                       className="block size-4 shrink-0 translate-y-px"
                     />
-                    <span className="flex h-4 min-w-0 items-center truncate leading-none">
-                      {selectedConversation?.model || defaultTextModel}
-                    </span>
+                    <Select
+                      value={activeTextModel || undefined}
+                      onValueChange={handleTextModelChange}
+                      disabled={selectedConversationSending || selectableTextModels.length === 0}
+                    >
+                      <SelectTrigger className="h-6 min-w-0 flex-1 border-0 bg-transparent px-0 py-0 text-xs font-semibold text-stone-700 shadow-none focus:ring-0 focus-visible:ring-0 [&>svg]:size-3.5">
+                        <SelectValue placeholder="无可用对话模型" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {selectableTextModels.map((model) => (
+                          <SelectItem key={model} value={model}>
+                            {model}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <span
                       className="inline-flex h-4 shrink-0 items-center gap-1 border-l border-stone-200 pl-2 text-stone-500"
                       title="每次成功回复扣除 1 点额度"
@@ -1205,7 +1309,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                     size="icon"
                     className="size-9 rounded-full bg-stone-700 text-white shadow-none hover:bg-stone-800"
                     onClick={() => void handleSubmit()}
-                    disabled={(!messageDraft.trim() && pendingAttachments.length === 0) || selectedConversationSending}
+                    disabled={(!messageDraft.trim() && pendingAttachments.length === 0) || selectedConversationSending || !activeTextModel}
                     aria-label="发送消息"
                   >
                     {selectedConversationSending ? (

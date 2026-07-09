@@ -17,7 +17,6 @@ from services.image_service import collect_downloadable_images, delete_images, l
 from services.log_service import audit_service
 from services.model_service import model_service
 from services.webdav_service import get_webdav_config, save_webdav_config, sync_images_to_webdav
-from utils.model_catalog import DEFAULT_INTERNAL_MODELS
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -117,10 +116,11 @@ class RedeemCodeUpdateRequest(BaseModel):
 
 
 class ChannelRequest(BaseModel):
+    type: str = "openai_image"
     name: str = ""
     base_url: str = ""
     api_key: str = ""
-    models: list[str] | str = Field(default_factory=lambda: list(DEFAULT_INTERNAL_MODELS))
+    models: list[str] | str | None = None
     weight: int = 1
     priority: int = 0
     timeout: int = 60
@@ -128,6 +128,7 @@ class ChannelRequest(BaseModel):
 
 
 class ChannelUpdateRequest(BaseModel):
+    type: str | None = None
     name: str | None = None
     base_url: str | None = None
     api_key: str | None = None

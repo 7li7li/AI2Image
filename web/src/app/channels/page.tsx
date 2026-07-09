@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createChannel,
@@ -31,8 +32,14 @@ import { useAuthGuard } from "@/lib/use-auth-guard";
 
 const DEFAULT_CHANNEL_MODELS =
   "gpt-5,gpt-5-1,gpt-5-2,gpt-5-3,gpt-5-3-mini,gpt-5.5,gpt-5-mini,gpt-image-2,auto";
+const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+const DEFAULT_GEMINI_MODELS =
+  "gemini-3.5-flash,gemini-3-pro,gemini-3.1-flash-image,gemini-3.1-flash-lite-image,gemini-3-pro-image,gemini-2.5-flash-image";
+
+type ChannelType = Channel["type"];
 
 type ChannelForm = {
+  type: ChannelType;
   name: string;
   base_url: string;
   api_key: string;
@@ -43,9 +50,10 @@ type ChannelForm = {
   enabled: boolean;
 };
 
-type TextFieldKey = Exclude<keyof ChannelForm, "enabled">;
+type TextFieldKey = Exclude<keyof ChannelForm, "type" | "enabled">;
 
 const EMPTY_FORM: ChannelForm = {
+  type: "openai_image",
   name: "",
   base_url: "",
   api_key: "",
@@ -118,6 +126,7 @@ const ROUTING_FIELDS = CHANNEL_FIELDS.slice(4);
 const resetForm = (): ChannelForm => ({ ...EMPTY_FORM });
 
 const channelToForm = (channel: Channel): ChannelForm => ({
+  type: channel.type || "openai_image",
   name: channel.name || "",
   base_url: channel.base_url || "",
   api_key: "",
@@ -134,7 +143,7 @@ const toNumber = (value: string, fallback: number) => {
 };
 
 const channelTypeLabel = (channel: Channel) =>
-  channel.type === "openai_image" ? "OpenAI 图片兼容" : channel.type;
+  channel.type === "gemini" ? "Google Gemini" : channel.type === "openai_image" ? "OpenAI 图片兼容" : channel.type;
 
 const uniqueModels = (models: string[] | undefined) => {
   const seen = new Set<string>();
@@ -229,10 +238,35 @@ function ChannelsContent() {
     setEditForm((current) => ({ ...current, [key]: value }));
   };
 
+  const applyChannelTypeDefaults = (current: ChannelForm, type: ChannelType): ChannelForm => {
+    if (type === "gemini") {
+      return {
+        ...current,
+        type,
+        base_url: current.base_url || DEFAULT_GEMINI_BASE_URL,
+        models: current.models === DEFAULT_CHANNEL_MODELS || !current.models.trim() ? DEFAULT_GEMINI_MODELS : current.models,
+      };
+    }
+    return {
+      ...current,
+      type,
+      models: current.models === DEFAULT_GEMINI_MODELS || !current.models.trim() ? DEFAULT_CHANNEL_MODELS : current.models,
+    };
+  };
+
+  const handleCreateTypeChange = (type: ChannelType) => {
+    setForm((current) => applyChannelTypeDefaults(current, type));
+  };
+
+  const handleEditTypeChange = (type: ChannelType) => {
+    setEditForm((current) => applyChannelTypeDefaults(current, type));
+  };
+
   const handleCreate = async () => {
     setIsCreating(true);
     try {
       const data = await createChannel({
+        type: form.type,
         name: form.name.trim(),
         base_url: form.base_url.trim(),
         api_key: form.api_key.trim(),
@@ -327,6 +361,7 @@ function ChannelsContent() {
     setSavingChannelId(editingChannel.id);
     try {
       const payload = {
+        type: editForm.type,
         name: editForm.name.trim(),
         base_url: editForm.base_url.trim(),
         ...(editForm.api_key.trim() ? { api_key: editForm.api_key.trim() } : {}),
@@ -372,7 +407,21 @@ function ChannelsContent() {
             </div>
             <div className="text-xs text-stone-400">填写 OpenAI 兼容地址后，可在列表中测试模型接口。</div>
           </div>
-          <div className="grid gap-3 lg:grid-cols-[1fr_1.4fr_1.15fr]">
+          <div className="grid gap-3 lg:grid-cols-[180px_1fr_1.4fr_1.15fr]">
+            <div className="space-y-1.5">
+              <label className="block text-xs">
+                <span className="block font-semibold text-stone-700">渠道类型</span>
+              </label>
+              <Select value={form.type} onValueChange={(value) => handleCreateTypeChange(value as ChannelType)}>
+                <SelectTrigger className="h-10 rounded-xl border-rose-100 bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai_image">OpenAI 兼容</SelectItem>
+                  <SelectItem value="gemini">Google Gemini</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             {PRIMARY_FIELDS.map((field) => (
               <div key={field.key} className="space-y-1.5">
                 <FieldCaption field={field} />
@@ -621,6 +670,20 @@ function ChannelsContent() {
             </label>
 
             <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5 sm:col-span-2">
+                <label className="block text-xs">
+                  <span className="block font-semibold text-stone-700">渠道类型</span>
+                </label>
+                <Select value={editForm.type} onValueChange={(value) => handleEditTypeChange(value as ChannelType)}>
+                  <SelectTrigger className="h-10 rounded-xl border-rose-100 bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="openai_image">OpenAI 兼容</SelectItem>
+                    <SelectItem value="gemini">Google Gemini</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               {CHANNEL_FIELDS.map((field) => (
                 <div key={field.key} className={field.key === "models" ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}>
                   <FieldCaption field={field} />

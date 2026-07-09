@@ -82,6 +82,7 @@ class FakeChannelService:
             "Global",
         )
         self.chat_stream_result: tuple[list[str], str] | None = (["hel", "lo"], "Global")
+        self.generation_error = FAKE_UPSTREAM_ERROR
 
     def has_usable_personal_channel(
         self,
@@ -96,7 +97,7 @@ class FakeChannelService:
         self.calls.append(dict(payload))
         if self.generation_result is not None:
             return self.generation_result
-        payload["_channel_error"] = FAKE_UPSTREAM_ERROR
+        payload["_channel_error"] = self.generation_error
         return None
 
     def call_edit(self, payload: dict[str, object]):
@@ -195,12 +196,11 @@ class PersonalImageChannelApiTests(unittest.TestCase):
                     "n": 1,
                     "response_format": "url",
                 },
-            )
+        )
 
         self.assertEqual(response.status_code, 502)
-        self.assertIn(api_ai.PUBLIC_CHANNEL_ERROR, response.text)
+        self.assertIn("upstream timeout", response.text)
         self.assertNotIn("api.global.example", response.text)
-        self.assertNotIn("Global: upstream timeout", response.text)
         self.assertEqual(len(auth.reserved), 1)
         self.assertEqual(auth.confirmed, [])
         self.assertEqual(auth.released, [auth.reserved[0][2]])
@@ -210,6 +210,43 @@ class PersonalImageChannelApiTests(unittest.TestCase):
         self.assertEqual(log_calls[0]["status"], "error")
         self.assertEqual(log_calls[0]["error"], FAKE_UPSTREAM_ERROR)
         self.assertEqual(log_calls[0]["user_id"], "user-a")
+
+    def test_generation_failure_returns_upstream_message_without_api_domain(self) -> None:
+        app = FastAPI()
+        app.include_router(api_ai.create_router())
+        auth = FakeAuthService()
+        channels = FakeChannelService()
+        channels.generation_result = None
+        channels.generation_error = (
+            '65535: HTTP 502: {"error":{"code":"content_refused",'
+            '"message":"Refused because https://api.secret.example/v1/images is not allowed",'
+            '"type":"upstream_error"}}'
+        )
+
+        with (
+            mock.patch.object(api_support, "auth_service", auth),
+            mock.patch.object(api_ai, "auth_service", auth),
+            mock.patch.object(api_ai, "channel_service", channels),
+            mock.patch.object(api_ai.log_service, "add", lambda *args, **kwargs: None),
+        ):
+            response = TestClient(app).post(
+                "/v1/images/generations",
+                headers={"Authorization": "Bearer user-token"},
+                json={
+                    "model": "gpt-image-2",
+                    "prompt": "draw",
+                    "n": 1,
+                    "response_format": "url",
+                },
+            )
+
+        self.assertEqual(response.status_code, 502, response.text)
+        message = response.json()["detail"]["error"]
+        self.assertIn("content_refused", message)
+        self.assertIn("Refused because", message)
+        self.assertNotIn("HTTP 502", message)
+        self.assertNotIn("api.secret.example", message)
+        self.assertNotIn("https://", message)
 
     def test_edit_ignores_legacy_personal_channel_config_and_charges_quota(self) -> None:
         app = FastAPI()
