@@ -124,18 +124,6 @@ export function ConfigCard() {
                 留空使用默认浅灰白背景；填写图片 URL 后只会在登录页显示。
               </p>
             </div>
-            <div className="space-y-2 md:col-span-2">
-              <label className="text-sm text-stone-700">额度购买链接</label>
-              <Input
-                value={String(config?.quota_purchase_url || "")}
-                onChange={(event) => patchConfig({ quota_purchase_url: event.target.value })}
-                placeholder="https://example.com/billing"
-                className="h-10 rounded-xl border-stone-200 bg-white"
-              />
-              <p className="text-xs text-stone-500">
-                支持完整 URL 或站内路径，例如 https://example.com/billing 或 /billing；留空则隐藏。
-              </p>
-            </div>
           </div>
         </div>
 

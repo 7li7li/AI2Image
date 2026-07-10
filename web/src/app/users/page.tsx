@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { addMonths, format, parseISO } from "date-fns";
-import { AlertTriangle, CalendarIcon, Copy, KeyRound, LoaderCircle, Plus, RefreshCw, Search, Trash2, UserRound } from "lucide-react";
+import { AlertTriangle, CalendarIcon, Copy, KeyRound, LoaderCircle, Plus, ReceiptText, RefreshCw, Search, Trash2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +29,7 @@ import {
   updateAdminUserQuota,
   type AdminUser,
 } from "@/lib/api";
+import { getRouteHref } from "@/lib/routes";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
 function formatTime(value?: string | null) {
@@ -61,6 +62,11 @@ function parseDateValue(value?: string | null) {
 
 function createExpiryDate(months: number) {
   return format(addMonths(new Date(), months), "yyyy-MM-dd");
+}
+
+function getUserOrdersHref(user: AdminUser) {
+  const query = encodeURIComponent(user.email || user.id);
+  return `${getRouteHref("/subscription-orders")}?query=${query}`;
 }
 
 function userStatusLabel(status: AdminUser["status"]) {
@@ -458,6 +464,12 @@ function UsersPageContent() {
                   </Button>
                   <Button variant="outline" size="sm" className="h-8 rounded-lg border-rose-100 bg-white" onClick={() => void handleToggleStatus(user)}>
                     {user.status === "active" ? "禁用" : "启用"}
+                  </Button>
+                  <Button asChild variant="outline" size="sm" className="h-8 rounded-lg border-rose-100 bg-white">
+                    <a href={getUserOrdersHref(user)}>
+                      <ReceiptText className="size-4" />
+                      订单
+                    </a>
                   </Button>
                   <Button
                     variant="outline"

@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   BadgeDollarSign,
+  CreditCard,
   ExternalLink,
   FileText,
   Gift,
@@ -12,6 +13,7 @@ import {
   LogOut,
   MessagesSquare,
   PenLine,
+  ReceiptText,
   Settings,
   ShoppingCart,
   Sparkles,
@@ -23,7 +25,7 @@ import {
 
 import webConfig from "@/constants/common-env";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { fetchMe, fetchPublicSettings, type CurrentUser } from "@/lib/api";
+import { fetchMe, fetchPublicSettings, type CurrentUser, type PublicSiteSettings } from "@/lib/api";
 import { getRouteHref, normalizeAppPath } from "@/lib/routes";
 import { useSiteSettingsStore } from "@/lib/site-settings";
 import { cn } from "@/lib/utils";
@@ -39,6 +41,12 @@ type QuotaSummary = {
   value: string;
   spentLabel: string;
   expiryLabel: string;
+};
+
+type QuotaPurchaseTarget = {
+  href: string;
+  label: string;
+  external: boolean;
 };
 
 const QUOTA_REFRESH_EVENT = "yanai:quota-refresh";
@@ -95,6 +103,28 @@ function isExternalHref(href: string) {
   return /^(https?:|mailto:)/i.test(href);
 }
 
+function getQuotaPurchaseTarget(
+  settings: Pick<PublicSiteSettings, "quota_purchase_url" | "quota_purchase_mode">,
+): QuotaPurchaseTarget | null {
+  if (settings.quota_purchase_mode === "subscription") {
+    return {
+      href: getRouteHref("/subscription"),
+      label: "购买订阅",
+      external: false,
+    };
+  }
+
+  const href = safeConfiguredHref(settings.quota_purchase_url);
+  if (!href) {
+    return null;
+  }
+  return {
+    href,
+    label: "购买额度",
+    external: isExternalHref(href),
+  };
+}
+
 const adminNavItems = [
   { href: "/chat", label: "对话", icon: MessagesSquare },
   { href: "/image", label: "画图", icon: Sparkles },
@@ -103,6 +133,8 @@ const adminNavItems = [
   { href: "/image-manager", label: "图库", icon: Images },
   { href: "/channels", label: "渠道", icon: Waypoints },
   { href: "/models", label: "模型", icon: BadgeDollarSign },
+  { href: "/subscriptions", label: "订阅", icon: CreditCard },
+  { href: "/subscription-orders", label: "订单", icon: ReceiptText },
   { href: "/redeem-codes", label: "兑换码", icon: Gift },
   { href: "/logs", label: "日志", icon: FileText },
   { href: "/settings", label: "设置", icon: Settings },
@@ -123,14 +155,23 @@ export function TopNav() {
   const siteTitle = useSiteSettingsStore((state) => state.settings.site_title);
   const siteIcon = useSiteSettingsStore((state) => state.settings.site_icon);
   const quotaPurchaseUrl = useSiteSettingsStore((state) => state.settings.quota_purchase_url);
+  const quotaPurchaseMode = useSiteSettingsStore((state) => state.settings.quota_purchase_mode);
   const setSiteSettings = useSiteSettingsStore((state) => state.setSettings);
   const [failedSiteIcon, setFailedSiteIcon] = useState("");
-  const [quotaPurchaseHrefOverride, setQuotaPurchaseHrefOverride] = useState<string | null>(null);
+  const [isRefreshingPurchaseSettings, setIsRefreshingPurchaseSettings] = useState(false);
+  const [quotaPurchaseSettingsOverride, setQuotaPurchaseSettingsOverride] = useState<Pick<
+    PublicSiteSettings,
+    "quota_purchase_url" | "quota_purchase_mode"
+  > | null>(null);
   const normalizedSiteIcon = siteIcon.trim();
   const showSiteIcon = Boolean(normalizedSiteIcon && failedSiteIcon !== normalizedSiteIcon);
   const brandMark = siteTitle.trim().slice(0, 1) || "颜";
-  const quotaPurchaseHref = safeConfiguredHref(quotaPurchaseUrl);
-  const visibleQuotaPurchaseHref = quotaPurchaseHrefOverride ?? quotaPurchaseHref;
+  const quotaPurchaseTarget = getQuotaPurchaseTarget(
+    quotaPurchaseSettingsOverride ?? {
+      quota_purchase_url: quotaPurchaseUrl,
+      quota_purchase_mode: quotaPurchaseMode,
+    },
+  );
 
   useEffect(() => {
     let active = true;
@@ -184,6 +225,33 @@ export function TopNav() {
     };
   }, [session]);
 
+  useEffect(() => {
+    if (!session || session.role !== "user") {
+      return;
+    }
+
+    let active = true;
+
+    const loadPurchaseSettings = async () => {
+      try {
+        const data = await fetchPublicSettings();
+        if (active) {
+          setSiteSettings(data.settings);
+          setQuotaPurchaseSettingsOverride(data.settings);
+        }
+      } catch {
+        if (active) {
+          setQuotaPurchaseSettingsOverride(null);
+        }
+      }
+    };
+
+    void loadPurchaseSettings();
+    return () => {
+      active = false;
+    };
+  }, [session, setSiteSettings]);
+
   const handleLogout = async () => {
     await clearStoredAuthSession();
     window.location.replace(getRouteHref("/login"));
@@ -191,13 +259,16 @@ export function TopNav() {
 
   const handleQuotaPopoverOpenChange = (open: boolean) => {
     if (open) {
+      setIsRefreshingPurchaseSettings(true);
       void (async () => {
         try {
           const data = await fetchPublicSettings();
           setSiteSettings(data.settings);
-          setQuotaPurchaseHrefOverride(safeConfiguredHref(data.settings.quota_purchase_url));
+          setQuotaPurchaseSettingsOverride(data.settings);
         } catch {
-          setQuotaPurchaseHrefOverride(null);
+          setQuotaPurchaseSettingsOverride(null);
+        } finally {
+          setIsRefreshingPurchaseSettings(false);
         }
       })();
     }
@@ -299,16 +370,20 @@ export function TopNav() {
                     {quotaExpiryLabel}
                   </span>
                 </div>
-                {visibleQuotaPurchaseHref ? (
+                {isRefreshingPurchaseSettings ? (
+                  <div className="mt-3 flex h-10 w-full items-center justify-center rounded-lg bg-stone-100 px-3 text-sm font-medium text-stone-500">
+                    正在加载购买入口
+                  </div>
+                ) : quotaPurchaseTarget ? (
                   <a
-                    href={visibleQuotaPurchaseHref}
-                    target={isExternalHref(visibleQuotaPurchaseHref) ? "_blank" : undefined}
-                    rel={isExternalHref(visibleQuotaPurchaseHref) ? "noreferrer" : undefined}
+                    href={quotaPurchaseTarget.href}
+                    target={quotaPurchaseTarget.external ? "_blank" : undefined}
+                    rel={quotaPurchaseTarget.external ? "noreferrer" : undefined}
                     className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-stone-950 px-3 text-sm font-medium text-white transition hover:bg-stone-800"
                   >
                     <ShoppingCart className="size-4" />
-                    <span>购买额度</span>
-                    <ExternalLink className="size-3.5 opacity-70" />
+                    <span>{quotaPurchaseTarget.label}</span>
+                    {quotaPurchaseTarget.external ? <ExternalLink className="size-3.5 opacity-70" /> : null}
                   </a>
                 ) : null}
               </PopoverContent>

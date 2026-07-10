@@ -15,12 +15,19 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / "data"
 CONFIG_FILE = BASE_DIR / "config.json"
 VERSION_FILE = BASE_DIR / "VERSION"
-SYSTEM_SETTING_SECRET_KEYS = {"auth-key", "smtp_password", "linuxdo_client_secret", "image_webdav_config"}
-SYSTEM_SETTING_TRANSIENT_KEYS = {"smtp_password_set", "linuxdo_client_secret_set", "image_webdav_password_set"}
+SYSTEM_SETTING_SECRET_KEYS = {"auth-key", "smtp_password", "linuxdo_client_secret", "image_webdav_config", "epay_key"}
+SYSTEM_SETTING_TRANSIENT_KEYS = {
+    "smtp_password_set",
+    "linuxdo_client_secret_set",
+    "image_webdav_password_set",
+    "epay_key_set",
+}
 DEFAULT_SITE_TITLE = "Image Studio"
 DEFAULT_SITE_ICON = "/favicon.ico"
 DEFAULT_SITE_BACKGROUND = ""
 DEFAULT_QUOTA_PURCHASE_URL = ""
+DEFAULT_QUOTA_PURCHASE_MODE = "url"
+DEFAULT_EPAY_URL = ""
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_TEXT_MODEL = "gpt-5.5"
 DEFAULT_BACKGROUND_TASK_MAX_WORKERS = 12
@@ -52,6 +59,16 @@ def _bounded_int(value: object, *, default: int, minimum: int, maximum: int) -> 
     except (TypeError, ValueError):
         parsed = default
     return max(minimum, min(maximum, parsed))
+
+
+def _strict_bounded_int(value: object, *, minimum: int, maximum: int) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < minimum or parsed > maximum:
+        return None
+    return parsed
 
 
 def _clean_list(value: object) -> list[str]:
@@ -95,6 +112,77 @@ def _clean_site_text(value: object, *, default: str, max_length: int) -> str:
     return text[:max_length]
 
 
+def _clean_subscription_plan_id(value: object, *, fallback: str, seen: set[str]) -> str:
+    raw = str(value or "").strip().lower()
+    candidate = "".join(char if char.isalnum() or char in {"-", "_"} else "-" for char in raw).strip("-_")
+    candidate = (candidate or fallback)[:80]
+    if candidate not in seen:
+        seen.add(candidate)
+        return candidate
+    index = 2
+    while f"{candidate}-{index}" in seen:
+        index += 1
+    unique = f"{candidate}-{index}"
+    seen.add(unique)
+    return unique
+
+
+def _normalize_quota_purchase_mode(value: object) -> str:
+    mode = str(value or "").strip().lower()
+    if mode in {"subscription", "subscriptions", "plan", "plans"}:
+        return "subscription"
+    return DEFAULT_QUOTA_PURCHASE_MODE
+
+
+def _normalize_epay_url(value: object) -> str:
+    text = str(value or "").strip().rstrip("/")
+    if not text:
+        return DEFAULT_EPAY_URL
+    parsed = urlparse(text)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return DEFAULT_EPAY_URL
+    return text[:1000]
+
+
+def _normalize_epay_type(value: object) -> str:
+    text = str(value or "").strip().lower()
+    candidate = "".join(char for char in text if char.isalnum() or char in {"_", "-"})
+    return candidate[:40]
+
+
+def _clean_subscription_plans(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    plans: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(value[:20]):
+        if not isinstance(raw, dict):
+            continue
+        quota = _strict_bounded_int(raw.get("quota"), minimum=1, maximum=1_000_000)
+        valid_months = _strict_bounded_int(
+            raw.get("valid_months") or raw.get("quota_valid_months") or raw.get("validity_months"),
+            minimum=1,
+            maximum=120,
+        )
+        price = str(raw.get("price", "")).strip()[:80]
+        if quota is None or valid_months is None or not price:
+            continue
+        plan_id = _clean_subscription_plan_id(raw.get("id"), fallback=f"plan-{index + 1}", seen=seen)
+        name = _clean_site_text(raw.get("name"), default="", max_length=80)
+        if not name:
+            name = f"{quota} 点 / {valid_months} 个月"
+        plans.append(
+            {
+                "id": plan_id,
+                "name": name,
+                "quota": quota,
+                "valid_months": valid_months,
+                "price": price,
+            }
+        )
+    return plans
+
+
 def _parse_timestamp(value: object) -> float | None:
     text = str(value or "").strip()
     if not text:
@@ -120,7 +208,7 @@ def _normalize_update_data(data: dict[str, object]) -> dict[str, object]:
     for transient_key in SYSTEM_SETTING_TRANSIENT_KEYS:
         updates.pop(transient_key, None)
 
-    for secret_key in ("smtp_password", "linuxdo_client_secret"):
+    for secret_key in ("smtp_password", "linuxdo_client_secret", "epay_key"):
         if secret_key not in updates:
             continue
         secret_value = str(updates.get(secret_key) or "").strip()
@@ -184,6 +272,18 @@ def _normalize_update_data(data: dict[str, object]) -> dict[str, object]:
             default=DEFAULT_QUOTA_PURCHASE_URL,
             max_length=1000,
         )
+    if "quota_purchase_mode" in updates:
+        updates["quota_purchase_mode"] = _normalize_quota_purchase_mode(updates.get("quota_purchase_mode"))
+    if "subscription_plans" in updates:
+        updates["subscription_plans"] = _clean_subscription_plans(updates.get("subscription_plans"))
+    if "epay_enabled" in updates:
+        updates["epay_enabled"] = _bool(updates.get("epay_enabled"), False)
+    if "epay_url" in updates:
+        updates["epay_url"] = _normalize_epay_url(updates.get("epay_url"))
+    if "epay_pid" in updates:
+        updates["epay_pid"] = str(updates.get("epay_pid") or "").strip()[:80]
+    if "epay_type" in updates:
+        updates["epay_type"] = _normalize_epay_type(updates.get("epay_type"))
     if "default_image_model" in updates:
         updates["default_image_model"] = _clean_site_text(
             updates.get("default_image_model"),
@@ -428,6 +528,40 @@ class ConfigStore:
         )
 
     @property
+    def quota_purchase_mode(self) -> str:
+        return _normalize_quota_purchase_mode(
+            os.getenv("YANAI_QUOTA_PURCHASE_MODE") or self._get_config_value("quota_purchase_mode")
+        )
+
+    @property
+    def subscription_plans(self) -> list[dict[str, object]]:
+        return _clean_subscription_plans(self._get_config_value("subscription_plans"))
+
+    @property
+    def epay_enabled(self) -> bool:
+        return _bool(os.getenv("YANAI_EPAY_ENABLED") or self._get_config_value("epay_enabled"), False)
+
+    @property
+    def epay_url(self) -> str:
+        return _normalize_epay_url(os.getenv("YANAI_EPAY_URL") or self._get_config_value("epay_url"))
+
+    @property
+    def epay_pid(self) -> str:
+        return str(os.getenv("YANAI_EPAY_PID") or self._get_config_value("epay_pid") or "").strip()
+
+    @property
+    def epay_key(self) -> str:
+        return str(os.getenv("YANAI_EPAY_KEY") or self.data.get("epay_key") or "").strip()
+
+    @property
+    def epay_type(self) -> str:
+        return _normalize_epay_type(os.getenv("YANAI_EPAY_TYPE") or self._get_config_value("epay_type"))
+
+    @property
+    def epay_configured(self) -> bool:
+        return bool(self.epay_enabled and self.epay_url and self.epay_pid and self.epay_key)
+
+    @property
     def default_image_model(self) -> str:
         return _clean_site_text(
             os.getenv("YANAI_DEFAULT_IMAGE_MODEL") or self._get_config_value("default_image_model"),
@@ -612,6 +746,13 @@ class ConfigStore:
         data["site_icon"] = self.site_icon
         data["site_background"] = self.site_background
         data["quota_purchase_url"] = self.quota_purchase_url
+        data["quota_purchase_mode"] = self.quota_purchase_mode
+        data["subscription_plans"] = self.subscription_plans
+        data["epay_enabled"] = self.epay_enabled
+        data["epay_url"] = self.epay_url
+        data["epay_pid"] = self.epay_pid
+        data["epay_type"] = self.epay_type
+        data["epay_key_set"] = bool(self.epay_key)
         data["default_image_model"] = self.default_image_model
         data["default_text_model"] = self.default_text_model
         data["image_retention_days"] = self.image_retention_days
@@ -638,6 +779,7 @@ class ConfigStore:
         data.pop("smtp_password", None)
         data.pop("linuxdo_client_secret", None)
         data.pop("image_webdav_config", None)
+        data.pop("epay_key", None)
         return data
 
     def public_settings(self) -> dict[str, object]:
@@ -646,6 +788,8 @@ class ConfigStore:
             "site_icon": self.site_icon,
             "site_background": self.site_background,
             "quota_purchase_url": self.quota_purchase_url,
+            "quota_purchase_mode": self.quota_purchase_mode,
+            "subscription_plans": self.subscription_plans,
             "default_image_model": self.default_image_model,
             "default_text_model": self.default_text_model,
         }

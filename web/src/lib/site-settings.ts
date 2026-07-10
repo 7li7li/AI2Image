@@ -9,6 +9,8 @@ const DEFAULT_SITE_SETTINGS: PublicSiteSettings = {
   site_icon: "/favicon.ico",
   site_background: "",
   quota_purchase_url: "",
+  quota_purchase_mode: "url",
+  subscription_plans: [],
   default_image_model: "gpt-image-2",
   default_text_model: "gpt-5.5",
 };
@@ -21,12 +23,23 @@ type SiteSettingsStore = {
 };
 
 function normalizeSiteSettings(settings?: Partial<PublicSiteSettings> | null): PublicSiteSettings {
+  const rawPlans = Array.isArray(settings?.subscription_plans) ? settings.subscription_plans : [];
   return {
     site_title:
       String(settings?.site_title || DEFAULT_SITE_SETTINGS.site_title).trim() || DEFAULT_SITE_SETTINGS.site_title,
     site_icon: String(settings?.site_icon || DEFAULT_SITE_SETTINGS.site_icon).trim() || DEFAULT_SITE_SETTINGS.site_icon,
     site_background: String(settings?.site_background || DEFAULT_SITE_SETTINGS.site_background).trim(),
     quota_purchase_url: String(settings?.quota_purchase_url || DEFAULT_SITE_SETTINGS.quota_purchase_url).trim(),
+    quota_purchase_mode: settings?.quota_purchase_mode === "subscription" ? "subscription" : "url",
+    subscription_plans: rawPlans
+      .map((plan) => ({
+        id: String(plan?.id || "").trim(),
+        name: String(plan?.name || "").trim(),
+        quota: Number(plan?.quota || 0),
+        valid_months: Number(plan?.valid_months || 0),
+        price: String(plan?.price || "").trim(),
+      }))
+      .filter((plan) => plan.id && plan.quota > 0 && plan.valid_months > 0 && plan.price),
     default_image_model:
       String(settings?.default_image_model || DEFAULT_SITE_SETTINGS.default_image_model).trim() ||
       DEFAULT_SITE_SETTINGS.default_image_model,

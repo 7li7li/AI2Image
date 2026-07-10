@@ -955,6 +955,8 @@ class AuthService:
             if index < 0:
                 return None
             user = dict(self._users[index])
+            if mode != "set":
+                user = self._clear_expired_quota_locked(user)
             current_quota = int(user.get("quota") or 0)
             next_quota = amount if mode == "set" else current_quota + amount
             user["quota"] = max(0, int(next_quota))

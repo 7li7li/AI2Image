@@ -4,6 +4,20 @@ import { getStoredAuthKey } from "@/store/auth";
 
 export type ImageModel = string;
 export type AuthRole = "admin" | "user";
+export type QuotaPurchaseMode = "url" | "subscription";
+
+export type SubscriptionPlan = {
+  id: string;
+  name: string;
+  quota: number;
+  valid_months: number;
+  price: string;
+};
+
+export type SettingsSubscriptionPlan = Omit<SubscriptionPlan, "quota" | "valid_months"> & {
+  quota: number | string;
+  valid_months: number | string;
+};
 
 export type SettingsConfig = {
   proxy: string;
@@ -11,6 +25,14 @@ export type SettingsConfig = {
   site_icon?: string;
   site_background?: string;
   quota_purchase_url?: string;
+  quota_purchase_mode?: QuotaPurchaseMode | string;
+  subscription_plans?: SettingsSubscriptionPlan[];
+  epay_enabled?: boolean;
+  epay_url?: string;
+  epay_pid?: string;
+  epay_key?: string;
+  epay_key_set?: boolean;
+  epay_type?: string;
   base_url?: string;
   default_image_model?: string;
   default_text_model?: string;
@@ -42,6 +64,8 @@ export type PublicSiteSettings = {
   site_icon: string;
   site_background: string;
   quota_purchase_url: string;
+  quota_purchase_mode: QuotaPurchaseMode;
+  subscription_plans: SubscriptionPlan[];
   default_image_model: string;
   default_text_model: string;
 };
@@ -51,6 +75,35 @@ export type PublicAuthSettings = {
   email_verification_enabled: boolean;
   email_domain_whitelist_enabled: boolean;
   email_domain_whitelist: string[];
+};
+
+export type SubscriptionOrder = {
+  id: string;
+  out_trade_no: string;
+  user_id?: string;
+  user_email?: string;
+  plan_id: string;
+  plan_name: string;
+  quota: number;
+  valid_months: number;
+  price: string;
+  money: string;
+  status: "pending" | "paid" | "canceled" | string;
+  created_at: string;
+  expires_at?: string | null;
+  updated_at?: string | null;
+  paid_at?: string | null;
+  canceled_at?: string | null;
+  cancel_reason?: string;
+  canceled_by?: {
+    id?: string;
+    name?: string;
+    email?: string;
+    role?: string;
+  };
+  quota_expires_at?: string | null;
+  epay_trade_no?: string;
+  payment_type?: string;
 };
 
 export type ManagedImage = {
@@ -1164,7 +1217,72 @@ export async function fetchPublicAuthSettings() {
   });
 }
 
-export async function updateSettingsConfig(settings: SettingsConfig) {
+export async function createSubscriptionOrder(planId: string) {
+  return httpRequest<{ order: SubscriptionOrder; pay_url: string }>("/api/subscription/orders", {
+    method: "POST",
+    body: { plan_id: planId },
+  });
+}
+
+export async function fetchMySubscriptionOrders() {
+  return httpRequest<{ items: SubscriptionOrder[] }>("/api/me/subscription/orders");
+}
+
+export async function paySubscriptionOrder(outTradeNo: string) {
+  return httpRequest<{ order: SubscriptionOrder; pay_url: string }>(
+    `/api/me/subscription/orders/${encodeURIComponent(outTradeNo)}/pay`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+export async function cancelSubscriptionOrder(outTradeNo: string) {
+  return httpRequest<{ item: SubscriptionOrder; canceled: boolean }>(
+    `/api/me/subscription/orders/${encodeURIComponent(outTradeNo)}/cancel`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+export async function fetchAdminSubscriptionOrders(filters: { status?: string; query?: string; limit?: number } = {}) {
+  const params = new URLSearchParams();
+  if (filters.status) params.set("status", filters.status);
+  if (filters.query) params.set("query", filters.query);
+  if (filters.limit) params.set("limit", String(filters.limit));
+  return httpRequest<{ items: SubscriptionOrder[] }>(
+    `/api/admin/subscription/orders${params.toString() ? `?${params.toString()}` : ""}`,
+  );
+}
+
+export async function updateAdminSubscriptionOrderStatus(outTradeNo: string, status: "paid") {
+  return httpRequest<{ item: SubscriptionOrder; granted: boolean }>(
+    `/api/admin/subscription/orders/${encodeURIComponent(outTradeNo)}/status`,
+    {
+      method: "POST",
+      body: { status },
+    },
+  );
+}
+
+export async function cancelAdminSubscriptionOrder(outTradeNo: string) {
+  return httpRequest<{ item: SubscriptionOrder; canceled: boolean }>(
+    `/api/admin/subscription/orders/${encodeURIComponent(outTradeNo)}/cancel`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+export async function deleteAdminCanceledSubscriptionOrders(outTradeNos: string[]) {
+  return httpRequest<{ removed: number; removed_ids: string[] }>("/api/admin/subscription/orders", {
+    method: "DELETE",
+    body: { ids: outTradeNos },
+  });
+}
+
+export async function updateSettingsConfig(settings: Partial<SettingsConfig>) {
   return httpRequest<{ config: SettingsConfig }>("/api/settings", {
     method: "POST",
     body: settings,

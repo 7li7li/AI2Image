@@ -4,6 +4,21 @@
   "site_icon": "/favicon.ico",
   "site_background": "",
   "quota_purchase_url": "",
+  "quota_purchase_mode": "url",
+  "subscription_plans": [
+    {
+      "id": "starter",
+      "name": "基础套餐",
+      "quota": 100,
+      "valid_months": 1,
+      "price": "19.9"
+    }
+  ],
+  "epay_enabled": false,
+  "epay_url": "",
+  "epay_pid": "",
+  "epay_key": "",
+  "epay_type": "",
   "default_image_model": "gpt-image-2",
   "default_text_model": "gpt-5.5",
   "image_retention_days": 15,

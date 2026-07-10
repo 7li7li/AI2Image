@@ -3,7 +3,13 @@
 import { toast } from "sonner";
 import { create } from "zustand";
 
-import { fetchSettingsConfig, updateSettingsConfig, type SettingsConfig } from "@/lib/api";
+import {
+  fetchSettingsConfig,
+  updateSettingsConfig,
+  type QuotaPurchaseMode,
+  type SettingsConfig,
+  type SubscriptionPlan,
+} from "@/lib/api";
 import { applySiteSettings, useSiteSettingsStore } from "@/lib/site-settings";
 
 function boundedNumber(value: unknown, fallback: number, min: number, max: number): number {
@@ -12,6 +18,17 @@ function boundedNumber(value: unknown, fallback: number, min: number, max: numbe
     return fallback;
   }
   return Math.max(min, Math.min(max, parsed));
+}
+
+function strictBoundedNumber(value: unknown, min: number, max: number): number | null {
+  if (value === "" || value === null || value === undefined) {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
 }
 
 function normalizeStringList(value: unknown): string[] {
@@ -30,6 +47,34 @@ function normalizeStringList(value: unknown): string[] {
   );
 }
 
+function normalizeQuotaPurchaseMode(value: unknown): QuotaPurchaseMode {
+  return value === "subscription" ? "subscription" : "url";
+}
+
+function normalizeSubscriptionPlans(value: unknown): SubscriptionPlan[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((plan, index) => {
+      const item = plan && typeof plan === "object" ? (plan as Record<string, unknown>) : {};
+      const quota = strictBoundedNumber(item.quota, 1, 1_000_000);
+      const validMonths = strictBoundedNumber(item.valid_months, 1, 120);
+      const price = String(item.price ?? "").trim();
+      if (quota === null || validMonths === null || !price) {
+        return null;
+      }
+      return {
+        id: String(item.id || `plan-${index + 1}`).trim(),
+        name: String(item.name || "").trim(),
+        quota,
+        valid_months: validMonths,
+        price,
+      };
+    })
+    .filter((plan): plan is SubscriptionPlan => plan !== null && Boolean(plan.id));
+}
+
 function normalizeConfig(config: SettingsConfig): SettingsConfig {
   return {
     ...config,
@@ -37,6 +82,8 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     site_icon: typeof config.site_icon === "string" ? config.site_icon : "/favicon.ico",
     site_background: typeof config.site_background === "string" ? config.site_background : "",
     quota_purchase_url: typeof config.quota_purchase_url === "string" ? config.quota_purchase_url : "",
+    quota_purchase_mode: normalizeQuotaPurchaseMode(config.quota_purchase_mode),
+    subscription_plans: normalizeSubscriptionPlans(config.subscription_plans),
     default_image_model: typeof config.default_image_model === "string" ? config.default_image_model : "gpt-image-2",
     default_text_model: typeof config.default_text_model === "string" ? config.default_text_model : "gpt-5.5",
     image_retention_days: Number(config.image_retention_days || 30),
@@ -70,6 +117,8 @@ function syncSiteSettings(config: SettingsConfig) {
     site_icon: String(config.site_icon || "/favicon.ico"),
     site_background: String(config.site_background || ""),
     quota_purchase_url: String(config.quota_purchase_url || ""),
+    quota_purchase_mode: normalizeQuotaPurchaseMode(config.quota_purchase_mode),
+    subscription_plans: normalizeSubscriptionPlans(config.subscription_plans),
     default_image_model: String(config.default_image_model || "gpt-image-2"),
     default_text_model: String(config.default_text_model || "gpt-5.5"),
   };
@@ -131,11 +180,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
     set({ isSavingConfig: true });
     try {
-      const payload: SettingsConfig = {
+      const payload: Partial<SettingsConfig> = {
         site_title: String(config.site_title || "").trim(),
         site_icon: String(config.site_icon || "").trim(),
         site_background: String(config.site_background || "").trim(),
-        quota_purchase_url: String(config.quota_purchase_url || "").trim(),
         default_image_model: String(config.default_image_model || "").trim() || "gpt-image-2",
         default_text_model: String(config.default_text_model || "").trim() || "gpt-5.5",
         image_retention_days: Math.max(1, Number(config.image_retention_days) || 30),

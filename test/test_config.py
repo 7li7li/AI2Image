@@ -90,6 +90,100 @@ class ConfigLoadingTests(unittest.TestCase):
             else:
                 os.environ["YANAI_QUOTA_PURCHASE_URL"] = original_env_value
 
+    def test_subscription_plans_are_admin_configured_and_public(self) -> None:
+        module = self.config_module
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+            store = module.ConfigStore(config_path)
+
+            self.assertEqual(store.quota_purchase_mode, "url")
+            self.assertEqual(store.subscription_plans, [])
+            self.assertEqual(store.public_settings()["subscription_plans"], [])
+
+            updated = store.update(
+                {
+                    "quota_purchase_mode": "subscription",
+                    "subscription_plans": [
+                        {"id": "basic plan", "name": "基础套餐", "quota": "100", "valid_months": "1", "price": "19.9"},
+                        {"id": "basic plan", "quota": 250, "validity_months": 3, "price": 49},
+                        {"id": "bad", "quota": 0, "valid_months": 1, "price": "1"},
+                        {"id": "missing-price", "quota": 10, "valid_months": 1, "price": ""},
+                    ],
+                }
+            )
+
+            self.assertEqual(updated["quota_purchase_mode"], "subscription")
+            self.assertEqual(
+                updated["subscription_plans"],
+                [
+                    {
+                        "id": "basic-plan",
+                        "name": "基础套餐",
+                        "quota": 100,
+                        "valid_months": 1,
+                        "price": "19.9",
+                    },
+                    {
+                        "id": "basic-plan-2",
+                        "name": "250 点 / 3 个月",
+                        "quota": 250,
+                        "valid_months": 3,
+                        "price": "49",
+                    },
+                ],
+            )
+            self.assertEqual(store.public_settings()["quota_purchase_mode"], "subscription")
+            self.assertEqual(store.public_settings()["subscription_plans"], updated["subscription_plans"])
+
+            updated = store.update({"quota_purchase_mode": "unknown"})
+            self.assertEqual(updated["quota_purchase_mode"], "url")
+
+    def test_epay_config_masks_secret_and_preserves_empty_update(self) -> None:
+        module = self.config_module
+        env_keys = ["YANAI_EPAY_ENABLED", "YANAI_EPAY_URL", "YANAI_EPAY_PID", "YANAI_EPAY_KEY", "YANAI_EPAY_TYPE"]
+        original_env = {key: os.environ.get(key) for key in env_keys}
+        for key in env_keys:
+            os.environ.pop(key, None)
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                config_path = Path(tmp_dir) / "config.json"
+                config_path.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+                store = module.ConfigStore(config_path)
+
+                self.assertFalse(store.epay_enabled)
+                self.assertEqual(store.epay_url, "")
+                self.assertEqual(store.epay_type, "")
+                self.assertFalse(store.get()["epay_key_set"])
+
+                updated = store.update(
+                    {
+                        "epay_enabled": True,
+                        "epay_url": " https://pay.example.com/ ",
+                        "epay_pid": " 1001 ",
+                        "epay_key": " secret-key ",
+                        "epay_type": " ",
+                    }
+                )
+
+                self.assertTrue(updated["epay_enabled"])
+                self.assertEqual(updated["epay_url"], "https://pay.example.com")
+                self.assertEqual(updated["epay_pid"], "1001")
+                self.assertEqual(updated["epay_type"], "")
+                self.assertTrue(updated["epay_key_set"])
+                self.assertNotIn("epay_key", updated)
+                self.assertEqual(store.epay_key, "secret-key")
+
+                store.update({"epay_key": ""})
+                self.assertEqual(store.epay_key, "secret-key")
+                self.assertNotIn("epay_key", store.public_settings())
+        finally:
+            for key, value in original_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
     def test_background_task_limits_default_override_and_env(self) -> None:
         module = self.config_module
         env_keys = [

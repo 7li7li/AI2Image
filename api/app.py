@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from api import ai, prompts, system, users
+from api import ai, payments, prompts, system, users
 from api.support import resolve_web_asset, start_quota_reservation_watcher
 from services.config import config
 from services.observability import normalize_request_id, request_id_context
@@ -46,6 +46,7 @@ def create_app() -> FastAPI:
             return response
 
     app.include_router(ai.create_router())
+    app.include_router(payments.create_router())
     app.include_router(prompts.create_router())
     app.include_router(users.create_router())
     app.include_router(system.create_router(app_version))
