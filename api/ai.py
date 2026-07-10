@@ -499,9 +499,7 @@ def create_router() -> APIRouter:
                 auth_service.release_quota(quota_request_id)
             raise
 
-    @router.get("/v1/models")
-    async def list_models(authorization: str | None = Header(default=None)):
-        require_identity(authorization)
+    def available_model_items() -> list[dict[str, object]]:
         items: list[dict[str, object]] = []
         seen: set[str] = set()
         quota_costs = model_service.list_quota_costs()
@@ -515,13 +513,35 @@ def create_router() -> APIRouter:
                 seen.add(model_id)
                 items.append(
                     {
-                        "id": model_id,
-                        "object": "model",
-                        "created": 0,
+                        "model": model_id,
                         "owned_by": str(channel.get("name") or "channel"),
                         "quota_cost": quota_costs.get(model_id, model_service.quota_cost(model_id)),
                     }
                 )
+        return items
+
+    @router.get("/api/public/models")
+    async def list_public_models():
+        return {
+            "items": [
+                {"model": item["model"], "quota_cost": item["quota_cost"]}
+                for item in available_model_items()
+            ]
+        }
+
+    @router.get("/v1/models")
+    async def list_models(authorization: str | None = Header(default=None)):
+        require_identity(authorization)
+        items = [
+            {
+                "id": item["model"],
+                "object": "model",
+                "created": 0,
+                "owned_by": item["owned_by"],
+                "quota_cost": item["quota_cost"],
+            }
+            for item in available_model_items()
+        ]
         return {"object": "list", "data": items}
 
     @router.get("/api/model-quota-costs")

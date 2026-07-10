@@ -3,7 +3,7 @@
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { LoginForm } from "@/app/login/login-form";
+import { LandingPage } from "@/components/landing-page";
 import { getDefaultRouteForRole, getStoredAuthSession } from "@/store/auth";
 
 export default function HomePage() {
@@ -44,5 +44,5 @@ export default function HomePage() {
     );
   }
 
-  return <LoginForm />;
+  return <LandingPage />;
 }

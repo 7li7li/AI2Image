@@ -47,8 +47,8 @@ function emailLocalPart(value: string): string {
   return value.split("@", 1)[0].trim();
 }
 
-export function LoginForm() {
-  const [view, setView] = useState<AuthView>("login");
+export function LoginForm({ initialView = "login" }: { initialView?: "login" | "register" }) {
+  const [view, setView] = useState<AuthView>(initialView);
   const [email, setEmail] = useState("");
   const [registerEmailLocal, setRegisterEmailLocal] = useState("");
   const [registerEmailDomain, setRegisterEmailDomain] = useState("");

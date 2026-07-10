@@ -46,6 +46,26 @@ class FakeModelService:
 
 
 class AiModelsApiTests(unittest.TestCase):
+    def test_public_models_returns_names_and_costs_without_authentication(self) -> None:
+        app = FastAPI()
+        app.include_router(api_ai.create_router())
+
+        with (
+            mock.patch.object(api_ai, "channel_service", FakeChannelService()),
+            mock.patch.object(api_ai, "model_service", FakeModelService()),
+        ):
+            response = TestClient(app).get("/api/public/models")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            response.json()["items"],
+            [
+                {"model": "gpt-5.5", "quota_cost": 1},
+                {"model": "gpt-image-2", "quota_cost": 3},
+                {"model": "gemini-3.1-flash-image", "quota_cost": 2},
+            ],
+        )
+
     def test_v1_models_only_returns_models_from_enabled_channels(self) -> None:
         app = FastAPI()
         app.include_router(api_ai.create_router())

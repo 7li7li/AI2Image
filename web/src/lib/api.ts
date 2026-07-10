@@ -331,6 +331,15 @@ export type ModelQuotaCostResponse = {
   costs: Record<string, number>;
 };
 
+export type PublicModelItem = {
+  model: string;
+  quota_cost: number;
+};
+
+export type PublicModelListResponse = {
+  items: PublicModelItem[];
+};
+
 export type BackgroundTaskStatus<T = unknown> = {
   id: string;
   task_id: string;
@@ -725,6 +734,13 @@ export async function fetchMe() {
 
 export async function fetchAvailableModels() {
   return httpRequest<ModelListResponse>("/v1/models");
+}
+
+export async function fetchPublicModels() {
+  const cacheBust = typeof window !== "undefined" ? `?_${Date.now()}` : "";
+  return httpRequest<PublicModelListResponse>(`/api/public/models${cacheBust}`, {
+    redirectOnUnauthorized: false,
+  });
 }
 
 export async function fetchModelQuotaCosts() {
