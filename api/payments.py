@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from urllib.parse import parse_qsl, urlencode, urlparse
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -10,6 +11,8 @@ from pydantic import BaseModel
 from api.support import require_admin, require_identity, resolve_image_base_url
 from services.config import config
 from services.payment_service import PaymentError, payment_service
+
+logger = logging.getLogger(__name__)
 
 
 class SubscriptionOrderRequest(BaseModel):
@@ -36,8 +39,9 @@ def _base_url_from_absolute_url(value: object) -> str:
 
 
 def _resolve_api_base_url(request: Request) -> str:
-    if config.base_url:
-        return config.base_url
+    configured_base_url = _base_url_from_absolute_url(config.base_url)
+    if configured_base_url:
+        return configured_base_url
 
     forwarded_host = _first_header_value(request.headers.get("x-forwarded-host"))
     if forwarded_host:
@@ -45,7 +49,25 @@ def _resolve_api_base_url(request: Request) -> str:
         if forwarded_proto in {"http", "https"}:
             return f"{forwarded_proto}://{forwarded_host}".rstrip("/")
 
+    origin = _base_url_from_absolute_url(request.headers.get("origin"))
+    if origin:
+        return origin
+
+    referer = _base_url_from_absolute_url(request.headers.get("referer"))
+    if referer:
+        return referer
+
     return f"{request.url.scheme}://{request.headers.get('host', request.url.netloc)}".rstrip("/")
+
+
+def _callback_log_detail(params: dict[str, str]) -> dict[str, str]:
+    return {
+        "out_trade_no": params.get("out_trade_no", ""),
+        "trade_no": params.get("trade_no", ""),
+        "pid": params.get("pid", ""),
+        "money": params.get("money", ""),
+        "trade_status": params.get("trade_status", ""),
+    }
 
 
 def _subscription_return_url(request: Request, order: dict[str, object] | None, paid: bool) -> str:
@@ -199,10 +221,12 @@ def create_router() -> APIRouter:
     @router.get("/api/payments/epay/notify")
     @router.post("/api/payments/epay/notify")
     async def epay_notify(request: Request):
+        params: dict[str, str] = {}
         try:
             params = await _epay_params(request)
             await run_in_threadpool(payment_service.handle_epay_callback, params)
-        except Exception:
+        except Exception as exc:
+            logger.warning("epay notify failed: %s detail=%s", exc, _callback_log_detail(params), exc_info=True)
             return PlainTextResponse("fail")
         return PlainTextResponse("success")
 
@@ -211,12 +235,14 @@ def create_router() -> APIRouter:
     async def epay_return(request: Request):
         order: dict[str, object] | None = None
         paid = False
+        params: dict[str, str] = {}
         try:
             params = await _epay_params(request)
             order, _ = await run_in_threadpool(payment_service.handle_epay_callback, params)
             order = await run_in_threadpool(payment_service.get_order, params.get("out_trade_no", "")) or order
             paid = True
-        except Exception:
+        except Exception as exc:
+            logger.warning("epay return failed: %s detail=%s", exc, _callback_log_detail(params), exc_info=True)
             paid = False
         return RedirectResponse(_subscription_return_url(request, order, paid))
 

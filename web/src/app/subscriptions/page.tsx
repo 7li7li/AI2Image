@@ -86,6 +86,7 @@ function normalizeSettingsConfig(config: SettingsConfig): SettingsConfig {
     epay_key: "",
     epay_key_set: config.epay_key_set === true,
     epay_type: String(config.epay_type || ""),
+    base_url: String(config.base_url || ""),
   };
 }
 
@@ -160,6 +161,7 @@ function SubscriptionsContent() {
         epay_pid: String(config.epay_pid || "").trim(),
         epay_key: String(config.epay_key || "").trim(),
         epay_type: String(config.epay_type || "").trim(),
+        base_url: String(config.base_url || "").trim(),
       };
       const data = await updateSettingsConfig(payload);
       const nextConfig = normalizeSettingsConfig(data.config);
@@ -257,6 +259,18 @@ function SubscriptionsContent() {
           </label>
 
           <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm text-stone-700">站点公开地址（支付回调域名）</label>
+              <Input
+                value={String(config?.base_url || "")}
+                onChange={(event) => patchConfig({ base_url: event.target.value })}
+                placeholder="https://your-domain.com"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+              <p className="text-xs text-stone-500">
+                用于生成 Epay notify_url / return_url，服务器部署建议填写公网 HTTPS 域名，不要填写 127.0.0.1 或内网地址。
+              </p>
+            </div>
             <div className="space-y-2">
               <label className="text-sm text-stone-700">支付网关地址</label>
               <Input
