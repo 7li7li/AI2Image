@@ -105,7 +105,7 @@ function QuotaExpiryPicker({ value, onChange, className = "" }: QuotaExpiryPicke
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" className={`justify-start rounded-lg border-rose-100 bg-white px-2 font-normal text-stone-700 ${className}`}>
+        <Button variant="outline" className={`justify-start rounded-lg border-stone-100 bg-white px-2 font-normal text-stone-700 ${className}`}>
           <CalendarIcon className="size-4 text-stone-400" />
           <span className="truncate">{label}</span>
         </Button>
@@ -118,7 +118,7 @@ function QuotaExpiryPicker({ value, onChange, className = "" }: QuotaExpiryPicke
               type="button"
               variant="outline"
               size="sm"
-              className="h-8 rounded-lg border-rose-100 bg-white px-2 text-xs"
+              className="h-8 rounded-lg border-stone-100 bg-white px-2 text-xs"
               onClick={() => handleChange(createExpiryDate(preset.months))}
             >
               {preset.label}
@@ -310,16 +310,16 @@ function UsersPageContent() {
     <section className="h-full min-h-0 space-y-5 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(148,163,184,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/65 [&::-webkit-scrollbar-track]:bg-transparent">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-1">
-          <div className="text-xs font-semibold tracking-[0.18em] text-rose-400 uppercase">Users</div>
+          <div className="text-xs font-semibold tracking-[0.18em] text-stone-400 uppercase">Users</div>
           <h1 className="text-2xl font-semibold tracking-tight">用户管理</h1>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索邮箱或昵称" className="h-10 w-56 rounded-xl border-rose-100 bg-white" />
-          <Button className="h-10 rounded-xl bg-rose-500 text-white hover:bg-rose-600" onClick={() => void load()}>
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索邮箱或昵称" className="h-10 w-56 rounded-xl border-stone-100 bg-white" />
+          <Button className="h-10 rounded-xl bg-neutral-900 text-white hover:bg-black" onClick={() => void load()}>
             <Search className="size-4" />
             查询
           </Button>
-          <Button variant="outline" className="h-10 rounded-xl border-rose-100 bg-white" onClick={() => void load()}>
+          <Button variant="outline" className="h-10 rounded-xl border-stone-100 bg-white" onClick={() => void load()}>
             <RefreshCw className="size-4" />
             刷新
           </Button>
@@ -338,7 +338,7 @@ function UsersPageContent() {
                 <div className="text-sm text-stone-500">{metric.label}</div>
                 <div className="mt-1 text-2xl font-semibold text-stone-950">{metric.value}</div>
               </div>
-              <div className="rounded-2xl bg-rose-50 p-3 text-rose-500">
+              <div className="rounded-2xl bg-stone-50 p-3 text-stone-500">
                 <UserRound className="size-5" />
               </div>
             </CardContent>
@@ -349,20 +349,20 @@ function UsersPageContent() {
       <Card className="rounded-lg border-white/80 bg-white/80 shadow-sm">
         <CardContent className="space-y-4 p-5">
           <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
-            <Plus className="size-4 text-rose-500" />
+            <Plus className="size-4 text-stone-500" />
             创建个人用户
           </div>
           <div className="grid gap-3 md:grid-cols-[1.2fr_1fr_1fr_120px_180px_auto]">
-            <Input value={creating.email} onChange={(event) => setCreating((current) => ({ ...current, email: event.target.value }))} placeholder="邮箱" className="h-10 rounded-xl border-rose-100 bg-white" />
-            <Input value={creating.name} onChange={(event) => setCreating((current) => ({ ...current, name: event.target.value }))} placeholder="昵称" className="h-10 rounded-xl border-rose-100 bg-white" />
-            <Input type="password" value={creating.password} onChange={(event) => setCreating((current) => ({ ...current, password: event.target.value }))} placeholder="初始密码" className="h-10 rounded-xl border-rose-100 bg-white" />
-            <Input type="number" value={creating.quota} onChange={(event) => setCreating((current) => ({ ...current, quota: event.target.value }))} placeholder="额度" className="h-10 rounded-xl border-rose-100 bg-white" />
+            <Input value={creating.email} onChange={(event) => setCreating((current) => ({ ...current, email: event.target.value }))} placeholder="邮箱" className="h-10 rounded-xl border-stone-100 bg-white" />
+            <Input value={creating.name} onChange={(event) => setCreating((current) => ({ ...current, name: event.target.value }))} placeholder="昵称" className="h-10 rounded-xl border-stone-100 bg-white" />
+            <Input type="password" value={creating.password} onChange={(event) => setCreating((current) => ({ ...current, password: event.target.value }))} placeholder="初始密码" className="h-10 rounded-xl border-stone-100 bg-white" />
+            <Input type="number" min="0" step="0.01" value={creating.quota} onChange={(event) => setCreating((current) => ({ ...current, quota: event.target.value }))} placeholder="额度" className="h-10 rounded-xl border-stone-100 bg-white" />
             <QuotaExpiryPicker
               value={creating.quota_expires_at}
               onChange={(value) => setCreating((current) => ({ ...current, quota_expires_at: value }))}
               className="h-10 w-full rounded-xl"
             />
-            <Button className="h-10 rounded-xl bg-rose-500 text-white hover:bg-rose-600" onClick={() => void handleCreate()}>
+            <Button className="h-10 rounded-xl bg-neutral-900 text-white hover:bg-black" onClick={() => void handleCreate()}>
               创建
             </Button>
           </div>
@@ -371,10 +371,10 @@ function UsersPageContent() {
 
       <Card className="overflow-hidden rounded-lg border-white/80 bg-white/80 shadow-sm">
         <CardContent className="p-0">
-          <div className="flex flex-wrap items-center gap-2 border-b border-rose-50 px-5 py-3">
+          <div className="flex flex-wrap items-center gap-2 border-b border-stone-50 px-5 py-3">
             <Button
               variant="ghost"
-              className="h-8 rounded-lg px-3 text-rose-500 hover:bg-rose-50 hover:text-rose-600"
+              className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-50 hover:text-stone-600"
               onClick={() => openDeleteUsers(selectedUsers)}
               disabled={selectedUsers.length === 0 || isDeleting}
             >
@@ -387,7 +387,7 @@ function UsersPageContent() {
               </span>
             ) : null}
           </div>
-          <div className="hidden grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_470px] border-b border-rose-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-stone-400 2xl:grid">
+          <div className="hidden grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_470px] border-b border-stone-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-stone-400 2xl:grid">
             <Checkbox
               checked={allSelected}
               onCheckedChange={(checked) => toggleSelectAll(Boolean(checked))}
@@ -403,13 +403,13 @@ function UsersPageContent() {
           </div>
           {isLoading ? (
             <div className="flex h-40 items-center justify-center">
-              <LoaderCircle className="size-5 animate-spin text-rose-400" />
+              <LoaderCircle className="size-5 animate-spin text-stone-400" />
             </div>
           ) : items.length === 0 ? (
             <div className="px-6 py-14 text-center text-sm text-stone-500">暂无用户</div>
           ) : (
             items.map((user) => (
-              <div key={user.id} className="grid gap-3 border-b border-rose-50 px-5 py-4 text-sm last:border-0 2xl:grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_470px] 2xl:items-center 2xl:gap-0">
+              <div key={user.id} className="grid gap-3 border-b border-stone-50 px-5 py-4 text-sm last:border-0 2xl:grid-cols-[44px_minmax(220px,1.4fr)_110px_100px_120px_150px_140px_470px] 2xl:items-center 2xl:gap-0">
                 <div className="flex min-w-0 items-start gap-3 2xl:contents">
                   <Checkbox
                     checked={selectedIds.includes(user.id)}
@@ -433,7 +433,7 @@ function UsersPageContent() {
                 </div>
                 <div className="flex items-center justify-between gap-3 2xl:block">
                   <span className="text-xs font-medium text-stone-400 2xl:hidden">额度</span>
-                  <span className="font-semibold text-rose-600">{user.quota}</span>
+                  <span className="font-semibold text-stone-600">{user.quota}</span>
                 </div>
                 <div className="flex items-center justify-between gap-3 2xl:block">
                   <span className="text-xs font-medium text-stone-400 2xl:hidden">图片/消耗</span>
@@ -447,25 +447,27 @@ function UsersPageContent() {
                   <span className="text-xs font-medium text-stone-400 2xl:hidden">额度到期</span>
                   <span className="text-xs text-stone-500">{user.quota_expires_at ? formatTime(user.quota_expires_at) : "不限期"}</span>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 border-t border-rose-50 pt-3 2xl:border-t-0 2xl:pt-0">
+                <div className="flex flex-wrap items-center gap-2 border-t border-stone-50 pt-3 2xl:border-t-0 2xl:pt-0">
                   <Input
                     type="number"
+                    min="0"
+                    step="0.01"
                     value={quotaInputs[user.id] ?? String(user.quota)}
                     onChange={(event) => setQuotaInputs((current) => ({ ...current, [user.id]: event.target.value }))}
-                    className="h-8 w-20 rounded-lg border-rose-100 bg-white px-2"
+                    className="h-8 w-20 rounded-lg border-stone-100 bg-white px-2"
                   />
                   <QuotaExpiryPicker
                     value={quotaExpiryInputs[user.id] ?? (user.quota_expires_at || "")}
                     onChange={(value) => setQuotaExpiryInputs((current) => ({ ...current, [user.id]: value }))}
                     className="h-8 w-36"
                   />
-                  <Button variant="outline" size="sm" className="h-8 rounded-lg border-rose-100 bg-white" onClick={() => void handleSetQuota(user)}>
+                  <Button variant="outline" size="sm" className="h-8 rounded-lg border-stone-100 bg-white" onClick={() => void handleSetQuota(user)}>
                     改额度
                   </Button>
-                  <Button variant="outline" size="sm" className="h-8 rounded-lg border-rose-100 bg-white" onClick={() => void handleToggleStatus(user)}>
+                  <Button variant="outline" size="sm" className="h-8 rounded-lg border-stone-100 bg-white" onClick={() => void handleToggleStatus(user)}>
                     {user.status === "active" ? "禁用" : "启用"}
                   </Button>
-                  <Button asChild variant="outline" size="sm" className="h-8 rounded-lg border-rose-100 bg-white">
+                  <Button asChild variant="outline" size="sm" className="h-8 rounded-lg border-stone-100 bg-white">
                     <a href={getUserOrdersHref(user)}>
                       <ReceiptText className="size-4" />
                       订单
@@ -474,7 +476,7 @@ function UsersPageContent() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 rounded-lg border-rose-100 bg-white"
+                    className="h-8 rounded-lg border-stone-100 bg-white"
                     onClick={() => openResetPassword(user)}
                   >
                     <KeyRound className="size-4" />
@@ -483,7 +485,7 @@ function UsersPageContent() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="size-8 text-rose-500 hover:bg-rose-50"
+                    className="size-8 text-stone-500 hover:bg-stone-50"
                     onClick={() => openDeleteUsers([user])}
                     aria-label="删除用户"
                     title="删除用户"
@@ -509,7 +511,7 @@ function UsersPageContent() {
       >
         <DialogContent>
           <DialogHeader>
-            <div className="mb-1 flex size-10 items-center justify-center rounded-full bg-rose-50 text-rose-500">
+            <div className="mb-1 flex size-10 items-center justify-center rounded-full bg-stone-50 text-stone-500">
               <KeyRound className="size-5" />
             </div>
             <DialogTitle>重置用户密码</DialogTitle>
@@ -528,23 +530,23 @@ function UsersPageContent() {
                 value={resetPasswordInput}
                 onChange={(event) => setResetPasswordInput(event.target.value)}
                 placeholder="至少 6 位，留空自动生成"
-                className="h-10 rounded-xl border-rose-100 bg-white"
+                className="h-10 rounded-xl border-stone-100 bg-white"
                 disabled={isResettingPassword}
               />
             </div>
             {resetPasswordResult ? (
-              <div className="rounded-lg border border-rose-100 bg-rose-50/50 p-3">
+              <div className="rounded-lg border border-stone-100 bg-stone-50/50 p-3">
                 <div className="mb-2 text-xs font-medium text-stone-500">新密码</div>
                 <div className="flex gap-2">
                   <Input
                     readOnly
                     value={resetPasswordResult}
-                    className="h-9 rounded-lg border-rose-100 bg-white font-mono text-sm"
+                    className="h-9 rounded-lg border-stone-100 bg-white font-mono text-sm"
                   />
                   <Button
                     type="button"
                     variant="outline"
-                    className="h-9 rounded-lg border-rose-100 bg-white"
+                    className="h-9 rounded-lg border-stone-100 bg-white"
                     onClick={() => void handleCopyPassword(resetPasswordResult)}
                   >
                     <Copy className="size-4" />
@@ -567,7 +569,7 @@ function UsersPageContent() {
             >
               取消
             </Button>
-            <Button className="rounded-xl bg-rose-500 text-white hover:bg-rose-600" onClick={() => void handleResetPassword()} disabled={isResettingPassword}>
+            <Button className="rounded-xl bg-neutral-900 text-white hover:bg-black" onClick={() => void handleResetPassword()} disabled={isResettingPassword}>
               {isResettingPassword ? <LoaderCircle className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
               重置并复制
             </Button>
@@ -578,7 +580,7 @@ function UsersPageContent() {
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <div className="mb-1 flex size-10 items-center justify-center rounded-full bg-rose-50 text-rose-500">
+            <div className="mb-1 flex size-10 items-center justify-center rounded-full bg-stone-50 text-stone-500">
               <AlertTriangle className="size-5" />
             </div>
             <DialogTitle>{deleteCount === 1 ? "删除用户" : "批量删除用户"}</DialogTitle>
@@ -605,7 +607,7 @@ export default function UsersPage() {
   if (isCheckingAuth || !session || session.role !== "admin") {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-rose-400" />
+        <LoaderCircle className="size-5 animate-spin text-stone-400" />
       </div>
     );
   }

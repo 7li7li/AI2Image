@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from typing import Any
 
 from services.channel_service import channel_service
@@ -201,7 +200,7 @@ class ModelService:
             unit = "quota"
         return {"model": model, "amount": round(amount, 8), "unit": unit, "pricing": pricing}
 
-    def quota_cost(self, model: str) -> int:
+    def quota_cost(self, model: str) -> float:
         pricing = self.get_pricing(model)
         if not bool(pricing.get("enabled", True)):
             return 0
@@ -212,9 +211,9 @@ class ModelService:
             amount = float(pricing.get("model_price") or pricing.get("model_ratio") or DEFAULT_MODEL_PRICE)
         if amount <= 0:
             return 0
-        return max(1, int(math.ceil(amount)))
+        return round(amount, 8)
 
-    def list_quota_costs(self) -> dict[str, int]:
+    def list_quota_costs(self) -> dict[str, float]:
         models = {
             str(item.get("model") or "").strip()
             for item in self.list_catalog().get("items", [])

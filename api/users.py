@@ -70,7 +70,7 @@ class AdminUserCreateRequest(BaseModel):
     email: str
     password: str
     name: str = ""
-    quota: int = 0
+    quota: float = 0
     quota_expires_at: str | None = None
     status: str = "active"
 
@@ -79,12 +79,12 @@ class AdminUserUpdateRequest(BaseModel):
     email: str | None = None
     name: str | None = None
     status: str | None = None
-    quota: int | None = None
+    quota: float | None = None
     quota_expires_at: str | None = None
 
 
 class AdminUserQuotaRequest(BaseModel):
-    amount: int
+    amount: float
     mode: str = "add"
     quota_expires_at: str | None = None
 

@@ -94,7 +94,7 @@ function normalizeQuotaCost(value: unknown) {
   if (!Number.isFinite(parsed)) {
     return 1;
   }
-  return Math.max(0, Math.ceil(parsed));
+  return Math.max(0, parsed);
 }
 
 function buildModelQuotaCosts(models: Array<{ id?: string; quota_cost?: number }>) {
@@ -1541,7 +1541,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
           <div className="flex items-center justify-between gap-2 lg:hidden">
             <Button
               variant="outline"
-              className="h-10 flex-1 rounded-lg border-rose-100 bg-white/75 text-stone-700 shadow-sm"
+              className="h-10 flex-1 rounded-lg border-stone-100 bg-white/75 text-stone-700 shadow-sm"
               onClick={() => setIsHistoryOpen(true)}
             >
               <Menu className="mr-2 size-4" />
@@ -1553,7 +1553,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             </Button>
             <Button
               variant="outline"
-              className="h-10 rounded-lg border-rose-100 bg-white/75 px-3 text-stone-600 shadow-sm"
+              className="h-10 rounded-lg border-stone-100 bg-white/75 px-3 text-stone-600 shadow-sm"
               onClick={openClearHistoryConfirm}
               disabled={conversations.length === 0}
             >
@@ -1644,7 +1644,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
               <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
                 取消
               </Button>
-              <Button className="bg-rose-600 text-white hover:bg-rose-700" onClick={() => void handleConfirmDelete()}>
+              <Button className="bg-neutral-900 text-white hover:bg-black" onClick={() => void handleConfirmDelete()}>
                 确认删除
               </Button>
             </DialogFooter>
@@ -1682,7 +1682,7 @@ function ImageStudioSidebar({
 }) {
   return (
     <aside className="flex h-full min-h-0 w-full flex-col bg-white/32">
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 [scrollbar-color:rgba(244,114,182,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-rose-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 [scrollbar-color:rgba(115,115,115,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
         <div className="min-h-[320px]">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div>
@@ -1706,7 +1706,7 @@ function ImageStudioSidebar({
         </div>
       </div>
 
-      <div className="border-t border-rose-100/70 p-3">
+      <div className="border-t border-stone-100/70 p-3">
         <div className="grid grid-cols-2 gap-2">
           <SidebarMetric label="今日生成" value={workspaceStats.todayGenerated} />
           <SidebarMetric label="成功率" value={workspaceStats.successRate} />
@@ -1734,7 +1734,7 @@ function SidebarMetric({
   const visibleDetails = details.filter(Boolean);
 
   return (
-    <div className={cn("rounded-lg bg-gradient-to-br from-white/82 to-rose-50/82 p-2.5", className)}>
+    <div className={cn("rounded-lg bg-gradient-to-br from-white/82 to-stone-50/82 p-2.5", className)}>
       {prominent && visibleDetails.length > 0 ? (
         <div className="grid grid-cols-[minmax(64px,auto)_minmax(0,1fr)] items-center gap-3">
           <div className="min-w-0">

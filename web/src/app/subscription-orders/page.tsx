@@ -235,7 +235,7 @@ function SubscriptionOrdersContent() {
     <section className="h-full min-h-0 space-y-5 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(148,163,184,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/65 [&::-webkit-scrollbar-track]:bg-transparent">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-1">
-          <div className="text-xs font-semibold tracking-[0.18em] text-rose-400 uppercase">Orders</div>
+          <div className="text-xs font-semibold tracking-[0.18em] text-stone-400 uppercase">Orders</div>
           <h1 className="text-2xl font-semibold tracking-tight">订阅订单</h1>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -282,7 +282,7 @@ function SubscriptionOrdersContent() {
         <Card className="rounded-lg border-white/80 bg-white/80 shadow-sm">
           <CardContent className="p-5">
             <div className="text-sm text-stone-500">支付金额</div>
-            <div className="mt-2 text-2xl font-semibold text-rose-600">{totalMoney.toFixed(2)}</div>
+            <div className="mt-2 text-2xl font-semibold text-stone-600">{totalMoney.toFixed(2)}</div>
           </CardContent>
         </Card>
       </div>
@@ -308,7 +308,7 @@ function SubscriptionOrdersContent() {
             </label>
             <Button
               variant="ghost"
-              className="h-8 rounded-lg px-3 text-rose-500 hover:bg-rose-50 hover:text-rose-600"
+              className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-50 hover:text-stone-600"
               onClick={() => void deleteSelectedCanceledOrders()}
               disabled={selectedCanceledItems.length === 0 || isDeleting}
             >
@@ -358,7 +358,7 @@ function SubscriptionOrdersContent() {
                       <div className="max-w-[160px] truncate font-medium text-stone-800">{item.plan_name || item.plan_id}</div>
                       <div className="text-xs text-stone-400">{item.valid_months} 个月</div>
                     </TableCell>
-                    <TableCell className="font-semibold text-rose-600">{item.money || item.price}</TableCell>
+                    <TableCell className="font-semibold text-stone-600">{item.money || item.price}</TableCell>
                     <TableCell>{item.quota} 点</TableCell>
                     <TableCell>
                       <Badge variant={statusVariant(item.status)} className="rounded-md">
@@ -390,7 +390,7 @@ function SubscriptionOrdersContent() {
                           </Button>
                           <Button
                             variant="outline"
-                            className="h-8 rounded-lg border-rose-100 bg-white px-3 text-xs text-rose-600 hover:bg-rose-50"
+                            className="h-8 rounded-lg border-stone-100 bg-white px-3 text-xs text-stone-600 hover:bg-stone-50"
                             onClick={() => void cancelOrder(item)}
                             disabled={Boolean(updatingOrderNo)}
                           >

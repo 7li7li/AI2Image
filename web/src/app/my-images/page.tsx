@@ -272,10 +272,10 @@ function MyImagesContent() {
   }, []);
 
   return (
-    <section className="h-full min-h-0 space-y-5 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(244,114,182,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-rose-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
+    <section className="h-full min-h-0 space-y-5 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(115,115,115,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-1">
-          <div className="text-xs font-semibold tracking-[0.18em] text-rose-400 uppercase">My Images</div>
+          <div className="text-xs font-semibold tracking-[0.18em] text-stone-400 uppercase">My Images</div>
           <h1 className="text-2xl font-semibold tracking-tight">我的图片</h1>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -288,18 +288,18 @@ function MyImagesContent() {
               setPage(1);
             }}
           />
-          <Button variant="outline" onClick={() => setWebdavOpen(true)} className="h-10 rounded-xl border-rose-100 bg-white px-4 text-stone-700">
+          <Button variant="outline" onClick={() => setWebdavOpen(true)} className="h-10 rounded-xl border-stone-100 bg-white px-4 text-stone-700">
             <Settings className="size-4" />
             WebDAV
           </Button>
-          <Button variant="outline" onClick={() => void syncToWebDAV()} disabled={isSyncingWebDAV} className="h-10 rounded-xl border-rose-100 bg-white px-4 text-stone-700">
+          <Button variant="outline" onClick={() => void syncToWebDAV()} disabled={isSyncingWebDAV} className="h-10 rounded-xl border-stone-100 bg-white px-4 text-stone-700">
             {isSyncingWebDAV ? <LoaderCircle className="size-4 animate-spin" /> : <CloudUpload className="size-4" />}
             同步
           </Button>
-          <Button variant="outline" onClick={() => { setStartDate(""); setEndDate(""); setPage(1); }} className="h-10 rounded-xl border-rose-100 bg-white px-4 text-stone-700">
+          <Button variant="outline" onClick={() => { setStartDate(""); setEndDate(""); setPage(1); }} className="h-10 rounded-xl border-stone-100 bg-white px-4 text-stone-700">
             清除筛选
           </Button>
-          <Button onClick={() => void loadImages()} disabled={isLoading} className="h-10 rounded-xl bg-rose-500 px-4 text-white hover:bg-rose-600">
+          <Button onClick={() => void loadImages()} disabled={isLoading} className="h-10 rounded-xl bg-neutral-900 px-4 text-white hover:bg-black">
             <RefreshCw className={`size-4 ${isLoading ? "animate-spin" : ""}`} />
             刷新
           </Button>
@@ -308,16 +308,16 @@ function MyImagesContent() {
 
       <Card className="rounded-lg border-white/80 bg-white/80 shadow-sm">
         <CardContent className="p-0">
-          <div className="flex flex-col gap-3 border-b border-rose-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-b border-stone-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600">
               <span className="flex items-center gap-2">
-                <ImageIcon className="size-4 text-rose-500" />
+                <ImageIcon className="size-4 text-stone-500" />
                 共 {total} 张
               </span>
-              {selectedCount > 0 ? <span className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">已选 {selectedCount} 张</span> : null}
+              {selectedCount > 0 ? <span className="rounded-full bg-stone-50 px-2.5 py-1 text-xs font-medium text-stone-700">已选 {selectedCount} 张</span> : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex h-8 items-center gap-2 rounded-lg border border-rose-100 bg-white px-3 text-sm text-stone-600">
+              <div className="flex h-8 items-center gap-2 rounded-lg border border-stone-100 bg-white px-3 text-sm text-stone-600">
                 <Checkbox
                   checked={allCurrentSelected ? true : someCurrentSelected ? "indeterminate" : false}
                   onCheckedChange={(checked) => toggleRows(checked === true)}
@@ -334,7 +334,7 @@ function MyImagesContent() {
               ) : null}
               <Button
                 variant="outline"
-                className="h-8 rounded-lg border-rose-100 bg-white px-3 text-stone-600"
+                className="h-8 rounded-lg border-stone-100 bg-white px-3 text-stone-600"
                 onClick={() => void downloadSelectedImages()}
                 disabled={selectedCount === 0 || isLoading || isDownloading}
               >
@@ -354,7 +354,7 @@ function MyImagesContent() {
           </div>
           {isLoading ? (
             <div className="flex h-56 items-center justify-center">
-              <LoaderCircle className="size-5 animate-spin text-rose-400" />
+              <LoaderCircle className="size-5 animate-spin text-stone-400" />
             </div>
           ) : items.length === 0 ? (
             <div className="px-6 py-14 text-center text-sm text-stone-500">还没有生成过图片</div>
@@ -364,18 +364,18 @@ function MyImagesContent() {
                 const key = imageKey(item);
                 const selected = Boolean(selectedItems[key]);
                 return (
-                  <div key={`${item.url}-${index}`} className={`group relative border-r border-b border-rose-50 p-4 transition hover:bg-rose-50/40 ${selected ? "bg-rose-50/60 ring-1 ring-inset ring-rose-200" : ""}`}>
+                  <div key={`${item.url}-${index}`} className={`group relative border-r border-b border-stone-50 p-4 transition hover:bg-stone-50/40 ${selected ? "bg-stone-50/60 ring-1 ring-inset ring-stone-200" : ""}`}>
                     <div className="absolute top-6 left-6 z-10 rounded-md bg-white/90 p-1 shadow-sm">
                       <Checkbox
                         checked={selected}
                         onCheckedChange={(checked) => toggleImage(item, checked === true)}
                         aria-label="选择图片"
-                        className="size-5 border-rose-200 bg-white"
+                        className="size-5 border-stone-200 bg-white"
                       />
                     </div>
                     <button
                       type="button"
-                      className="relative block aspect-square w-full cursor-zoom-in overflow-hidden rounded-xl bg-rose-50 text-left"
+                      className="relative block aspect-square w-full cursor-zoom-in overflow-hidden rounded-xl bg-stone-50 text-left"
                       onClick={() => {
                         setLightboxIndex(index);
                         setLightboxOpen(true);
@@ -396,7 +396,7 @@ function MyImagesContent() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="size-8 rounded-lg text-stone-400 hover:bg-rose-50 hover:text-rose-600"
+                            className="size-8 rounded-lg text-stone-400 hover:bg-stone-50 hover:text-stone-600"
                             onClick={() => {
                               downloadUrl(item);
                               toast.success("已开始下载图片");
@@ -409,7 +409,7 @@ function MyImagesContent() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="size-8 rounded-lg text-stone-400 hover:bg-rose-50 hover:text-rose-600"
+                            className="size-8 rounded-lg text-stone-400 hover:bg-stone-50 hover:text-stone-600"
                             onClick={() => {
                               void navigator.clipboard.writeText(item.url);
                               toast.success("图片地址已复制");
@@ -432,12 +432,12 @@ function MyImagesContent() {
             </div>
           )}
           {!isLoading && total > 0 ? (
-            <div className="flex items-center justify-end gap-2 border-t border-rose-50 px-4 py-3 text-sm text-stone-500">
+            <div className="flex items-center justify-end gap-2 border-t border-stone-50 px-4 py-3 text-sm text-stone-500">
               <span>第 {safePage} / {pageCount} 页，共 {total} 张</span>
-              <Button variant="outline" size="icon" className="size-9 rounded-lg border-rose-100 bg-white" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+              <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-100 bg-white" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
                 <ChevronLeft className="size-4" />
               </Button>
-              <Button variant="outline" size="icon" className="size-9 rounded-lg border-rose-100 bg-white" disabled={safePage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>
+              <Button variant="outline" size="icon" className="size-9 rounded-lg border-stone-100 bg-white" disabled={safePage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>
                 <ChevronRight className="size-4" />
               </Button>
             </div>
@@ -486,7 +486,7 @@ export default function MyImagesPage() {
   if (isCheckingAuth || !session) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-rose-400" />
+        <LoaderCircle className="size-5 animate-spin text-stone-400" />
       </div>
     );
   }

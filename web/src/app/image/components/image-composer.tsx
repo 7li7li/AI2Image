@@ -915,7 +915,7 @@ export function ImageComposer({
                     setLightboxIndex(index);
                     setLightboxOpen(true);
                   }}
-                  className="group size-16 overflow-hidden rounded-lg border border-rose-100 bg-rose-50/70 transition hover:border-rose-200"
+                  className="group size-16 overflow-hidden rounded-lg border border-stone-100 bg-stone-50/70 transition hover:border-stone-200"
                   aria-label={`预览参考图 ${image.name || index + 1}`}
                 >
                   <img
@@ -930,7 +930,7 @@ export function ImageComposer({
                     event.stopPropagation();
                     handleRemoveReference(index);
                   }}
-                  className="absolute -top-1 -right-1 inline-flex size-5 items-center justify-center rounded-full border border-rose-100 bg-white text-stone-500 transition hover:border-rose-200 hover:text-rose-600"
+                  className="absolute -top-1 -right-1 inline-flex size-5 items-center justify-center rounded-full border border-stone-100 bg-white text-stone-500 transition hover:border-stone-200 hover:text-stone-600"
                   aria-label={`移除参考图 ${image.name || index + 1}`}
                 >
                   <X className="size-3" />
@@ -941,7 +941,7 @@ export function ImageComposer({
                     event.stopPropagation();
                     setAnnotationImageIndex(index);
                   }}
-                  className="absolute -bottom-1 -left-1 inline-flex size-6 items-center justify-center rounded-full border border-rose-100 bg-white text-stone-600 shadow-sm transition hover:border-rose-200 hover:text-rose-600"
+                  className="absolute -bottom-1 -left-1 inline-flex size-6 items-center justify-center rounded-full border border-stone-100 bg-white text-stone-600 shadow-sm transition hover:border-stone-200 hover:text-stone-600"
                   aria-label={`批注参考图 ${image.name || index + 1}`}
                   title="批注修改"
                 >
@@ -955,7 +955,7 @@ export function ImageComposer({
 
       <Dialog open={isPromptLibraryOpen} onOpenChange={setIsPromptLibraryOpen}>
         <DialogContent className="flex h-[84vh] w-[min(94vw,1040px)] max-w-none flex-col overflow-hidden rounded-lg p-0">
-          <DialogHeader className="border-b border-rose-100 px-5 pt-5 pb-4 sm:px-6">
+          <DialogHeader className="border-b border-stone-100 px-5 pt-5 pb-4 sm:px-6">
             <div className="flex flex-col gap-3 pr-10 sm:flex-row sm:items-start sm:justify-between sm:pr-12">
               <div className="min-w-0">
                 <DialogTitle className="text-xl font-semibold text-stone-950">更多提示词</DialogTitle>
@@ -968,7 +968,7 @@ export function ImageComposer({
                 type="button"
                 asChild
                 variant="outline"
-                className="h-9 shrink-0 rounded-lg border-rose-100 bg-white/75 text-stone-700"
+                className="h-9 shrink-0 rounded-lg border-stone-100 bg-white/75 text-stone-700"
               >
                 <a href="/prompt-manager">
                   <ExternalLink className="size-4" />
@@ -983,7 +983,7 @@ export function ImageComposer({
                   value={bananaPromptQuery}
                   onChange={(event) => setBananaPromptQuery(event.target.value)}
                   placeholder="搜索标题、作者、分类或提示词内容"
-                  className="h-10 rounded-lg border-rose-100 bg-white/70 pl-9 text-sm shadow-none focus-visible:bg-white"
+                  className="h-10 rounded-lg border-stone-100 bg-white/70 pl-9 text-sm shadow-none focus-visible:bg-white"
                 />
               </div>
               <div className="flex flex-wrap gap-2">
@@ -995,8 +995,8 @@ export function ImageComposer({
                     className={cn(
                       "h-9 shrink-0 rounded-lg border px-3 text-xs font-medium transition",
                       category === bananaPromptCategory
-                        ? "border-rose-100 bg-[#2d1d26] text-white"
-                        : "border-rose-100 bg-white/75 text-stone-600 hover:border-rose-200 hover:text-stone-900",
+                        ? "border-stone-100 bg-[#171717] text-white"
+                        : "border-stone-100 bg-white/75 text-stone-600 hover:border-stone-200 hover:text-stone-900",
                     )}
                   >
                     {category}
@@ -1006,7 +1006,7 @@ export function ImageComposer({
             </div>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto bg-rose-50/35 px-4 py-4 sm:px-6">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-stone-50/35 px-4 py-4 sm:px-6">
             {bananaPromptStatus === "loading" || bananaPromptStatus === "idle" ? (
               <div className="flex h-full min-h-[260px] items-center justify-center">
                 <div className="flex items-center gap-2 text-sm text-stone-500">
@@ -1022,7 +1022,7 @@ export function ImageComposer({
                   <Button
                     type="button"
                     variant="outline"
-                    className="mt-4 rounded-lg border-rose-100 bg-white"
+                    className="mt-4 rounded-lg border-stone-100 bg-white"
                     onClick={() => {
                       setBananaPromptStatus("idle");
                       setBananaPromptRetryKey((key) => key + 1);
@@ -1043,7 +1043,7 @@ export function ImageComposer({
                   return (
                     <article
                       key={`${item.title}-${item.created || index}`}
-                      className="overflow-hidden rounded-lg border border-rose-100 bg-white/85 shadow-sm"
+                      className="overflow-hidden rounded-lg border border-stone-100 bg-white/85 shadow-sm"
                     >
                       <div className="aspect-[4/3] bg-stone-100">
                         {previewUrl ? (
@@ -1104,7 +1104,7 @@ export function ImageComposer({
               <button
                 type="button"
                 onClick={handlePickReferenceImage}
-                className="grid size-8 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-rose-600"
+                className="grid size-8 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-stone-600"
                 aria-label="上传参考图"
                 title="上传参考图"
               >
@@ -1114,7 +1114,7 @@ export function ImageComposer({
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="grid size-8 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-rose-600"
+                    className="grid size-8 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-stone-600"
                     aria-label="快捷工具"
                     title="快捷工具"
                   >
@@ -1138,7 +1138,7 @@ export function ImageComposer({
                           className="flex h-20 flex-col items-center justify-center gap-2 rounded-lg px-2 text-center text-sm font-medium text-stone-800 transition hover:bg-stone-100"
                           title={item.prompt}
                         >
-                          <span className="grid size-8 place-items-center rounded-full bg-rose-50 text-rose-600">
+                          <span className="grid size-8 place-items-center rounded-full bg-stone-50 text-stone-600">
                             <Icon className="size-4" />
                           </span>
                           <span className="leading-none">{item.label}</span>
@@ -1151,7 +1151,7 @@ export function ImageComposer({
               <button
                 type="button"
                 onClick={() => setIsPromptLibraryOpen(true)}
-                className="grid size-8 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-rose-600"
+                className="grid size-8 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-stone-600"
                 aria-label="提示词"
                 title="提示词"
               >
@@ -1200,7 +1200,7 @@ export function ImageComposer({
                     side="top"
                     align="start"
                     sideOffset={10}
-                    className="w-[min(360px,calc(100vw-2rem))] border-rose-100 bg-white/95 p-4 text-stone-700 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.28)]"
+                    className="w-[min(360px,calc(100vw-2rem))] border-stone-100 bg-white/95 p-4 text-stone-700 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.28)]"
                   >
                     <div className="space-y-4">
                       <SettingSection label="质量">
@@ -1263,13 +1263,13 @@ export function ImageComposer({
                             step="1"
                             value={imageCount}
                             onChange={(event) => onImageCountChange(event.target.value)}
-                            className="h-9 w-20 rounded-lg border-rose-100 bg-white/85 px-2 text-center text-sm font-bold text-stone-700 shadow-none focus-visible:ring-rose-100"
+                            className="h-9 w-20 rounded-lg border-stone-100 bg-white/85 px-2 text-center text-sm font-bold text-stone-700 shadow-none focus-visible:ring-stone-100"
                             aria-label="图片张数"
                           />
                         </div>
                       </SettingSection>
 
-                      <div className="rounded-lg border border-rose-100 bg-rose-50/35 p-3">
+                      <div className="rounded-lg border border-stone-100 bg-stone-50/35 p-3">
                         <div className="grid gap-2 sm:grid-cols-2">
                           <SettingSelect
                             label="格式"
@@ -1291,19 +1291,19 @@ export function ImageComposer({
                           />
                         </div>
                         {imageOutputFormat === "png" ? (
-                          <label className="mt-2 flex h-9 items-center justify-between gap-3 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm">
+                          <label className="mt-2 flex h-9 items-center justify-between gap-3 rounded-lg border border-stone-100 bg-white/85 px-3 text-sm">
                             <span className="font-medium text-stone-700">透明背景</span>
                             <span className="flex items-center gap-2 text-xs font-medium text-stone-500">
                               <Checkbox
                                 checked={imageTransparentBackground}
                                 onCheckedChange={(checked) => onImageTransparentBackgroundChange(checked === true)}
-                                className="border-rose-200 data-[state=checked]:border-rose-500 data-[state=checked]:bg-rose-500"
+                                className="border-stone-200 data-[state=checked]:border-stone-500 data-[state=checked]:bg-stone-500"
                               />
                               PNG
                             </span>
                           </label>
                         ) : (
-                          <div className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm">
+                          <div className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-stone-100 bg-white/85 px-3 text-sm">
                             <span className="font-medium text-stone-700">压缩率</span>
                             <Input
                               type="number"
@@ -1317,7 +1317,7 @@ export function ImageComposer({
                             />
                           </div>
                         )}
-                        <div className="mt-2 flex h-9 items-center justify-between rounded-lg border border-rose-100 bg-white/85 px-3 text-sm">
+                        <div className="mt-2 flex h-9 items-center justify-between rounded-lg border border-stone-100 bg-white/85 px-3 text-sm">
                           <span className="font-medium text-stone-600">实际分辨率</span>
                           <span className="font-bold text-stone-900">{actualImageResolution}</span>
                         </div>
@@ -1409,7 +1409,7 @@ function ModeButton({
       onClick={onClick}
       className={cn(
         "inline-flex h-7 items-center rounded-full px-2.5 text-xs font-medium transition",
-        active ? "bg-[#2d1d26] text-white" : "text-stone-600 hover:bg-white",
+        active ? "bg-[#171717] text-white" : "text-stone-600 hover:bg-white",
       )}
     >
       {children}
@@ -1442,8 +1442,8 @@ function SettingChip({
       className={cn(
         "inline-flex h-9 items-center justify-center rounded-full border px-3 text-sm font-medium transition",
         active
-          ? "border-[#2d1d26] bg-[#2d1d26] text-white shadow-sm"
-          : "border-rose-100 bg-white/75 text-stone-600 hover:border-rose-200 hover:bg-rose-50 hover:text-stone-900",
+          ? "border-[#171717] bg-[#171717] text-white shadow-sm"
+          : "border-stone-100 bg-white/75 text-stone-600 hover:border-stone-200 hover:bg-stone-50 hover:text-stone-900",
       )}
     >
       {children}
@@ -1469,8 +1469,8 @@ function AspectRatioOption({
       className={cn(
         "flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2 text-xs font-medium transition",
         active
-          ? "border-[#2d1d26] bg-[#2d1d26] text-white shadow-sm"
-          : "border-rose-100 bg-white/75 text-stone-600 hover:border-rose-200 hover:bg-rose-50 hover:text-stone-900",
+          ? "border-[#171717] bg-[#171717] text-white shadow-sm"
+          : "border-stone-100 bg-white/75 text-stone-600 hover:border-stone-200 hover:bg-stone-50 hover:text-stone-900",
       )}
     >
       {value ? (
@@ -1521,7 +1521,7 @@ function IconToolButton({
       disabled={disabled}
       aria-label={label}
       title={label}
-      className="grid size-9 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-rose-600 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-stone-300"
+      className="grid size-9 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-stone-600 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-stone-300"
     >
       {children}
     </button>
@@ -1542,7 +1542,7 @@ function SettingSelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className={cn("flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3 text-sm", className)}>
+    <div className={cn("flex h-9 items-center gap-2 rounded-lg border border-stone-100 bg-white/85 px-3 text-sm", className)}>
       <span className="shrink-0 font-medium text-stone-700">{label}</span>
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 py-0 text-sm font-bold text-stone-700 shadow-none focus-visible:ring-0 [&>svg]:size-4">

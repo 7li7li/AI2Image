@@ -504,7 +504,7 @@ function PromptManagerContent({ session }: { session: StoredAuthSession }) {
               className={cn(
                 "h-9 rounded-full border px-3 text-xs font-medium transition",
                 statusFilter === item
-                  ? "border-rose-200 bg-rose-50 text-rose-700"
+                  ? "border-stone-200 bg-stone-50 text-stone-700"
                   : "border-stone-200 bg-white text-stone-600 hover:border-stone-300 hover:text-stone-900",
               )}
             >
@@ -520,7 +520,7 @@ function PromptManagerContent({ session }: { session: StoredAuthSession }) {
           正在加载提示词
         </div>
       ) : filteredItems.length === 0 ? (
-        <div className="flex min-h-[320px] items-center justify-center rounded-lg border border-dashed border-rose-100 bg-white/60 text-sm text-stone-500">
+        <div className="flex min-h-[320px] items-center justify-center rounded-lg border border-dashed border-stone-100 bg-white/60 text-sm text-stone-500">
           没有找到提示词
         </div>
       ) : (
@@ -554,7 +554,7 @@ function PromptManagerContent({ session }: { session: StoredAuthSession }) {
                     {item.description ? <p className="mt-1 truncate text-xs text-stone-400">{item.description}</p> : null}
                     <p className="mt-2 line-clamp-4 text-xs leading-5 text-stone-500">{summarizePrompt(item.prompt)}</p>
                     {status === "rejected" && item.rejection_reason ? (
-                      <p className="mt-2 line-clamp-2 rounded-lg bg-rose-50 px-2 py-1.5 text-xs leading-5 text-rose-600">
+                      <p className="mt-2 line-clamp-2 rounded-lg bg-stone-50 px-2 py-1.5 text-xs leading-5 text-stone-600">
                         {item.rejection_reason}
                       </p>
                     ) : null}
@@ -581,7 +581,7 @@ function PromptManagerContent({ session }: { session: StoredAuthSession }) {
                           <Button variant="ghost" size="icon" className="size-8 rounded-lg text-emerald-600 hover:bg-emerald-50" onClick={() => void handleApprove(item)} aria-label="通过审核" title="通过审核">
                             <CheckCircle2 className="size-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="size-8 rounded-lg text-rose-600 hover:bg-rose-50" onClick={() => void handleReject(item)} aria-label="驳回提示词" title="驳回提示词">
+                          <Button variant="ghost" size="icon" className="size-8 rounded-lg text-stone-600 hover:bg-stone-50" onClick={() => void handleReject(item)} aria-label="驳回提示词" title="驳回提示词">
                             <XCircle className="size-4" />
                           </Button>
                         </>
@@ -601,7 +601,7 @@ function PromptManagerContent({ session }: { session: StoredAuthSession }) {
                         variant="ghost"
                         size="icon"
                         disabled={!removable}
-                        className="size-8 rounded-lg text-rose-500 hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-stone-300"
+                        className="size-8 rounded-lg text-stone-500 hover:bg-stone-50 disabled:cursor-not-allowed disabled:text-stone-300"
                         onClick={() => void handleDelete(item)}
                         aria-label="删除提示词"
                         title="删除提示词"
@@ -639,7 +639,7 @@ function PromptManagerContent({ session }: { session: StoredAuthSession }) {
               />
             </label>
             {sharePreview ? (
-              <div className="rounded-lg border border-rose-100 bg-rose-50/45 p-4">
+              <div className="rounded-lg border border-stone-100 bg-stone-50/45 p-4">
                 <div className="mb-2 flex flex-wrap gap-2">
                   <Badge variant={normalizeMode(sharePreview.mode) === "edit" ? "info" : "success"}>
                     {modeLabel(sharePreview.mode)}

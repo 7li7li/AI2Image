@@ -314,7 +314,7 @@ export function ConfigCard() {
                   className={`rounded-xl border px-3 py-2 text-xs leading-6 ${
                     proxyTestResult.ok
                       ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                      : "border-rose-200 bg-rose-50 text-rose-800"
+                      : "border-stone-200 bg-stone-50 text-stone-800"
                   }`}
                 >
                   {proxyTestResult.ok

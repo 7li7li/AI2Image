@@ -335,7 +335,7 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
             : "登录";
   const PrimaryIcon =
     view === "register" ? UserPlus : view === "verify" || (view === "forgot" && !resetCodeSent) ? Send : view === "admin" ? KeyRound : LogIn;
-  const navButtonClass = "text-sm text-stone-600 underline-offset-4 hover:text-[#2f777b] hover:underline disabled:pointer-events-none disabled:opacity-50";
+  const navButtonClass = "text-sm text-stone-600 underline-offset-4 hover:text-black hover:underline disabled:pointer-events-none disabled:opacity-50";
 
   return (
     <div
@@ -348,7 +348,7 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
             <div
               className={cn(
                 "mx-auto inline-flex size-14 items-center justify-center overflow-hidden rounded-lg shadow-sm",
-                showSiteIcon ? "border border-stone-200 bg-white p-2" : "bg-[#2f777b] text-white",
+                showSiteIcon ? "border border-stone-200 bg-white p-2" : "bg-neutral-900 text-white",
               )}
             >
               {showSiteIcon ? (
@@ -379,12 +379,12 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
                 value={authKey}
                 onChange={(event) => setAuthKey(event.target.value)}
                 placeholder="管理员密钥"
-                className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-[#2f777b]/25"
+                className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-stone-300/70"
               />
             ) : (
               <>
                 {view === "register" && useRegisterDomainSelect ? (
-                  <div className="flex h-11 min-w-0 overflow-hidden rounded-[3px] border border-stone-300 bg-white transition-[color,box-shadow] focus-within:border-[#2f777b] focus-within:ring-[3px] focus-within:ring-[#2f777b]/20">
+                  <div className="flex h-11 min-w-0 overflow-hidden rounded-[3px] border border-stone-300 bg-white transition-[color,box-shadow] focus-within:border-stone-500 focus-within:ring-[3px] focus-within:ring-stone-300/60">
                     <Input
                       type="text"
                       value={registerEmailLocal}
@@ -411,7 +411,7 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     placeholder="邮箱"
-                    className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-[#2f777b]/25"
+                    className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-stone-300/70"
                   />
                 )}
 
@@ -420,7 +420,7 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
                     value={name}
                     onChange={(event) => setName(event.target.value)}
                     placeholder="昵称"
-                    className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-[#2f777b]/25"
+                    className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-stone-300/70"
                   />
                 ) : null}
 
@@ -430,7 +430,7 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
                     value={verificationCode}
                     onChange={(event) => setVerificationCode(event.target.value)}
                     placeholder="邮箱验证码"
-                    className="h-11 rounded-[3px] border-stone-300 bg-white px-3 tracking-[0.24em] focus-visible:ring-[#2f777b]/25"
+                    className="h-11 rounded-[3px] border-stone-300 bg-white px-3 tracking-[0.24em] focus-visible:ring-stone-300/70"
                   />
                 ) : null}
 
@@ -440,7 +440,7 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     placeholder={view === "forgot" ? "新密码" : "密码"}
-                    className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-[#2f777b]/25"
+                    className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-stone-300/70"
                   />
                 ) : null}
 
@@ -450,7 +450,7 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
                     value={confirmPassword}
                     onChange={(event) => setConfirmPassword(event.target.value)}
                     placeholder="确认密码"
-                    className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-[#2f777b]/25"
+                    className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-stone-300/70"
                   />
                 ) : null}
               </>
@@ -458,7 +458,7 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
 
             <Button
               type="submit"
-              className="h-11 w-full rounded-md bg-[#2f777b] text-base font-semibold text-white hover:bg-[#28686c]"
+              className="h-11 w-full rounded-md bg-neutral-900 text-base font-semibold text-white hover:bg-black"
               disabled={isSubmitting}
             >
               {isSubmitting ? <LoaderCircle className="size-4 animate-spin" /> : <PrimaryIcon className="size-4" />}
@@ -470,7 +470,7 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
             <div className="flex items-center justify-center gap-4 text-sm">
               <button
                 type="button"
-                className="font-medium text-[#2f777b] hover:text-[#28686c]"
+                className="font-medium text-stone-800 hover:text-black"
                 onClick={() => void handleResendVerification()}
                 disabled={isSubmitting}
               >

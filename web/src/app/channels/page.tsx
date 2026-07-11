@@ -185,11 +185,11 @@ function FieldCaption({ field }: { field: (typeof CHANNEL_FIELDS)[number] }) {
 
 function FieldHelpStrip() {
   return (
-    <div className="grid gap-x-4 gap-y-2 rounded-lg bg-rose-50/55 px-4 py-3 text-xs leading-5 text-stone-500 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-x-4 gap-y-2 rounded-lg bg-stone-50/55 px-4 py-3 text-xs leading-5 text-stone-500 sm:grid-cols-2 xl:grid-cols-4">
       {CHANNEL_FIELDS.map((field) => (
         <div key={field.key} className="min-w-0">
           <span className="font-semibold text-stone-700">{field.label}</span>
-          <span className="mx-1 text-rose-300">/</span>
+          <span className="mx-1 text-stone-300">/</span>
           <span>{field.description}</span>
         </div>
       ))}
@@ -424,14 +424,14 @@ function ChannelsContent() {
     <section className="h-full min-h-0 space-y-5 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(148,163,184,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/65 [&::-webkit-scrollbar-track]:bg-transparent">
       <div className="flex items-end justify-between gap-4">
         <div className="space-y-1">
-          <div className="text-xs font-semibold tracking-[0.18em] text-rose-400 uppercase">
+          <div className="text-xs font-semibold tracking-[0.18em] text-stone-400 uppercase">
             Channels
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">渠道管理</h1>
         </div>
         <Button
           variant="outline"
-          className="h-10 rounded-xl border-rose-100 bg-white"
+          className="h-10 rounded-xl border-stone-100 bg-white"
           onClick={() => void load()}
         >
           <RefreshCw className="size-4" />
@@ -443,7 +443,7 @@ function ChannelsContent() {
         <CardContent className="space-y-4 p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
-              <Plus className="size-4 text-rose-500" />
+              <Plus className="size-4 text-stone-500" />
               新增 OpenAI 渠道
             </div>
             <div className="text-xs text-stone-400">
@@ -463,7 +463,7 @@ function ChannelsContent() {
                   handleCreateTypeChange(value as ChannelType)
                 }
               >
-                <SelectTrigger className="h-10 rounded-xl border-rose-100 bg-white">
+                <SelectTrigger className="h-10 rounded-xl border-stone-100 bg-white">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -485,7 +485,7 @@ function ChannelsContent() {
                   autoComplete={
                     field.key === "api_key" ? "new-password" : undefined
                   }
-                  className="h-10 rounded-xl border-rose-100 bg-white"
+                  className="h-10 rounded-xl border-stone-100 bg-white"
                 />
               </div>
             ))}
@@ -499,7 +499,7 @@ function ChannelsContent() {
                   updateCreateField("models", event.target.value)
                 }
                 placeholder={MODEL_FIELD.placeholder}
-                className="h-10 rounded-xl border-rose-100 bg-white"
+                className="h-10 rounded-xl border-stone-100 bg-white"
               />
             </div>
             {ROUTING_FIELDS.map((field) => (
@@ -512,12 +512,12 @@ function ChannelsContent() {
                     updateCreateField(field.key, event.target.value)
                   }
                   placeholder={field.placeholder}
-                  className="h-10 rounded-xl border-rose-100 bg-white"
+                  className="h-10 rounded-xl border-stone-100 bg-white"
                 />
               </div>
             ))}
             <Button
-              className="h-10 self-end rounded-xl bg-rose-500 text-white hover:bg-rose-600"
+              className="h-10 self-end rounded-xl bg-neutral-900 text-white hover:bg-black"
               disabled={isCreating}
               onClick={() => void handleCreate()}
             >
@@ -533,7 +533,7 @@ function ChannelsContent() {
 
       <Card className="overflow-hidden rounded-lg border-white/80 bg-white/80 shadow-sm">
         <CardContent className="p-0">
-          <div className="hidden border-b border-rose-50 px-5 py-3 text-xs font-semibold text-stone-500 lg:grid lg:grid-cols-[1.05fr_1.4fr_1.6fr_1fr_90px_230px] lg:items-center">
+          <div className="hidden border-b border-stone-50 px-5 py-3 text-xs font-semibold text-stone-500 lg:grid lg:grid-cols-[1.05fr_1.4fr_1.6fr_1fr_90px_230px] lg:items-center">
             <div>名称 / 类型</div>
             <div>Base URL</div>
             <div>模型</div>
@@ -543,7 +543,7 @@ function ChannelsContent() {
           </div>
           {isLoading ? (
             <div className="flex h-40 items-center justify-center">
-              <LoaderCircle className="size-5 animate-spin text-rose-400" />
+              <LoaderCircle className="size-5 animate-spin text-stone-400" />
             </div>
           ) : (
             items.map((channel) => {
@@ -551,7 +551,7 @@ function ChannelsContent() {
               return (
                 <div
                   key={channel.id}
-                  className="grid gap-3 border-b border-rose-50 px-5 py-4 text-sm last:border-0 lg:grid-cols-[1.05fr_1.4fr_1.6fr_1fr_90px_230px] lg:items-center"
+                  className="grid gap-3 border-b border-stone-50 px-5 py-4 text-sm last:border-0 lg:grid-cols-[1.05fr_1.4fr_1.6fr_1fr_90px_230px] lg:items-center"
                 >
                   <div>
                     <div className="font-medium text-stone-900">
@@ -591,7 +591,7 @@ function ChannelsContent() {
                       <Button
                         variant="outline"
                         size="icon"
-                        className="size-8 rounded-lg border-rose-100 bg-white"
+                        className="size-8 rounded-lg border-stone-100 bg-white"
                         title="编辑"
                         aria-label="编辑渠道"
                         onClick={() => openEditDialog(channel)}
@@ -601,7 +601,7 @@ function ChannelsContent() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-8 rounded-lg border-rose-100 bg-white"
+                        className="h-8 rounded-lg border-stone-100 bg-white"
                         disabled={testingChannelId === channel.id}
                         onClick={() => openModelTestDialog(channel)}
                       >
@@ -615,7 +615,7 @@ function ChannelsContent() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-8 rounded-lg border-rose-100 bg-white"
+                        className="h-8 rounded-lg border-stone-100 bg-white"
                         disabled={savingChannelId === channel.id}
                         onClick={() => void handleToggle(channel)}
                       >
@@ -627,7 +627,7 @@ function ChannelsContent() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-8 text-rose-500"
+                        className="size-8 text-stone-500"
                         title="删除"
                         aria-label="删除渠道"
                         disabled={savingChannelId === channel.id}
@@ -641,7 +641,7 @@ function ChannelsContent() {
                         className={
                           testResult.ok
                             ? "flex min-w-0 items-center gap-1.5 text-xs text-emerald-700"
-                            : "flex min-w-0 items-center gap-1.5 text-xs text-rose-600"
+                            : "flex min-w-0 items-center gap-1.5 text-xs text-stone-600"
                         }
                         title={
                           testResult.ok
@@ -680,7 +680,7 @@ function ChannelsContent() {
           showCloseButton={false}
           className="flex max-h-[86vh] w-[min(94vw,680px)] max-w-none flex-col overflow-hidden rounded-lg p-0"
         >
-          <DialogHeader className="border-b border-rose-100 px-5 pt-5 pb-4 sm:px-6">
+          <DialogHeader className="border-b border-stone-100 px-5 pt-5 pb-4 sm:px-6">
             <DialogTitle>选择测试模型</DialogTitle>
             <DialogDescription className="leading-6 text-stone-500">
               {modelTestChannel
@@ -699,7 +699,7 @@ function ChannelsContent() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-8 rounded-lg border-rose-100 bg-white"
+                  className="h-8 rounded-lg border-stone-100 bg-white"
                   onClick={() => setSelectedTestModels(candidateTestModels)}
                 >
                   全选
@@ -708,7 +708,7 @@ function ChannelsContent() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-8 rounded-lg border-rose-100 bg-white"
+                  className="h-8 rounded-lg border-stone-100 bg-white"
                   onClick={() => setSelectedTestModels([])}
                 >
                   清空
@@ -717,11 +717,11 @@ function ChannelsContent() {
             </div>
 
             {candidateTestModels.length > 0 ? (
-              <div className="grid max-h-[46vh] gap-2 overflow-y-auto rounded-lg border border-rose-100 bg-white/70 p-3 sm:grid-cols-2">
+              <div className="grid max-h-[46vh] gap-2 overflow-y-auto rounded-lg border border-stone-100 bg-white/70 p-3 sm:grid-cols-2">
                 {candidateTestModels.map((model) => (
                   <label
                     key={model}
-                    className="flex min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-rose-50/80"
+                    className="flex min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-stone-50/80"
                   >
                     <Checkbox
                       checked={selectedTestModelSet.has(model)}
@@ -736,22 +736,22 @@ function ChannelsContent() {
                 ))}
               </div>
             ) : (
-              <div className="rounded-lg border border-rose-100 bg-white/70 p-4 text-sm text-stone-500">
+              <div className="rounded-lg border border-stone-100 bg-white/70 p-4 text-sm text-stone-500">
                 该渠道还没有配置可勾选的模型。
               </div>
             )}
           </div>
 
-          <DialogFooter className="border-t border-rose-100 px-5 py-4 sm:px-6">
+          <DialogFooter className="border-t border-stone-100 px-5 py-4 sm:px-6">
             <Button
               variant="outline"
-              className="h-10 rounded-xl border-rose-100 bg-white"
+              className="h-10 rounded-xl border-stone-100 bg-white"
               onClick={() => setModelTestChannel(null)}
             >
               取消
             </Button>
             <Button
-              className="h-10 rounded-xl bg-rose-500 text-white hover:bg-rose-600"
+              className="h-10 rounded-xl bg-neutral-900 text-white hover:bg-black"
               disabled={
                 !modelTestChannel ||
                 selectedTestModels.length <= 0 ||
@@ -778,7 +778,7 @@ function ChannelsContent() {
           showCloseButton={false}
           className="flex max-h-[88vh] w-[min(94vw,760px)] max-w-none flex-col overflow-hidden rounded-lg p-0"
         >
-          <DialogHeader className="border-b border-rose-100 px-5 pt-5 pb-4 sm:px-6">
+          <DialogHeader className="border-b border-stone-100 px-5 pt-5 pb-4 sm:px-6">
             <DialogTitle>编辑渠道配置</DialogTitle>
             <DialogDescription className="leading-6 text-stone-500">
               修改渠道名称、地址、模型范围和路由参数。
@@ -786,7 +786,7 @@ function ChannelsContent() {
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
-            <label className="flex items-center gap-3 rounded-lg border border-rose-100 bg-white/70 px-4 py-3 text-sm">
+            <label className="flex items-center gap-3 rounded-lg border border-stone-100 bg-white/70 px-4 py-3 text-sm">
               <Checkbox
                 checked={editForm.enabled}
                 onCheckedChange={(checked) =>
@@ -812,7 +812,7 @@ function ChannelsContent() {
                     handleEditTypeChange(value as ChannelType)
                   }
                 >
-                  <SelectTrigger className="h-10 rounded-xl border-rose-100 bg-white">
+                  <SelectTrigger className="h-10 rounded-xl border-stone-100 bg-white">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -838,7 +838,7 @@ function ChannelsContent() {
                         updateEditField("models", event.target.value)
                       }
                       placeholder={field.placeholder}
-                      className="min-h-24 rounded-xl border-rose-100 bg-white"
+                      className="min-h-24 rounded-xl border-stone-100 bg-white"
                     />
                   ) : (
                     <Input
@@ -851,7 +851,7 @@ function ChannelsContent() {
                       autoComplete={
                         field.key === "api_key" ? "new-password" : undefined
                       }
-                      className="h-10 rounded-xl border-rose-100 bg-white"
+                      className="h-10 rounded-xl border-stone-100 bg-white"
                     />
                   )}
                 </div>
@@ -859,16 +859,16 @@ function ChannelsContent() {
             </div>
           </div>
 
-          <DialogFooter className="border-t border-rose-100 px-5 py-4 sm:px-6">
+          <DialogFooter className="border-t border-stone-100 px-5 py-4 sm:px-6">
             <Button
               variant="outline"
-              className="h-10 rounded-xl border-rose-100 bg-white"
+              className="h-10 rounded-xl border-stone-100 bg-white"
               onClick={() => setEditingChannel(null)}
             >
               取消
             </Button>
             <Button
-              className="h-10 rounded-xl bg-rose-500 text-white hover:bg-rose-600"
+              className="h-10 rounded-xl bg-neutral-900 text-white hover:bg-black"
               disabled={Boolean(
                 editingChannel && savingChannelId === editingChannel.id,
               )}
@@ -891,7 +891,7 @@ export default function ChannelsPage() {
   if (isCheckingAuth || !session) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-rose-400" />
+        <LoaderCircle className="size-5 animate-spin text-stone-400" />
       </div>
     );
   }

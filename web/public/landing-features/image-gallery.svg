@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" role="img" aria-label="Image gallery placeholder">
+  <rect width="1600" height="1000" fill="#f1f1fb"/>
+  <rect x="76" y="64" width="1448" height="872" rx="12" fill="#ffffff" stroke="#dcddec" stroke-width="4"/>
+  <rect x="76" y="64" width="1448" height="96" rx="12" fill="#f8f8fc"/>
+  <path d="M76 148h1448" stroke="#dcddec" stroke-width="4"/>
+  <rect x="112" y="94" width="250" height="28" rx="14" fill="#dcddec"/>
+  <rect x="1280" y="88" width="202" height="42" rx="8" fill="#747ed1"/>
+  <rect x="112" y="196" width="308" height="326" rx="10" fill="#e8eef6"/>
+  <circle cx="340" cy="276" r="52" fill="#fab758"/>
+  <path d="M112 440l92-110 74 82 54-54 88 98v66H112z" fill="#7896b5"/>
+  <rect x="448" y="196" width="308" height="326" rx="10" fill="#e7f4f0"/>
+  <circle cx="520" cy="274" r="48" fill="#45c4a0"/>
+  <path d="M448 454l106-112 78 78 56-52 68 76v78H448z" fill="#6a9e90"/>
+  <rect x="784" y="196" width="308" height="326" rx="10" fill="#fbebef"/>
+  <circle cx="1012" cy="282" r="52" fill="#f78b77"/>
+  <path d="M784 446l100-96 74 74 58-64 76 88v74H784z" fill="#bd7286"/>
+  <rect x="1120" y="196" width="362" height="326" rx="10" fill="#fff1d8"/>
+  <circle cx="1212" cy="280" r="52" fill="#fab758"/>
+  <path d="M1120 444l112-116 88 90 62-58 100 96v66h-362z" fill="#b48d4f"/>
+  <rect x="112" y="550" width="380" height="330" rx="10" fill="#eef0fa"/>
+  <circle cx="400" cy="642" r="54" fill="#747ed1"/>
+  <path d="M112 800l122-130 94 92 68-72 96 102v88H112z" fill="#747fa9"/>
+  <rect x="520" y="550" width="380" height="330" rx="10" fill="#edf3fb"/>
+  <circle cx="622" cy="642" r="54" fill="#3f78e0"/>
+  <path d="M520 802l126-132 88 86 68-68 98 104v88H520z" fill="#6786a9"/>
+  <rect x="928" y="550" width="554" height="330" rx="10" fill="#eef7f4"/>
+  <circle cx="1364" cy="642" r="54" fill="#45c4a0"/>
+  <path d="M928 798l154-148 116 108 78-78 206 142v58H928z" fill="#6b9f90"/>
+  <circle cx="390" cy="222" r="18" fill="#ffffff" stroke="#747ed1" stroke-width="6"/>
+  <circle cx="726" cy="222" r="18" fill="#ffffff" stroke="#747ed1" stroke-width="6"/>
+  <circle cx="1062" cy="222" r="18" fill="#ffffff" stroke="#747ed1" stroke-width="6"/>
+</svg>

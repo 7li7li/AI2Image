@@ -187,7 +187,7 @@ function SubscriptionsContent() {
     <section className="h-full min-h-0 space-y-6 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(148,163,184,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/65 [&::-webkit-scrollbar-track]:bg-transparent">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1">
-          <div className="text-xs font-semibold tracking-[0.18em] text-rose-400 uppercase">Billing</div>
+          <div className="text-xs font-semibold tracking-[0.18em] text-stone-400 uppercase">Billing</div>
           <h1 className="text-2xl font-semibold tracking-tight">订阅配置</h1>
         </div>
         <Button
@@ -241,7 +241,7 @@ function SubscriptionsContent() {
       <Card className="rounded-lg border-white/80 bg-white/80 shadow-sm">
         <CardContent className="space-y-5 p-6">
           <div className="flex items-start gap-3">
-            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-rose-50 text-rose-500">
+            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-stone-50 text-stone-500">
               <KeyRound className="size-4" />
             </div>
             <div>
@@ -319,7 +319,7 @@ function SubscriptionsContent() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex items-center gap-2 text-base font-semibold text-stone-900">
-                <CreditCard className="size-4 text-rose-500" />
+                <CreditCard className="size-4 text-stone-500" />
                 订阅套餐
               </div>
               <p className="mt-1 text-sm text-stone-500">配置用户端订阅页展示的额度、有效期和价格。</p>
@@ -393,7 +393,7 @@ function SubscriptionsContent() {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-10 w-10 rounded-xl text-stone-400 hover:bg-rose-50 hover:text-rose-600"
+                      className="h-10 w-10 rounded-xl text-stone-400 hover:bg-stone-50 hover:text-stone-600"
                       onClick={() => removeSubscriptionPlan(index)}
                       aria-label="删除套餐"
                       title="删除套餐"

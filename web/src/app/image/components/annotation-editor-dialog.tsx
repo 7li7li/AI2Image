@@ -68,8 +68,6 @@ const ANNOTATION_CANVAS_MAX_EDGE = 1400;
 const ANNOTATION_STROKE_COLOR = "#ef4444";
 const PEN_STROKE_COLOR = "rgba(249, 115, 22, 0.9)";
 const TEXT_STROKE_COLOR = "#7c3aed";
-const TEXT_LABEL_FILL = "rgba(250,245,255,0.96)";
-const ANNOTATION_LABEL_FILL = "rgba(255,255,255,0.94)";
 const MASK_BRUSH_MIN = 24;
 const MASK_BRUSH_MAX = 180;
 const MASK_BRUSH_DEFAULT = 72;
@@ -108,21 +106,6 @@ function getCanvasPoint(canvas: HTMLCanvasElement, event: PointerEvent<HTMLCanva
     x: clamp(((event.clientX - rect.left) / rect.width) * canvas.width, 0, canvas.width),
     y: clamp(((event.clientY - rect.top) / rect.height) * canvas.height, 0, canvas.height),
   };
-}
-
-function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
-  const r = Math.min(radius, width / 2, height / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + width - r, y);
-  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
-  ctx.lineTo(x + width, y + height - r);
-  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
-  ctx.lineTo(x + r, y + height);
-  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
 }
 
 function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
@@ -197,10 +180,7 @@ type TextBoxLayout = {
   y: number;
   width: number;
   height: number;
-  paddingX: number;
-  paddingY: number;
   lineHeight: number;
-  radius: number;
   lines: string[];
 };
 
@@ -225,8 +205,6 @@ function drawMask(ctx: CanvasRenderingContext2D, points: Point[], brushSize: num
 
 function drawLabel(ctx: CanvasRenderingContext2D, text: string, anchor: Point, canvasWidth: number, canvasHeight: number) {
   const fontSize = Math.max(18, Math.round(canvasWidth * 0.018));
-  const paddingX = Math.round(fontSize * 0.7);
-  const paddingY = Math.round(fontSize * 0.5);
   const lineHeight = Math.round(fontSize * 1.32);
   const maxTextWidth = Math.min(360, Math.round(canvasWidth * 0.5));
 
@@ -239,30 +217,24 @@ function drawLabel(ctx: CanvasRenderingContext2D, text: string, anchor: Point, c
   }
 
   const textWidth = Math.max(...lines.map((line) => ctx.measureText(line).width));
-  const boxWidth = textWidth + paddingX * 2;
-  const boxHeight = lines.length * lineHeight + paddingY * 2;
-  const x = clamp(anchor.x + 10, 8, Math.max(8, canvasWidth - boxWidth - 8));
-  const y = clamp(anchor.y - boxHeight - 10, 8, Math.max(8, canvasHeight - boxHeight - 8));
-
-  roundedRect(ctx, x, y, boxWidth, boxHeight, Math.round(fontSize * 0.45));
-  ctx.fillStyle = ANNOTATION_LABEL_FILL;
-  ctx.fill();
-  ctx.strokeStyle = ANNOTATION_STROKE_COLOR;
-  ctx.lineWidth = Math.max(2, Math.round(fontSize * 0.12));
-  ctx.stroke();
+  const textHeight = lines.length * lineHeight;
+  const minTextCenterX = 8 + textWidth / 2;
+  const maxTextCenterX = Math.max(minTextCenterX, canvasWidth - textWidth / 2 - 8);
+  const textCenterX = clamp(anchor.x, minTextCenterX, maxTextCenterX);
+  const preferredY = anchor.y >= textHeight + 12 ? anchor.y - textHeight - 4 : anchor.y + 4;
+  const y = clamp(preferredY, 8, Math.max(8, canvasHeight - textHeight - 8));
 
   ctx.fillStyle = ANNOTATION_STROKE_COLOR;
+  ctx.textAlign = "center";
   ctx.textBaseline = "top";
   lines.forEach((line, index) => {
-    ctx.fillText(line, x + paddingX, y + paddingY + index * lineHeight);
+    ctx.fillText(line, textCenterX, y + index * lineHeight);
   });
   ctx.restore();
 }
 
 function getTextBoxLayout(ctx: CanvasRenderingContext2D, text: string, position: Point, canvasWidth: number, canvasHeight: number): TextBoxLayout | null {
   const fontSize = Math.max(18, Math.round(canvasWidth * 0.018));
-  const paddingX = Math.round(fontSize * 0.7);
-  const paddingY = Math.round(fontSize * 0.5);
   const lineHeight = Math.round(fontSize * 1.32);
   const maxTextWidth = Math.min(360, Math.round(canvasWidth * 0.5));
 
@@ -273,20 +245,16 @@ function getTextBoxLayout(ctx: CanvasRenderingContext2D, text: string, position:
   }
 
   const textWidth = Math.max(...lines.map((line) => ctx.measureText(line).width));
-  const boxWidth = textWidth + paddingX * 2;
-  const boxHeight = lines.length * lineHeight + paddingY * 2;
-  const x = clamp(position.x, 8, Math.max(8, canvasWidth - boxWidth - 8));
-  const y = clamp(position.y, 8, Math.max(8, canvasHeight - boxHeight - 8));
+  const textHeight = lines.length * lineHeight;
+  const x = clamp(position.x, 8, Math.max(8, canvasWidth - textWidth - 8));
+  const y = clamp(position.y, 8, Math.max(8, canvasHeight - textHeight - 8));
 
   return {
     x,
     y,
-    width: boxWidth,
-    height: boxHeight,
-    paddingX,
-    paddingY,
+    width: textWidth,
+    height: textHeight,
     lineHeight,
-    radius: Math.round(fontSize * 0.45),
     lines,
   };
 }
@@ -299,17 +267,10 @@ function drawTextBox(ctx: CanvasRenderingContext2D, text: string, position: Poin
     return;
   }
 
-  roundedRect(ctx, layout.x, layout.y, layout.width, layout.height, layout.radius);
-  ctx.fillStyle = TEXT_LABEL_FILL;
-  ctx.fill();
-  ctx.strokeStyle = TEXT_STROKE_COLOR;
-  ctx.lineWidth = Math.max(2, Math.round(layout.lineHeight * 0.09));
-  ctx.stroke();
-
   ctx.fillStyle = TEXT_STROKE_COLOR;
   ctx.textBaseline = "top";
   layout.lines.forEach((line, index) => {
-    ctx.fillText(line, layout.x + layout.paddingX, layout.y + layout.paddingY + index * layout.lineHeight);
+    ctx.fillText(line, layout.x, layout.y + index * layout.lineHeight);
   });
   ctx.restore();
 }
@@ -445,6 +406,7 @@ export function AnnotationEditorDialog({
   const [pendingText, setPendingText] = useState<PendingTextMark | null>(null);
   const [pendingTextValue, setPendingTextValue] = useState("");
   const [draggingText, setDraggingText] = useState<DraggingTextMark | null>(null);
+  const [isHoveringText, setIsHoveringText] = useState(false);
   const [maskBrushSize, setMaskBrushSize] = useState(MASK_BRUSH_DEFAULT);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [isApplying, setIsApplying] = useState(false);
@@ -463,6 +425,7 @@ export function AnnotationEditorDialog({
     setPendingText(null);
     setPendingTextValue("");
     setDraggingText(null);
+    setIsHoveringText(false);
     setIsInsertPromptDialogOpen(false);
     draftRef.current = null;
   }, [image, open]);
@@ -535,8 +498,11 @@ export function AnnotationEditorDialog({
         commitPendingText();
       }
       setDraggingText({ id: textHit.mark.id, offset: textHit.offset });
+      setIsHoveringText(true);
       return;
     }
+
+    setIsHoveringText(false);
 
     if (tool === "arrow") {
       if (pendingArrow) {
@@ -575,8 +541,9 @@ export function AnnotationEditorDialog({
   };
 
   const handlePointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
+    const point = getCanvasPoint(event.currentTarget, event);
     if (draggingText) {
-      const point = getCanvasPoint(event.currentTarget, event);
+      setIsHoveringText(true);
       setMarks((prev) =>
         prev.map((mark) =>
           mark.type === "text" && mark.id === draggingText.id
@@ -595,10 +562,11 @@ export function AnnotationEditorDialog({
 
     const current = draftRef.current;
     if (!current) {
+      setIsHoveringText(Boolean(hitTestTextMark(event.currentTarget, point, marks)));
       return;
     }
 
-    const point = getCanvasPoint(event.currentTarget, event);
+    setIsHoveringText(false);
     if (current.type === "arrow") {
       updateDraft({ ...current, end: point });
       return;
@@ -791,15 +759,16 @@ export function AnnotationEditorDialog({
     }
     const inputWidth = 220;
     const inputHeight = 40;
+    const inputCenterX = clamp(
+      pendingArrow.start.x,
+      inputWidth / 2 + 8,
+      Math.max(inputWidth / 2 + 8, canvasSize.width - inputWidth / 2 - 8),
+    );
+    const canPlaceAbove = pendingArrow.start.y >= inputHeight + 12;
     return {
-      left: `${clamp((pendingArrow.start.x / canvasSize.width) * 100, 0, 100)}%`,
+      left: `${clamp((inputCenterX / canvasSize.width) * 100, 0, 100)}%`,
       top: `${clamp((pendingArrow.start.y / canvasSize.height) * 100, 0, 100)}%`,
-      transform:
-        pendingArrow.start.x > canvasSize.width - inputWidth
-          ? "translate(calc(-100% - 10px), -50%)"
-          : pendingArrow.start.y > canvasSize.height - inputHeight
-            ? "translate(10px, calc(-100% - 10px))"
-            : "translate(10px, -50%)",
+      transform: canPlaceAbove ? "translate(-50%, calc(-100% - 6px))" : "translate(-50%, 6px)",
     };
   }, [canvasSize.height, canvasSize.width, pendingArrow]);
   const textInputPosition = useMemo(() => {
@@ -841,12 +810,12 @@ export function AnnotationEditorDialog({
         }}
       >
       <DialogContent className="flex h-[88vh] w-[min(96vw,1040px)] max-w-none flex-col overflow-hidden rounded-lg p-0">
-        <DialogHeader className="border-b border-rose-100 px-5 py-4">
+        <DialogHeader className="border-b border-stone-100 px-5 py-4">
           <DialogTitle className="text-base font-semibold text-stone-950">批注修改</DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-wrap items-center gap-2 border-b border-rose-100 bg-white/75 px-4 py-3">
-          <div className="flex h-9 items-center gap-1 rounded-lg border border-rose-100 bg-white/85 p-1">
+        <div className="flex flex-wrap items-center gap-2 border-b border-stone-100 bg-white/75 px-4 py-3">
+          <div className="flex h-9 items-center gap-1 rounded-lg border border-stone-100 bg-white/85 p-1">
             <AnnotationToolButton active={tool === "arrow"} onClick={() => setTool("arrow")} title="批注">
               <ArrowUpRight className="size-4" />
               <span>批注</span>
@@ -870,7 +839,7 @@ export function AnnotationEditorDialog({
           </div>
 
           {tool === "mask" ? (
-            <label className="flex h-9 items-center gap-2 rounded-lg border border-rose-100 bg-white/85 px-3 text-xs font-medium text-stone-600">
+            <label className="flex h-9 items-center gap-2 rounded-lg border border-stone-100 bg-white/85 px-3 text-xs font-medium text-stone-600">
               <span className="shrink-0">大小</span>
               <input
                 type="range"
@@ -890,7 +859,7 @@ export function AnnotationEditorDialog({
             type="button"
             variant="outline"
             size="sm"
-            className="h-9 rounded-lg border-rose-100 bg-white/85"
+            className="h-9 rounded-lg border-stone-100 bg-white/85"
             onClick={undoLastAnnotation}
             disabled={!canUndo && !hasPendingInput}
           >
@@ -901,7 +870,7 @@ export function AnnotationEditorDialog({
             type="button"
             variant="outline"
             size="sm"
-            className="h-9 rounded-lg border-rose-100 bg-white/85"
+            className="h-9 rounded-lg border-stone-100 bg-white/85"
             onClick={() => {
               setMarks([]);
               cancelPendingArrow();
@@ -937,11 +906,17 @@ export function AnnotationEditorDialog({
                   onPointerUp={completeDraft}
                   onPointerCancel={() => {
                     setDraggingText(null);
+                    setIsHoveringText(false);
                     updateDraft(null);
+                  }}
+                  onPointerLeave={() => {
+                    if (!draggingText) {
+                      setIsHoveringText(false);
+                    }
                   }}
                   className={cn(
                     "max-h-full max-w-full rounded-lg border border-white/80 bg-white shadow-sm",
-                    hasPendingInput || tool === "text" ? "cursor-text" : "cursor-crosshair",
+                    draggingText || isHoveringText ? "cursor-move" : hasPendingInput || tool === "text" ? "cursor-text" : "cursor-crosshair",
                   )}
                   style={{ touchAction: "none" }}
                 />
@@ -1000,8 +975,8 @@ export function AnnotationEditorDialog({
       </Dialog>
 
       <Dialog open={isInsertPromptDialogOpen} onOpenChange={setIsInsertPromptDialogOpen}>
-        <DialogContent className="w-[min(92vw,420px)] rounded-lg border-rose-100 bg-white p-0">
-          <DialogHeader className="border-b border-rose-100 px-5 pt-5 pb-4">
+        <DialogContent className="w-[min(92vw,420px)] rounded-lg border-stone-100 bg-white p-0">
+          <DialogHeader className="border-b border-stone-100 px-5 pt-5 pb-4">
             <DialogTitle className="text-base font-semibold text-stone-950">是否自动插入提示词？</DialogTitle>
             <DialogDescription className="pt-2 text-sm leading-6 text-stone-500">
               批注图会加入图生图参考。你可以选择是否把批注说明同步追加到当前输入框。
@@ -1011,7 +986,7 @@ export function AnnotationEditorDialog({
             <Button
               type="button"
               variant="outline"
-              className="rounded-lg border-rose-100 bg-white"
+              className="rounded-lg border-stone-100 bg-white"
               onClick={() => void handleApply(false)}
               disabled={isApplying}
             >
@@ -1051,7 +1026,7 @@ function AnnotationToolButton({
       onClick={onClick}
       className={cn(
         "inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-xs font-medium transition",
-        active ? "bg-[#2d1d26] text-white" : "text-stone-600 hover:bg-rose-50",
+        active ? "bg-[#171717] text-white" : "text-stone-600 hover:bg-stone-50",
       )}
     >
       {children}

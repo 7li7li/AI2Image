@@ -152,7 +152,7 @@ def create_router() -> APIRouter:
             if isinstance(item, dict) and (item.get("b64_json") or item.get("url"))
         )
 
-    def reserve_image_quota(identity: dict[str, object], amount: int, request_id: str) -> str | None:
+    def reserve_image_quota(identity: dict[str, object], amount: float, request_id: str) -> str | None:
         if identity.get("role") != "user":
             return None
         if amount <= 0:
@@ -163,10 +163,10 @@ def create_router() -> APIRouter:
             raise HTTPException(status_code=429, detail={"error": str(exc)}) from exc
         return request_id
 
-    def finalize_quota(request_id: str | None, count: int, quota_cost: int) -> None:
+    def finalize_quota(request_id: str | None, count: int, quota_cost: float) -> None:
         if not request_id:
             return
-        amount = max(0, int(count or 0)) * max(0, int(quota_cost or 0))
+        amount = round(max(0, int(count or 0)) * max(0.0, float(quota_cost or 0)), 8)
         if amount > 0:
             auth_service.confirm_quota(request_id, amount)
         else:
@@ -181,7 +181,7 @@ def create_router() -> APIRouter:
             model: str,
             size: str | None,
             channel: str,
-            quota_cost: int,
+            quota_cost: float,
             request_id: str,
     ) -> int:
         count = successful_image_count(result)
@@ -230,7 +230,7 @@ def create_router() -> APIRouter:
             user_email=str(identity.get("email") or ""),
         )
 
-    def model_quota_cost(identity: dict[str, object], model: str) -> int:
+    def model_quota_cost(identity: dict[str, object], model: str) -> float:
         if identity.get("role") != "user":
             return 0
         normalized_model = str(model or "").strip()
@@ -238,10 +238,10 @@ def create_router() -> APIRouter:
             return 1
         return model_service.quota_cost(normalized_model)
 
-    def image_quota_cost(identity: dict[str, object], model: str) -> int:
+    def image_quota_cost(identity: dict[str, object], model: str) -> float:
         return model_quota_cost(identity, model)
 
-    def chat_quota_cost(identity: dict[str, object], model: str) -> int:
+    def chat_quota_cost(identity: dict[str, object], model: str) -> float:
         return model_quota_cost(identity, model)
 
     def task_owner_key(identity: dict[str, object]) -> str:
@@ -256,7 +256,7 @@ def create_router() -> APIRouter:
             model: str,
             size: str | None,
             quota_request_id: str | None,
-            quota_cost: int,
+            quota_cost: float,
             request_id: str,
     ) -> dict[str, object]:
         try:
@@ -307,7 +307,7 @@ def create_router() -> APIRouter:
             model: str,
             size: str | None,
             quota_request_id: str | None,
-            quota_cost: int,
+            quota_cost: float,
             request_id: str,
     ) -> dict[str, object]:
         try:
@@ -356,7 +356,7 @@ def create_router() -> APIRouter:
             identity: dict[str, object],
             payload: dict[str, object],
             quota_request_id: str | None,
-            quota_cost: int,
+            quota_cost: float,
             request_id: str,
     ) -> dict[str, object]:
         quota_finalized = False

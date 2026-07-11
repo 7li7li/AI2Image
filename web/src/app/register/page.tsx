@@ -11,7 +11,7 @@ export default function RegisterPage() {
   if (isCheckingAuth) {
     return (
       <div className="grid min-h-[calc(100vh-1rem)] w-full place-items-center px-4 py-6">
-        <LoaderCircle className="size-5 animate-spin text-rose-400" />
+        <LoaderCircle className="size-5 animate-spin text-stone-400" />
       </div>
     );
   }

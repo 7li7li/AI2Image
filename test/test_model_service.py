@@ -1229,6 +1229,9 @@ class ModelServiceTest(unittest.TestCase):
             service.update_pricing("image-model", {"billing_mode": FIXED_BILLING_MODE, "model_price": 3})
             self.assertEqual(service.quota_cost("image-model"), 3)
 
+            service.update_pricing("image-model", {"billing_mode": FIXED_BILLING_MODE, "model_price": 0.25})
+            self.assertEqual(service.quota_cost("image-model"), 0.25)
+
     def test_completion_ratio_can_derive_output_price(self) -> None:
         pricing = normalize_model_pricing("gpt-test", {"input_price_per_million": 5, "completion_ratio": 8})
 

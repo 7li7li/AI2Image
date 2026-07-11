@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" role="img" aria-label="Transparent PNG placeholder">
+  <defs>
+    <pattern id="checker" width="64" height="64" patternUnits="userSpaceOnUse">
+      <rect width="64" height="64" fill="#ffffff"/>
+      <rect width="32" height="32" fill="#dfe5ed"/>
+      <rect x="32" y="32" width="32" height="32" fill="#dfe5ed"/>
+    </pattern>
+  </defs>
+  <rect width="1600" height="1000" fill="#eef7f4"/>
+  <rect x="76" y="64" width="1448" height="872" rx="12" fill="#ffffff" stroke="#d6e5e0" stroke-width="4"/>
+  <rect x="118" y="106" width="1364" height="786" rx="10" fill="url(#checker)"/>
+  <rect x="118" y="106" width="438" height="786" rx="10" fill="#dcece7" opacity=".92"/>
+  <path d="M118 690l180-176 132 126 126-106v358H118z" fill="#8fb5a9"/>
+  <circle cx="392" cy="316" r="88" fill="#fab758"/>
+  <path d="M968 226c125 0 226 102 226 227v65c0 90 45 174 120 224l66 44H626l66-44c75-50 120-134 120-224v-65c0-125 101-227 226-227z" fill="#ffffff" stroke="#45a98b" stroke-width="14"/>
+  <path d="M886 465c0-84 68-152 152-152s152 68 152 152v78c0 88 31 172 88 238H798c57-66 88-150 88-238z" fill="#5c8f80"/>
+  <circle cx="1038" cy="386" r="88" fill="#78ad9e"/>
+  <rect x="836" y="720" width="404" height="78" rx="10" fill="#ffffff" stroke="#45a98b" stroke-width="5"/>
+  <path d="M874 759h230" stroke="#89a39b" stroke-width="14" stroke-linecap="round"/>
+  <circle cx="1194" cy="759" r="18" fill="#45c4a0"/>
+  <path d="M1222 288l34 34 74-82" fill="none" stroke="#45a98b" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

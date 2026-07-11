@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 import uuid
 from urllib.parse import unquote, urlparse
@@ -21,6 +22,14 @@ def _int_or_zero(value: object) -> int:
         return max(0, int(value or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _quota_or_zero(value: object) -> float:
+    try:
+        parsed = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return round(max(0.0, parsed), 8) if math.isfinite(parsed) else 0.0
 
 
 def _normalize_page(page: int, page_size: int) -> tuple[int, int]:
@@ -71,7 +80,7 @@ def _record_to_item(record: dict[str, object], base_url: str) -> dict[str, objec
         "image_size": image_size,
         "channel": record.get("channel"),
         "request_id": record.get("request_id"),
-        "quota_cost": _int_or_zero(record.get("quota_cost")),
+        "quota_cost": _quota_or_zero(record.get("quota_cost")),
         "webdav_url": record.get("webdav_url"),
         "webdav_synced_at": record.get("webdav_synced_at"),
         "webdav_status": record.get("webdav_status"),
@@ -447,7 +456,7 @@ def record_image_result(
     model: str,
     size: str | None = None,
     channel: str = "channel",
-    quota_cost: int = 0,
+    quota_cost: float = 0,
     request_id: str = "",
 ) -> list[dict[str, object]]:
     data = result.get("data") if isinstance(result, dict) else None

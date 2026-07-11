@@ -177,7 +177,7 @@ export function ImageResults({
     return (
       <div className="image-empty-state grid content-center gap-3">
         <div className="p-5 text-center">
-          <div className="mx-auto grid size-12 place-items-center rounded-lg bg-gradient-to-br from-rose-100 to-fuchsia-100 text-rose-500">
+          <div className="mx-auto grid size-12 place-items-center rounded-lg bg-stone-100 text-stone-500">
             <ImageIcon className="size-5" />
           </div>
           <h1 className="mt-4 text-2xl font-bold tracking-tight text-stone-950">从下方创作台开始</h1>
@@ -288,7 +288,7 @@ export function ImageResults({
                     <Share2 className="size-4" />
                   </Button>
                   </div>
-                  <div className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-stone-600">
+                  <div className="rounded-full bg-stone-50 px-3 py-1 text-xs font-semibold text-stone-600">
                     {turn.count} 张
                   </div>
                 </div>
@@ -296,7 +296,7 @@ export function ImageResults({
             </div>
 
             {turn.referenceImages.length > 0 ? (
-              <div className="border-b border-rose-100/60 px-4 py-3">
+              <div className="border-b border-stone-100/60 px-4 py-3">
                 <div className="mb-3 text-xs font-semibold text-stone-500">本轮参考图</div>
                 <div className="flex flex-wrap gap-3">
                   {turn.referenceImages.map((image, index) => (
@@ -304,7 +304,7 @@ export function ImageResults({
                       <button
                         type="button"
                         onClick={() => onOpenLightbox(referenceLightboxImages, index)}
-                        className="group relative size-20 overflow-hidden rounded-lg border border-rose-100 bg-rose-50/60 text-left transition hover:border-rose-200"
+                        className="group relative size-20 overflow-hidden rounded-lg border border-stone-100 bg-stone-50/60 text-left transition hover:border-stone-200"
                         aria-label={`预览参考图 ${image.name || index + 1}`}
                       >
                         <img
@@ -393,12 +393,12 @@ export function ImageResults({
                     <div
                       key={image.id}
                       className={cn(
-                        "overflow-hidden rounded-lg border border-rose-200 bg-rose-50",
+                        "overflow-hidden rounded-lg border border-stone-200 bg-stone-50",
                         getImageAspectClass(turn.size),
                         featured && "md:row-span-2",
                       )}
                     >
-                      <div className="flex h-full items-center justify-center px-6 py-8 text-center text-sm leading-6 text-rose-600">
+                      <div className="flex h-full items-center justify-center px-6 py-8 text-center text-sm leading-6 text-stone-600">
                         {image.error || "生成失败"}
                       </div>
                     </div>
@@ -409,7 +409,7 @@ export function ImageResults({
                   <div
                     key={image.id}
                     className={cn(
-                      "overflow-hidden rounded-lg border border-rose-100/80 bg-rose-50/70",
+                      "overflow-hidden rounded-lg border border-stone-100/80 bg-stone-50/70",
                       getImageAspectClass(turn.size),
                       featured && "md:row-span-2",
                     )}

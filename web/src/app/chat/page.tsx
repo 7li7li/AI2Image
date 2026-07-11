@@ -101,7 +101,7 @@ function normalizeQuotaCost(value: unknown) {
   if (!Number.isFinite(parsed)) {
     return 1;
   }
-  return Math.max(0, Math.ceil(parsed));
+  return Math.max(0, parsed);
 }
 
 function buildModelQuotaCosts(models: Array<{ id?: string; quota_cost?: number }>) {
@@ -1225,7 +1225,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
           <div className="flex items-center justify-between gap-2 lg:hidden">
             <Button
               variant="outline"
-              className="h-10 flex-1 rounded-lg border-rose-100 bg-white/75 text-stone-700 shadow-sm"
+              className="h-10 flex-1 rounded-lg border-stone-100 bg-white/75 text-stone-700 shadow-sm"
               onClick={() => setIsHistoryOpen(true)}
             >
               <Menu className="mr-2 size-4" />
@@ -1237,7 +1237,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
             </Button>
             <Button
               variant="outline"
-              className="h-10 rounded-lg border-rose-100 bg-white/75 px-3 text-stone-600 shadow-sm"
+              className="h-10 rounded-lg border-stone-100 bg-white/75 px-3 text-stone-600 shadow-sm"
               onClick={openClearHistoryConfirm}
               disabled={conversations.length === 0}
             >
@@ -1273,10 +1273,10 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                   {pendingAttachments.map((attachment) => (
                     <div
                       key={attachment.id}
-                      className="inline-flex max-w-full items-center gap-2 rounded-lg border border-rose-100 bg-white/82 px-2.5 py-1.5 text-xs text-stone-600"
+                      className="inline-flex max-w-full items-center gap-2 rounded-lg border border-stone-100 bg-white/82 px-2.5 py-1.5 text-xs text-stone-600"
                     >
                       {attachment.type.startsWith("image/") ? (
-                        <ImageIcon className="size-3.5 shrink-0 text-rose-500" />
+                        <ImageIcon className="size-3.5 shrink-0 text-stone-500" />
                       ) : (
                         <FileText className="size-3.5 shrink-0 text-stone-400" />
                       )}
@@ -1284,7 +1284,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                       <span className="shrink-0 text-stone-400">{formatFileSize(attachment.size)}</span>
                       <button
                         type="button"
-                        className="grid size-5 shrink-0 place-items-center rounded-md text-stone-400 hover:bg-rose-50 hover:text-rose-500"
+                        className="grid size-5 shrink-0 place-items-center rounded-md text-stone-400 hover:bg-stone-50 hover:text-stone-500"
                         onClick={() => removePendingAttachment(attachment.id)}
                         aria-label="移除附件"
                       >
@@ -1317,7 +1317,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
                   </Button>
                   <div className="min-w-0 flex-1" />
                   {selectedConversationSending ? (
-                    <span className="hidden items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-600 sm:inline-flex">
+                    <span className="hidden items-center gap-1.5 rounded-full bg-stone-50 px-2.5 py-1.5 text-xs font-medium text-stone-600 sm:inline-flex">
                       <LoaderCircle className="size-3.5 animate-spin" />
                       回复中
                     </span>
@@ -1398,7 +1398,7 @@ function ChatPageContent({ session }: { session: StoredAuthSession }) {
               <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
                 取消
               </Button>
-              <Button className="bg-rose-600 text-white hover:bg-rose-700" onClick={() => void handleConfirmDelete()}>
+              <Button className="bg-neutral-900 text-white hover:bg-black" onClick={() => void handleConfirmDelete()}>
                 确认删除
               </Button>
             </DialogFooter>
@@ -1436,7 +1436,7 @@ function ChatStudioSidebar({
 }) {
   return (
     <aside className="flex h-full min-h-0 w-full flex-col bg-white/32">
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 [scrollbar-color:rgba(244,114,182,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-rose-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 [scrollbar-color:rgba(115,115,115,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
         <div className="min-h-[320px]">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div>
@@ -1453,7 +1453,7 @@ function ChatStudioSidebar({
               </Button>
               <Button
                 variant="outline"
-                className="h-10 rounded-lg border-rose-100 bg-white/75 px-3 text-stone-600 hover:bg-white"
+                className="h-10 rounded-lg border-stone-100 bg-white/75 px-3 text-stone-600 hover:bg-white"
                 onClick={() => void onClearHistory()}
                 disabled={conversations.length === 0}
                 aria-label="清空对话记录"
@@ -1469,7 +1469,7 @@ function ChatStudioSidebar({
                 onChange={(event) => onSearchChange(event.target.value)}
                 placeholder="搜索对话、消息"
                 aria-label="搜索对话、消息"
-                className="h-10 w-full rounded-lg border border-[var(--yan-border)] bg-white/72 pl-9 pr-3 text-sm text-stone-700 outline-none transition placeholder:text-stone-400 focus:border-rose-200 focus:bg-white focus:ring-4 focus:ring-rose-100/60"
+                className="h-10 w-full rounded-lg border border-[var(--yan-border)] bg-white/72 pl-9 pr-3 text-sm text-stone-700 outline-none transition placeholder:text-stone-400 focus:border-stone-200 focus:bg-white focus:ring-4 focus:ring-stone-100/60"
               />
             </label>
 
@@ -1480,7 +1480,7 @@ function ChatStudioSidebar({
                   正在读取对话记录
                 </div>
               ) : conversations.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-rose-100 bg-white/45 px-3 py-4 text-sm leading-6 text-stone-500">
+                <div className="rounded-lg border border-dashed border-stone-100 bg-white/45 px-3 py-4 text-sm leading-6 text-stone-500">
                   暂无文本对话。
                 </div>
               ) : (
@@ -1494,8 +1494,8 @@ function ChatStudioSidebar({
                       className={cn(
                         "group relative w-full rounded-lg border px-3 py-2 text-left transition sm:py-3",
                         active
-                          ? "border-rose-100 bg-[#2d1d26] text-white shadow-sm"
-                          : "border-stone-200/80 bg-white/28 text-stone-700 hover:border-rose-100 hover:bg-white/52",
+                          ? "border-stone-100 bg-[#171717] text-white shadow-sm"
+                          : "border-stone-200/80 bg-white/28 text-stone-700 hover:border-stone-100 hover:bg-white/52",
                       )}
                     >
                       <button
@@ -1511,7 +1511,7 @@ function ChatStudioSidebar({
                         </div>
                         {sendingCount > 0 ? (
                           <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                            <span className="rounded-full bg-pink-50 px-2 py-1 text-pink-600">回复中 {sendingCount}</span>
+                            <span className="rounded-full bg-stone-50 px-2 py-1 text-stone-600">回复中 {sendingCount}</span>
                           </div>
                         ) : null}
                       </button>
@@ -1522,7 +1522,7 @@ function ChatStudioSidebar({
                           "absolute top-3 right-2 inline-flex size-7 items-center justify-center rounded-md opacity-0 transition group-hover:opacity-100",
                           active
                             ? "text-white/55 hover:bg-white/10 hover:text-white"
-                            : "text-stone-400 hover:bg-rose-50 hover:text-rose-500",
+                            : "text-stone-400 hover:bg-stone-50 hover:text-stone-500",
                         )}
                         aria-label="删除对话"
                       >
@@ -1537,7 +1537,7 @@ function ChatStudioSidebar({
         </div>
       </div>
 
-      <div className="border-t border-rose-100/70 p-3">
+      <div className="border-t border-stone-100/70 p-3">
         <div className="grid grid-cols-2 gap-2">
           <SidebarMetric label="今日发送" value={workspaceStats.todaySent} />
           <SidebarMetric label="回复数" value={workspaceStats.assistantReplies} />
@@ -1605,7 +1605,7 @@ function ChatMessages({
                   className={cn(
                     "max-w-full rounded-lg px-4 py-3 text-sm leading-6 shadow-sm",
                     isUser
-                      ? "bg-[#2d1d26] text-white"
+                      ? "bg-[#171717] text-white"
                       : message.status === "error"
                         ? "border border-red-100 bg-red-50 text-red-700"
                         : "bg-white/82 text-stone-800",
@@ -1774,7 +1774,7 @@ function ChatAttachmentList({
             key={attachment.id}
             className={cn(
               "overflow-hidden rounded-lg border text-xs",
-              compact ? "border-white/15 bg-white/10 text-white/80" : "border-rose-100 bg-white/75 text-stone-600",
+              compact ? "border-white/15 bg-white/10 text-white/80" : "border-stone-100 bg-white/75 text-stone-600",
             )}
           >
             {attachment.dataUrl && attachment.type.startsWith("image/") ? (
@@ -1824,7 +1824,7 @@ function parseInlineMarkdown(text: string) {
     const key = `${match.index}-${token}`;
     if (token.startsWith("`") && token.endsWith("`")) {
       nodes.push(
-        <code key={key} className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-[0.92em] text-rose-700">
+        <code key={key} className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-[0.92em] text-stone-700">
           {token.slice(1, -1)}
         </code>,
       );
@@ -1842,7 +1842,7 @@ function parseInlineMarkdown(text: string) {
             href={href}
             target="_blank"
             rel="noreferrer"
-            className="font-medium text-rose-700 underline decoration-rose-300 underline-offset-4"
+            className="font-medium text-stone-700 underline decoration-stone-300 underline-offset-4"
           >
             {parseInlineMarkdown(linkMatch[1])}
           </a>,
@@ -2162,7 +2162,7 @@ function MarkdownContent({ content }: { content: string }) {
 
         if (block.type === "blockquote") {
           return (
-            <blockquote key={index} className="whitespace-pre-wrap border-l-4 border-rose-200 pl-3 text-stone-600">
+            <blockquote key={index} className="whitespace-pre-wrap border-l-4 border-stone-200 pl-3 text-stone-600">
               <InlineMarkdown text={block.text} />
             </blockquote>
           );
@@ -2194,15 +2194,15 @@ function MarkdownContent({ content }: { content: string }) {
 
         if (block.type === "table") {
           return (
-            <div key={index} className="overflow-x-auto rounded-lg border border-rose-100">
+            <div key={index} className="overflow-x-auto rounded-lg border border-stone-100">
               <table className="min-w-full border-collapse text-xs leading-5 sm:text-sm">
-                <thead className="bg-rose-50/80 text-stone-700">
+                <thead className="bg-stone-50/80 text-stone-700">
                   <tr>
                     {block.headers.map((header, cellIndex) => (
                       <th
                         key={cellIndex}
                         className={cn(
-                          "border-b border-r border-rose-100 px-3 py-2 font-semibold last:border-r-0",
+                          "border-b border-r border-stone-100 px-3 py-2 font-semibold last:border-r-0",
                           markdownTableAlignClassName(block.alignments[cellIndex] || "left"),
                         )}
                       >
@@ -2213,12 +2213,12 @@ function MarkdownContent({ content }: { content: string }) {
                 </thead>
                 <tbody>
                   {block.rows.map((row, rowIndex) => (
-                    <tr key={rowIndex} className="odd:bg-white/55 even:bg-rose-50/25">
+                    <tr key={rowIndex} className="odd:bg-white/55 even:bg-stone-50/25">
                       {row.map((cell, cellIndex) => (
                         <td
                           key={cellIndex}
                           className={cn(
-                            "border-r border-t border-rose-100 px-3 py-2 align-top text-stone-700 last:border-r-0",
+                            "border-r border-t border-stone-100 px-3 py-2 align-top text-stone-700 last:border-r-0",
                             markdownTableAlignClassName(block.alignments[cellIndex] || "left"),
                           )}
                         >
@@ -2259,7 +2259,7 @@ function SidebarMetric({
   const visibleDetails = details.filter(Boolean);
 
   return (
-    <div className={cn("rounded-lg bg-gradient-to-br from-white/82 to-rose-50/82 p-2.5", className)}>
+    <div className={cn("rounded-lg bg-gradient-to-br from-white/82 to-stone-50/82 p-2.5", className)}>
       {prominent && visibleDetails.length > 0 ? (
         <div className="grid grid-cols-[minmax(64px,auto)_minmax(0,1fr)] items-center gap-3">
           <div className="min-w-0">

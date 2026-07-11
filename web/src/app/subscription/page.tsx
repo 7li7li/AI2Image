@@ -304,16 +304,16 @@ function SubscriptionContent() {
   if (isLoading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-rose-400" />
+        <LoaderCircle className="size-5 animate-spin text-stone-400" />
       </div>
     );
   }
 
   return (
-    <section className="mx-auto h-full min-h-0 w-full max-w-6xl space-y-5 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(244,114,182,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-rose-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
+    <section className="mx-auto h-full min-h-0 w-full max-w-6xl space-y-5 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(115,115,115,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-1">
-          <div className="text-xs font-semibold tracking-[0.18em] text-rose-400 uppercase">Subscription</div>
+          <div className="text-xs font-semibold tracking-[0.18em] text-stone-400 uppercase">Subscription</div>
           <h1 className="text-2xl font-semibold tracking-tight">订阅套餐</h1>
         </div>
         <Button asChild variant="outline" className="h-10 rounded-xl border-stone-200 bg-white px-4 text-stone-700">
@@ -345,9 +345,9 @@ function SubscriptionContent() {
                     <span className="pb-1 text-xs font-medium text-stone-400">价格</span>
                   </div>
                   <div className="mt-5 grid gap-2 text-sm">
-                    <div className="flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2">
+                    <div className="flex items-center justify-between rounded-lg bg-stone-50 px-3 py-2">
                       <span className="text-stone-500">额度</span>
-                      <span className="font-semibold text-rose-600">{plan.quota} 点</span>
+                      <span className="font-semibold text-stone-600">{plan.quota} 点</span>
                     </div>
                     <div className="flex items-center justify-between rounded-lg bg-stone-50 px-3 py-2">
                       <span className="text-stone-500">到期时间</span>
@@ -370,11 +370,11 @@ function SubscriptionContent() {
 
         <Card className="rounded-lg border-white/80 bg-white/80 shadow-sm">
           <CardContent className="space-y-3 p-6">
-            <div className="w-fit rounded-lg bg-rose-50 p-3 text-rose-500">
+            <div className="w-fit rounded-lg bg-stone-50 p-3 text-stone-500">
               <Sparkles className="size-5" />
             </div>
             <div className="text-sm text-stone-500">当前可用额度</div>
-            <div className="text-4xl font-semibold text-rose-600">{user?.quota ?? 0}</div>
+            <div className="text-4xl font-semibold text-stone-600">{user?.quota ?? 0}</div>
             <div className="text-xs text-stone-400">已消耗 {user?.spent_quota ?? user?.quota_used ?? 0} 点</div>
             <div className="text-xs text-stone-400">
               {user?.quota_expires_at ? `有效期至 ${formatQuotaTime(user.quota_expires_at)}` : "额度长期有效"}
@@ -388,7 +388,7 @@ function SubscriptionContent() {
           <div className="flex items-center justify-between border-b border-stone-100 px-5 py-4">
             <div>
               <div className="flex items-center gap-2 text-base font-semibold text-stone-900">
-                <ReceiptText className="size-4 text-rose-500" />
+                <ReceiptText className="size-4 text-stone-500" />
                 我的订单
               </div>
               <div className="mt-1 text-xs text-stone-500">最近的订阅支付记录</div>
@@ -418,7 +418,7 @@ function SubscriptionContent() {
                     <div className="truncate font-mono text-xs text-stone-400">{order.out_trade_no}</div>
                   </div>
                   <div className="text-stone-600">
-                    <span className="font-semibold text-rose-600">{order.money || order.price}</span>
+                    <span className="font-semibold text-stone-600">{order.money || order.price}</span>
                     <span className="ml-2 text-xs text-stone-400">{order.quota} 点</span>
                   </div>
                   <div className="text-xs text-stone-500">有效期 {order.valid_months} 个月</div>
@@ -441,7 +441,7 @@ function SubscriptionContent() {
                         </Button>
                         <Button
                           variant="outline"
-                          className="h-8 rounded-lg border-rose-100 bg-white px-3 text-xs text-rose-600 hover:bg-rose-50"
+                          className="h-8 rounded-lg border-stone-100 bg-white px-3 text-xs text-stone-600 hover:bg-stone-50"
                           onClick={() => void cancelOrder(order)}
                           disabled={Boolean(payingPlanId || payingOrderNo || cancelingOrderNo)}
                         >
@@ -468,7 +468,7 @@ export default function SubscriptionPage() {
   if (isCheckingAuth || !session) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-rose-400" />
+        <LoaderCircle className="size-5 animate-spin text-stone-400" />
       </div>
     );
   }

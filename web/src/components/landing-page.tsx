@@ -19,6 +19,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { LandingFeatureCarousel } from "@/components/landing-feature-carousel";
 import { fetchPublicModels, type PublicModelItem } from "@/lib/api";
 import { isImageGenerationModel } from "@/lib/model-options";
 import { getRouteHref } from "@/lib/routes";
@@ -224,6 +225,7 @@ export function LandingPage() {
 
             <nav className="hidden items-center gap-7 text-sm font-semibold text-[#343f52] md:flex" aria-label="首页导航">
               <a href="#capabilities" className="transition-colors hover:text-[#3f78e0]">核心能力</a>
+              <a href="#tools" className="transition-colors hover:text-[#3f78e0]">创作工具</a>
               <a href="#models" className="transition-colors hover:text-[#3f78e0]">模型点数</a>
               <a href="#plans" className="transition-colors hover:text-[#3f78e0]">订阅套餐</a>
             </nav>
@@ -278,7 +280,7 @@ export function LandingPage() {
                 <span className="size-1 rounded-full bg-[#fab758]" />
                 <span>Nano Banana</span>
                 <span className="size-1 rounded-full bg-[#45c4a0]" />
-                <span>GPT-5.5</span>
+                <span>GPT-5.6-Sol</span>
               </div>
             </div>
           </div>
@@ -312,6 +314,8 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+
+      <LandingFeatureCarousel />
 
       <section className="bg-[#f6f7f9] px-5 py-20 sm:px-8 sm:py-28">
         <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-2 lg:gap-16">

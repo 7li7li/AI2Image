@@ -81,15 +81,15 @@ function ProfileContent() {
   if (isLoading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-rose-400" />
+        <LoaderCircle className="size-5 animate-spin text-stone-400" />
       </div>
     );
   }
 
   return (
-    <section className="mx-auto h-full min-h-0 w-full max-w-5xl space-y-5 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(244,114,182,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-rose-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
+    <section className="mx-auto h-full min-h-0 w-full max-w-5xl space-y-5 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(115,115,115,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/55 [&::-webkit-scrollbar-track]:bg-transparent">
       <div className="space-y-1">
-        <div className="text-xs font-semibold tracking-[0.18em] text-rose-400 uppercase">Profile</div>
+        <div className="text-xs font-semibold tracking-[0.18em] text-stone-400 uppercase">Profile</div>
         <h1 className="text-2xl font-semibold tracking-tight">个人中心</h1>
       </div>
 
@@ -106,8 +106,8 @@ function ProfileContent() {
               </Badge>
             </div>
             <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-              <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="昵称" className="h-11 rounded-xl border-rose-100 bg-white" />
-              <Button className="h-11 rounded-xl bg-rose-500 text-white hover:bg-rose-600" onClick={() => void handleSave()} disabled={isSaving}>
+              <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="昵称" className="h-11 rounded-xl border-stone-100 bg-white" />
+              <Button className="h-11 rounded-xl bg-neutral-900 text-white hover:bg-black" onClick={() => void handleSave()} disabled={isSaving}>
                 {isSaving ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}
                 保存资料
               </Button>
@@ -117,11 +117,11 @@ function ProfileContent() {
 
         <Card className="rounded-lg border-white/80 bg-white/80 shadow-sm">
           <CardContent className="space-y-2 p-6">
-            <div className="rounded-2xl bg-rose-50 p-3 text-rose-500 w-fit">
+            <div className="rounded-2xl bg-stone-50 p-3 text-stone-500 w-fit">
               <Sparkles className="size-5" />
             </div>
             <div className="text-sm text-stone-500">可用额度</div>
-            <div className="text-4xl font-semibold text-rose-600">{user?.quota ?? 0}</div>
+            <div className="text-4xl font-semibold text-stone-600">{user?.quota ?? 0}</div>
             <div className="text-xs text-stone-400">已消耗 {user?.spent_quota ?? user?.quota_used ?? 0} 点</div>
             <div className="text-xs text-stone-400">
               {user?.quota_expires_at ? `有效期至 ${formatTime(user.quota_expires_at)}` : "额度长期有效"}
@@ -133,12 +133,12 @@ function ProfileContent() {
       <Card className="rounded-lg border-white/80 bg-white/80 shadow-sm">
         <CardContent className="space-y-4 p-6">
           <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
-            <Gift className="size-4 text-rose-500" />
+            <Gift className="size-4 text-stone-500" />
             兑换额度
           </div>
           <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-            <Input value={code} onChange={(event) => setCode(event.target.value)} placeholder="输入兑换码" className="h-11 rounded-xl border-rose-100 bg-white uppercase" />
-            <Button className="h-11 rounded-xl bg-rose-500 text-white hover:bg-rose-600" onClick={() => void handleRedeem()}>
+            <Input value={code} onChange={(event) => setCode(event.target.value)} placeholder="输入兑换码" className="h-11 rounded-xl border-stone-100 bg-white uppercase" />
+            <Button className="h-11 rounded-xl bg-neutral-900 text-white hover:bg-black" onClick={() => void handleRedeem()}>
               立即兑换
             </Button>
           </div>
@@ -153,7 +153,7 @@ export default function ProfilePage() {
   if (isCheckingAuth || !session) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-rose-400" />
+        <LoaderCircle className="size-5 animate-spin text-stone-400" />
       </div>
     );
   }

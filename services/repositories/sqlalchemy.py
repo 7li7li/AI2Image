@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 from calendar import monthrange
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from sqlalchemy import (
     JSON,
     Boolean,
     Column,
+    Float,
     Integer,
     String,
     Text,
@@ -50,7 +52,7 @@ from utils.timezone import china_now_text
 
 
 Base = declarative_base()
-SCHEMA_VERSION = "005_quota_expiry"
+SCHEMA_VERSION = "006_decimal_quota"
 
 
 def _json_column_type():
@@ -78,8 +80,8 @@ class UserRow(Base):
     email = Column(String(320), index=True)
     role = Column(String(32), index=True)
     status = Column(String(32), index=True)
-    quota = Column(Integer)
-    quota_used = Column(Integer)
+    quota = Column(Float)
+    quota_used = Column(Float)
     quota_expires_at = Column(String(80), index=True)
     data = Column(_json_column_type(), nullable=False)
 
@@ -103,7 +105,7 @@ class QuotaReservationRow(Base):
     reservation_id = Column(String(255), nullable=False, unique=True, index=True)
     user_id = Column(String(255), nullable=False, index=True)
     request_id = Column(String(255), nullable=False, unique=True, index=True)
-    amount = Column(Integer, nullable=False)
+    amount = Column(Float, nullable=False)
     status = Column(String(32), nullable=False, index=True)
     created_at = Column(String(80), nullable=False, index=True)
     expires_at = Column(String(80), nullable=False, index=True)
@@ -276,6 +278,14 @@ def _positive_int(value: Any, default: int = 1) -> int:
     return max(1, parsed)
 
 
+def _quota_value(value: Any) -> float:
+    try:
+        parsed = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return round(max(0.0, parsed), 8) if math.isfinite(parsed) else 0.0
+
+
 def _normalize_page(page: int, page_size: int) -> tuple[int, int]:
     try:
         normalized_page = max(1, int(page or 1))
@@ -381,8 +391,8 @@ DEFINITIONS: dict[str, RepositoryDefinition] = {
             "email": lambda item: _clean(item.get("email")).lower() or None,
             "role": lambda item: _clean(item.get("role")) or None,
             "status": lambda item: _clean(item.get("status")) or None,
-            "quota": lambda item: _int(item.get("quota")),
-            "quota_used": lambda item: _int(item.get("quota_used")),
+            "quota": lambda item: _quota_value(item.get("quota")),
+            "quota_used": lambda item: _quota_value(item.get("quota_used")),
             "quota_expires_at": lambda item: _clean(item.get("quota_expires_at")) or None,
         },
     ),
@@ -606,8 +616,8 @@ class SQLAlchemyUserRepository(SQLAlchemyDatasetRepository, UserRepository):
         item.setdefault("email", row.email)
         item.setdefault("role", row.role or "user")
         item.setdefault("status", row.status or "active")
-        item.setdefault("quota", int(row.quota or 0))
-        item.setdefault("quota_used", int(row.quota_used or 0))
+        item.setdefault("quota", _quota_value(row.quota))
+        item.setdefault("quota_used", _quota_value(row.quota_used))
         item.setdefault("quota_expires_at", row.quota_expires_at)
         return item
 
@@ -666,7 +676,7 @@ class SQLAlchemyRedeemCodeRepository(SQLAlchemyDatasetRepository, RedeemCodeRepo
                     if _quota_is_expired(user_data, now):
                         user_data["quota"] = 0
                     quota_expires_at = _next_quota_expiry(valid_months, now)
-                    next_quota = _non_negative_int(user_data.get("quota")) + quota
+                    next_quota = _quota_value(_quota_value(user_data.get("quota")) + quota)
                     user_data["quota"] = next_quota
                     if valid_months > 0:
                         user_data["quota_expires_at"] = quota_expires_at
@@ -714,8 +724,8 @@ class SQLAlchemyRedeemCodeRepository(SQLAlchemyDatasetRepository, RedeemCodeRepo
         item.setdefault("email", row.email)
         item.setdefault("role", row.role or "user")
         item.setdefault("status", row.status or "active")
-        item.setdefault("quota", int(row.quota or 0))
-        item.setdefault("quota_used", int(row.quota_used or 0))
+        item.setdefault("quota", _quota_value(row.quota))
+        item.setdefault("quota_used", _quota_value(row.quota_used))
         item.setdefault("quota_expires_at", row.quota_expires_at)
         return item
 
@@ -856,10 +866,10 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
     def __init__(self, session_factory: sessionmaker[Session]):
         self._session_factory = session_factory
 
-    def reserve(self, user_id: str, amount: int, request_id: str, *, ttl_seconds: int = 900) -> dict[str, Any]:
+    def reserve(self, user_id: str, amount: float, request_id: str, *, ttl_seconds: int = 900) -> dict[str, Any]:
         normalized_user_id = _clean(user_id)
         normalized_request_id = _clean(request_id)
-        normalized_amount = int(amount or 0)
+        normalized_amount = _quota_value(amount)
         if not normalized_user_id:
             raise ValueError("user id is required")
         if not normalized_request_id:
@@ -896,7 +906,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
                     else:
                         user_changed = False
                         if user.quota is None:
-                            user.quota = max(0, int(user_data.get("quota") or 0))
+                            user.quota = _quota_value(user_data.get("quota"))
                             user_changed = True
                         if user.quota_expires_at is None and _clean(user_data.get("quota_expires_at")):
                             user.quota_expires_at = _clean(user_data.get("quota_expires_at"))
@@ -930,7 +940,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
 
                         session.refresh(user)
                         expires_at = now + timedelta(seconds=max(1, int(ttl_seconds or 900)))
-                        self._set_user_data(user, quota=int(user.quota or 0), now=now)
+                        self._set_user_data(user, quota=_quota_value(user.quota), now=now)
                         reservation = self._new_row(
                             user_id=normalized_user_id,
                             request_id=normalized_request_id,
@@ -951,7 +961,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
                     return self._to_item(existing)
             raise
 
-    def confirm(self, request_id: str, *, amount: int | None = None) -> dict[str, Any] | None:
+    def confirm(self, request_id: str, *, amount: float | None = None) -> dict[str, Any] | None:
         normalized_request_id = _clean(request_id)
         if not normalized_request_id:
             return None
@@ -964,16 +974,16 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
                     return self._to_item(reservation)
 
                 now = _now_utc()
-                reserved_amount = max(0, int(reservation.amount or 0))
-                confirmed_amount = reserved_amount if amount is None else max(0, min(int(amount or 0), reserved_amount))
-                refund_amount = max(0, reserved_amount - confirmed_amount)
+                reserved_amount = _quota_value(reservation.amount)
+                confirmed_amount = reserved_amount if amount is None else min(_quota_value(amount), reserved_amount)
+                refund_amount = _quota_value(reserved_amount - confirmed_amount)
                 user = session.execute(
                     select(UserRow).where(UserRow.user_id == reservation.user_id)
                 ).scalar_one_or_none()
                 if user is not None:
                     user_data = _data_copy(user.data)
-                    next_quota = int(user.quota if user.quota is not None else user_data.get("quota") or 0) + refund_amount
-                    next_used = int(user.quota_used if user.quota_used is not None else user_data.get("quota_used") or 0) + confirmed_amount
+                    next_quota = _quota_value(_quota_value(user.quota if user.quota is not None else user_data.get("quota")) + refund_amount)
+                    next_used = _quota_value(_quota_value(user.quota_used if user.quota_used is not None else user_data.get("quota_used")) + confirmed_amount)
                     self._set_user_data(user, quota=next_quota, quota_used=next_used, now=now)
 
                 data = self._to_item(reservation)
@@ -1047,7 +1057,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
             data["reservation_id"] = reservation_id
             data["user_id"] = user_id
             data["request_id"] = request_id
-            data["amount"] = _non_negative_int(data.get("amount"))
+            data["amount"] = _quota_value(data.get("amount"))
             data["status"] = _clean(data.get("status")) or "reserved"
             data["created_at"] = _clean(data.get("created_at")) or _iso(_now_utc())
             data["expires_at"] = _clean(data.get("expires_at")) or data["created_at"]
@@ -1056,7 +1066,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
                     reservation_id=reservation_id,
                     user_id=user_id,
                     request_id=request_id,
-                    amount=int(data["amount"]),
+                    amount=float(data["amount"]),
                     status=str(data["status"]),
                     created_at=str(data["created_at"]),
                     expires_at=str(data["expires_at"]),
@@ -1093,7 +1103,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
         return expired
 
     def _refund_reserved_quota(self, session: Session, reservation: QuotaReservationRow, *, now: datetime) -> None:
-        amount = max(0, int(reservation.amount or 0))
+        amount = _quota_value(reservation.amount)
         if amount <= 0:
             return
         user = session.execute(
@@ -1102,7 +1112,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
         if user is None:
             return
         user_data = _data_copy(user.data)
-        next_quota = int(user.quota if user.quota is not None else user_data.get("quota") or 0) + amount
+        next_quota = _quota_value(_quota_value(user.quota if user.quota is not None else user_data.get("quota")) + amount)
         self._set_user_data(user, quota=next_quota, now=now)
 
     def _get_by_request_id(self, session: Session, request_id: str) -> QuotaReservationRow | None:
@@ -1115,7 +1125,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
         *,
         user_id: str,
         request_id: str,
-        amount: int,
+        amount: float,
         status: str,
         created_at: datetime,
         expires_at: datetime,
@@ -1144,16 +1154,16 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
     def _set_user_data(
         user: UserRow,
         *,
-        quota: int,
+        quota: float,
         now: datetime,
-        quota_used: int | None = None,
+        quota_used: float | None = None,
         quota_expires_at: Any = None,
     ) -> None:
         data = _data_copy(user.data)
-        user.quota = max(0, int(quota))
+        user.quota = _quota_value(quota)
         data["quota"] = user.quota
         if quota_used is not None:
-            user.quota_used = max(0, int(quota_used))
+            user.quota_used = _quota_value(quota_used)
             data["quota_used"] = user.quota_used
         if quota_expires_at is None:
             quota_expires_at = data.get("quota_expires_at") or user.quota_expires_at
@@ -1170,7 +1180,7 @@ class SQLAlchemyQuotaReservationRepository(QuotaReservationRepository):
         data.setdefault("id", row.reservation_id)
         data.setdefault("user_id", row.user_id)
         data.setdefault("request_id", row.request_id)
-        data.setdefault("amount", int(row.amount or 0))
+        data.setdefault("amount", _quota_value(row.amount))
         data.setdefault("status", row.status)
         data.setdefault("created_at", row.created_at)
         data.setdefault("expires_at", row.expires_at)
@@ -1644,6 +1654,7 @@ class SQLAlchemyRepositoryProvider(RepositoryProvider):
         )
         Base.metadata.create_all(self.engine)
         self._ensure_legacy_tables_have_columns()
+        self._ensure_decimal_quota_columns()
         self.Session = sessionmaker(bind=self.engine, expire_on_commit=False, future=True)
         self._auth_keys = SQLAlchemyAuthKeyRepository(self.Session, DEFINITIONS["auth_keys"])
         self._users = SQLAlchemyUserRepository(self.Session, DEFINITIONS["users"])
@@ -1791,6 +1802,31 @@ class SQLAlchemyRepositoryProvider(RepositoryProvider):
                         )
                     )
 
+    def _ensure_decimal_quota_columns(self) -> None:
+        db_type = self._db_type()
+        if db_type == "sqlite":
+            # SQLite's dynamic typing preserves REAL values in legacy INTEGER-affinity columns.
+            return
+        if db_type not in {"postgresql", "mysql"}:
+            return
+        inspector = inspect(self.engine)
+        preparer = self.engine.dialect.identifier_preparer
+        targets = {"users": (("quota", False), ("quota_used", False)), "quota_reservations": (("amount", True),)}
+        with self.engine.begin() as connection:
+            for table_name, column_specs in targets.items():
+                columns = {column["name"]: column["type"] for column in inspector.get_columns(table_name)}
+                for column_name, required in column_specs:
+                    column_type = columns.get(column_name)
+                    if column_type is None or isinstance(column_type, Float):
+                        continue
+                    table = preparer.quote(table_name)
+                    column = preparer.quote(column_name)
+                    if db_type == "postgresql":
+                        connection.execute(text(f"ALTER TABLE {table} ALTER COLUMN {column} TYPE DOUBLE PRECISION USING {column}::double precision"))
+                    else:
+                        nullability = " NOT NULL" if required else ""
+                        connection.execute(text(f"ALTER TABLE {table} MODIFY COLUMN {column} DOUBLE{nullability}"))
+
     def _db_type(self) -> str:
         url = self.database_url.lower()
         if "sqlite" in url:
@@ -1832,8 +1868,8 @@ def _column_specs() -> dict[str, dict[str, str]]:
             "email": "VARCHAR(320)",
             "role": "VARCHAR(32)",
             "status": "VARCHAR(32)",
-            "quota": "INTEGER",
-            "quota_used": "INTEGER",
+            "quota": "REAL",
+            "quota_used": "REAL",
             "quota_expires_at": "VARCHAR(80)",
         },
         "sessions": {
@@ -1847,7 +1883,7 @@ def _column_specs() -> dict[str, dict[str, str]]:
             "reservation_id": "VARCHAR(255)",
             "user_id": "VARCHAR(255)",
             "request_id": "VARCHAR(255)",
-            "amount": "INTEGER",
+            "amount": "REAL",
             "status": "VARCHAR(32)",
             "created_at": "VARCHAR(80)",
             "expires_at": "VARCHAR(80)",

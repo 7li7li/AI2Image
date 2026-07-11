@@ -136,11 +136,11 @@ class QuotaReservationRepository(ABC):
     """Repository boundary for atomic user quota reservations."""
 
     @abstractmethod
-    def reserve(self, user_id: str, amount: int, request_id: str, *, ttl_seconds: int = 900) -> dict[str, Any]:
+    def reserve(self, user_id: str, amount: float, request_id: str, *, ttl_seconds: int = 900) -> dict[str, Any]:
         pass
 
     @abstractmethod
-    def confirm(self, request_id: str, *, amount: int | None = None) -> dict[str, Any] | None:
+    def confirm(self, request_id: str, *, amount: float | None = None) -> dict[str, Any] | None:
         pass
 
     @abstractmethod

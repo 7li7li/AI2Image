@@ -11,6 +11,48 @@ from services.storage.json_storage import JSONStorageBackend
 
 
 class QuotaExpiryTest(unittest.TestCase):
+    def test_decimal_quota_is_reserved_confirmed_and_released_in_json_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            service = AuthService(storage)
+            user, _ = service.create_user(email="user@example.com", password="secret123", quota=1.5)
+
+            service.reserve_quota(str(user["id"]), 0.25, "request-confirm")
+            service.confirm_quota("request-confirm")
+            service.reserve_quota(str(user["id"]), 0.4, "request-release")
+            service.release_quota("request-release")
+
+            current = service.get_user(str(user["id"]))
+            self.assertIsNotNone(current)
+            self.assertEqual(current["quota"], 1.25)  # type: ignore[index]
+            self.assertEqual(current["quota_used"], 0.25)  # type: ignore[index]
+
+    def test_decimal_quota_is_preserved_in_database_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = DatabaseStorageBackend(f"sqlite:///{(Path(tmp_dir) / 'decimal-quota.db').as_posix()}")
+            try:
+                storage.save_users(
+                    [
+                        {
+                            "id": "user-decimal",
+                            "email": "decimal@example.com",
+                            "role": "user",
+                            "status": "active",
+                            "quota": 1.5,
+                            "quota_used": 0,
+                        }
+                    ]
+                )
+                reservations = storage.repository_provider.quota_reservations
+                reservations.reserve("user-decimal", 0.25, "request-decimal")
+                reservations.confirm("request-decimal")
+
+                current = storage.load_users()[0]
+                self.assertEqual(current["quota"], 1.25)
+                self.assertEqual(current["quota_used"], 0.25)
+            finally:
+                storage.close()
+
     def test_redeemed_quota_gets_expiry_and_can_be_used_before_expiry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")

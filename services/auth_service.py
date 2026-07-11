@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import secrets
 import uuid
 from calendar import monthrange
@@ -107,6 +108,14 @@ def _bool(value: object, default: bool = False) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
     return bool(value)
+
+
+def _quota_value(value: object) -> float:
+    try:
+        parsed = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return round(max(0.0, parsed), 8) if math.isfinite(parsed) else 0.0
 
 
 def _normalize_channel_models(value: object) -> list[str]:
@@ -220,11 +229,11 @@ class AuthService:
         if status not in {"active", "disabled", "pending"}:
             status = "active"
         try:
-            quota = max(0, int(raw.get("quota") or 0))
+            quota = _quota_value(raw.get("quota"))
         except (TypeError, ValueError):
             quota = 0
         try:
-            quota_used = max(0, int(raw.get("quota_used") or 0))
+            quota_used = _quota_value(raw.get("quota_used"))
         except (TypeError, ValueError):
             quota_used = 0
         name = self._clean(raw.get("name")) or email.split("@")[0]
@@ -386,8 +395,8 @@ class AuthService:
             "name": user.get("name"),
             "role": user.get("role"),
             "status": user.get("status"),
-            "quota": int(user.get("quota") or 0),
-            "quota_used": int(user.get("quota_used") or 0),
+            "quota": _quota_value(user.get("quota")),
+            "quota_used": _quota_value(user.get("quota_used")),
             "quota_expires_at": user.get("quota_expires_at"),
             "email_verified": bool(user.get("email_verified", user.get("status") != "pending")),
             "email_verified_at": user.get("email_verified_at"),
@@ -400,7 +409,7 @@ class AuthService:
                 include_api_key=False,
             ),
             "image_count": int((stats or {}).get("image_count") or 0),
-            "spent_quota": int((stats or {}).get("spent_quota") or int(user.get("quota_used") or 0)),
+            "spent_quota": _quota_value((stats or {}).get("spent_quota") or user.get("quota_used")),
         }
 
     def _find_user_index_by_id(self, user_id: str) -> int:
@@ -416,8 +425,8 @@ class AuthService:
                 return index
         return -1
 
-    def _image_stats_by_user(self) -> dict[str, dict[str, int]]:
-        stats: dict[str, dict[str, int]] = {}
+    def _image_stats_by_user(self) -> dict[str, dict[str, int | float]]:
+        stats: dict[str, dict[str, int | float]] = {}
         try:
             records = self.storage.load_image_records()
         except Exception:
@@ -430,7 +439,7 @@ class AuthService:
                 continue
             item = stats.setdefault(user_id, {"image_count": 0, "spent_quota": 0})
             item["image_count"] += 1
-            item["spent_quota"] += max(0, int(record.get("quota_cost") or 0))
+            item["spent_quota"] = _quota_value(item["spent_quota"] + _quota_value(record.get("quota_cost")))
         return stats
 
     @staticmethod
@@ -442,7 +451,7 @@ class AuthService:
         if not self._quota_is_expired(user, now):
             return user
         next_user = dict(user)
-        if int(next_user.get("quota") or 0) > 0:
+        if _quota_value(next_user.get("quota")) > 0:
             next_user["quota"] = 0
             next_user["updated_at"] = (now or _now()).isoformat()
         return self._normalize_user(next_user) or next_user
@@ -527,7 +536,7 @@ class AuthService:
         email: str,
         password: str,
         name: str = "",
-        quota: int = 0,
+        quota: float = 0,
         quota_expires_at: str | None = None,
         role: AuthRole = "user",
         status: str = "active",
@@ -800,7 +809,7 @@ class AuthService:
                     current["email_verified"] = True
                     current["email_verified_at"] = current.get("email_verified_at") or _now_iso()
             if "quota" in updates and updates.get("quota") is not None:
-                current["quota"] = max(0, int(updates.get("quota") or 0))
+                current["quota"] = _quota_value(updates.get("quota"))
             if "quota_expires_at" in updates:
                 current["quota_expires_at"] = self._clean(updates.get("quota_expires_at")) or None
             if IMAGE_CHANNEL_CONFIG_KEY in updates and isinstance(updates.get(IMAGE_CHANNEL_CONFIG_KEY), dict):
@@ -945,7 +954,7 @@ class AuthService:
     def adjust_user_quota(
         self,
         user_id: str,
-        amount: int,
+        amount: float,
         mode: str = "add",
         quota_expires_at: object = _UNSET,
     ) -> dict[str, object] | None:
@@ -957,9 +966,9 @@ class AuthService:
             user = dict(self._users[index])
             if mode != "set":
                 user = self._clear_expired_quota_locked(user)
-            current_quota = int(user.get("quota") or 0)
+            current_quota = _quota_value(user.get("quota"))
             next_quota = amount if mode == "set" else current_quota + amount
-            user["quota"] = max(0, int(next_quota))
+            user["quota"] = _quota_value(next_quota)
             if quota_expires_at is not _UNSET:
                 user["quota_expires_at"] = self._clean(quota_expires_at) or None
             user["updated_at"] = _now_iso()
@@ -967,7 +976,7 @@ class AuthService:
             self._save_users()
             return self._public_user(self._users[index])
 
-    def ensure_quota(self, user_id: str, amount: int) -> None:
+    def ensure_quota(self, user_id: str, amount: float) -> None:
         if amount <= 0:
             return
         with self._lock:
@@ -982,10 +991,10 @@ class AuthService:
                 self._users[index] = normalized_user
                 self._save_users()
                 user = normalized_user
-            if int(user.get("quota") or 0) < amount:
+            if _quota_value(user.get("quota")) < _quota_value(amount):
                 raise ValueError("剩余额度不足")
 
-    def deduct_quota(self, user_id: str, amount: int) -> dict[str, object] | None:
+    def deduct_quota(self, user_id: str, amount: float) -> dict[str, object] | None:
         if amount <= 0:
             return self.get_user(user_id)
         request_id = f"legacy-deduct-{uuid.uuid4().hex}"
@@ -996,14 +1005,14 @@ class AuthService:
     def reserve_quota(
         self,
         user_id: str,
-        amount: int,
+        amount: float,
         request_id: str,
         *,
         ttl_seconds: int = 900,
     ) -> dict[str, object] | None:
         normalized_user_id = self._clean(user_id)
         normalized_request_id = self._clean(request_id)
-        normalized_amount = int(amount or 0)
+        normalized_amount = _quota_value(amount)
         if normalized_amount <= 0:
             return None
         if not normalized_request_id:
@@ -1034,11 +1043,11 @@ class AuthService:
             if existing is not None:
                 return dict(existing)
             user = dict(self._users[index])
-            if int(user.get("quota") or 0) < normalized_amount:
+            if _quota_value(user.get("quota")) < normalized_amount:
                 raise ValueError("剩余额度不足")
             now = _now()
             expires_at = now + timedelta(seconds=max(1, int(ttl_seconds or 900)))
-            user["quota"] = max(0, int(user.get("quota") or 0) - normalized_amount)
+            user["quota"] = _quota_value(_quota_value(user.get("quota")) - normalized_amount)
             user["updated_at"] = now.isoformat()
             self._users[index] = self._normalize_user(user) or user
             reservation = {
@@ -1054,7 +1063,7 @@ class AuthService:
             self._save_users()
             return dict(reservation)
 
-    def confirm_quota(self, request_id: str, amount: int | None = None) -> dict[str, object] | None:
+    def confirm_quota(self, request_id: str, amount: float | None = None) -> dict[str, object] | None:
         normalized_request_id = self._clean(request_id)
         if not normalized_request_id:
             return None
@@ -1068,14 +1077,14 @@ class AuthService:
                 return None
             if reservation.get("status") != "reserved":
                 return dict(reservation)
-            reserved_amount = max(0, int(reservation.get("amount") or 0))
-            confirmed_amount = reserved_amount if amount is None else max(0, min(int(amount or 0), reserved_amount))
-            refund_amount = max(0, reserved_amount - confirmed_amount)
+            reserved_amount = _quota_value(reservation.get("amount"))
+            confirmed_amount = reserved_amount if amount is None else min(_quota_value(amount), reserved_amount)
+            refund_amount = _quota_value(reserved_amount - confirmed_amount)
             index = self._find_user_index_by_id(self._clean(reservation.get("user_id")))
             if index >= 0:
                 user = dict(self._users[index])
-                user["quota"] = max(0, int(user.get("quota") or 0) + refund_amount)
-                user["quota_used"] = int(user.get("quota_used") or 0) + confirmed_amount
+                user["quota"] = _quota_value(_quota_value(user.get("quota")) + refund_amount)
+                user["quota_used"] = _quota_value(_quota_value(user.get("quota_used")) + confirmed_amount)
                 user["updated_at"] = _now_iso()
                 self._users[index] = self._normalize_user(user) or user
                 self._save_users()
@@ -1106,7 +1115,7 @@ class AuthService:
             index = self._find_user_index_by_id(self._clean(reservation.get("user_id")))
             if index >= 0:
                 user = dict(self._users[index])
-                user["quota"] = int(user.get("quota") or 0) + max(0, int(reservation.get("amount") or 0))
+                user["quota"] = _quota_value(_quota_value(user.get("quota")) + _quota_value(reservation.get("amount")))
                 user["updated_at"] = _now_iso()
                 self._users[index] = self._normalize_user(user) or user
                 self._save_users()
@@ -1134,7 +1143,7 @@ class AuthService:
             index = self._find_user_index_by_id(self._clean(reservation.get("user_id")))
             if index >= 0:
                 user = dict(self._users[index])
-                user["quota"] = int(user.get("quota") or 0) + max(0, int(reservation.get("amount") or 0))
+                user["quota"] = _quota_value(_quota_value(user.get("quota")) + _quota_value(reservation.get("amount")))
                 user["updated_at"] = now.isoformat()
                 self._users[index] = self._normalize_user(user) or user
             reservation.update({"status": "expired", "expired_at": now.isoformat()})
@@ -1309,7 +1318,7 @@ class AuthService:
             if item["used_count"] >= max_uses:
                 item["status"] = "disabled"
             next_user = dict(user)
-            next_user["quota"] = int(next_user.get("quota") or 0) + quota
+            next_user["quota"] = _quota_value(_quota_value(next_user.get("quota")) + quota)
             if valid_months > 0:
                 next_user["quota_expires_at"] = quota_expires_at
             else:

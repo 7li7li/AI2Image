@@ -137,10 +137,10 @@ function RedeemCodesContent() {
     <section className="h-full min-h-0 space-y-5 overflow-y-auto pr-1 pb-8 [scrollbar-color:rgba(148,163,184,.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300/65 [&::-webkit-scrollbar-track]:bg-transparent">
       <div className="flex items-end justify-between gap-4">
         <div className="space-y-1">
-          <div className="text-xs font-semibold tracking-[0.18em] text-rose-400 uppercase">Redeem</div>
+          <div className="text-xs font-semibold tracking-[0.18em] text-stone-400 uppercase">Redeem</div>
           <h1 className="text-2xl font-semibold tracking-tight">兑换码管理</h1>
         </div>
-        <Button variant="outline" className="h-10 rounded-xl border-rose-100 bg-white" onClick={() => void load()}>
+        <Button variant="outline" className="h-10 rounded-xl border-stone-100 bg-white" onClick={() => void load()}>
           <RefreshCw className="size-4" />
           刷新
         </Button>
@@ -149,35 +149,35 @@ function RedeemCodesContent() {
       <Card className="rounded-lg border-white/80 bg-white/80 shadow-sm">
         <CardContent className="space-y-4 p-5">
           <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
-            <Plus className="size-4 text-rose-500" />
+            <Plus className="size-4 text-stone-500" />
             批量生成兑换码
           </div>
           <div className="grid gap-3 md:grid-cols-[120px_120px_120px_120px_180px_1fr_auto]">
             <label className="space-y-1.5">
               <span className="block text-xs font-medium text-stone-500">额度</span>
-              <Input type="number" value={form.quota} onChange={(event) => setForm((current) => ({ ...current, quota: event.target.value }))} placeholder="额度" className="h-10 rounded-xl border-rose-100 bg-white" />
+              <Input type="number" value={form.quota} onChange={(event) => setForm((current) => ({ ...current, quota: event.target.value }))} placeholder="额度" className="h-10 rounded-xl border-stone-100 bg-white" />
             </label>
             <label className="space-y-1.5">
               <span className="block text-xs font-medium text-stone-500">数量</span>
-              <Input type="number" value={form.count} onChange={(event) => setForm((current) => ({ ...current, count: event.target.value }))} placeholder="数量" className="h-10 rounded-xl border-rose-100 bg-white" />
+              <Input type="number" value={form.count} onChange={(event) => setForm((current) => ({ ...current, count: event.target.value }))} placeholder="数量" className="h-10 rounded-xl border-stone-100 bg-white" />
             </label>
             <label className="space-y-1.5">
               <span className="block text-xs font-medium text-stone-500">使用次数</span>
-              <Input type="number" value={form.max_uses} onChange={(event) => setForm((current) => ({ ...current, max_uses: event.target.value }))} placeholder="次数" className="h-10 rounded-xl border-rose-100 bg-white" />
+              <Input type="number" value={form.max_uses} onChange={(event) => setForm((current) => ({ ...current, max_uses: event.target.value }))} placeholder="次数" className="h-10 rounded-xl border-stone-100 bg-white" />
             </label>
             <label className="space-y-1.5">
               <span className="block text-xs font-medium text-stone-500">有效月数</span>
-              <Input type="number" min="0" value={form.valid_months} onChange={(event) => setForm((current) => ({ ...current, valid_months: event.target.value }))} placeholder="有效月数" className="h-10 rounded-xl border-rose-100 bg-white" />
+              <Input type="number" min="0" value={form.valid_months} onChange={(event) => setForm((current) => ({ ...current, valid_months: event.target.value }))} placeholder="有效月数" className="h-10 rounded-xl border-stone-100 bg-white" />
             </label>
             <label className="space-y-1.5">
               <span className="block text-xs font-medium text-stone-500">过期时间</span>
-              <Input value={form.expires_at} onChange={(event) => setForm((current) => ({ ...current, expires_at: event.target.value }))} placeholder="可空" className="h-10 rounded-xl border-rose-100 bg-white" />
+              <Input value={form.expires_at} onChange={(event) => setForm((current) => ({ ...current, expires_at: event.target.value }))} placeholder="可空" className="h-10 rounded-xl border-stone-100 bg-white" />
             </label>
             <label className="space-y-1.5">
               <span className="block text-xs font-medium text-stone-500">备注</span>
-              <Input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder="备注" className="h-10 rounded-xl border-rose-100 bg-white" />
+              <Input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder="备注" className="h-10 rounded-xl border-stone-100 bg-white" />
             </label>
-            <Button className="h-10 rounded-xl bg-rose-500 text-white hover:bg-rose-600 md:self-end" onClick={() => void handleCreate()}>
+            <Button className="h-10 rounded-xl bg-neutral-900 text-white hover:bg-black md:self-end" onClick={() => void handleCreate()}>
               生成
             </Button>
           </div>
@@ -186,7 +186,7 @@ function RedeemCodesContent() {
 
       <Card className="overflow-hidden rounded-lg border-white/80 bg-white/80 shadow-sm">
         <CardContent className="p-0">
-          <div className="flex flex-wrap items-center gap-3 border-b border-rose-50 px-5 py-3">
+          <div className="flex flex-wrap items-center gap-3 border-b border-stone-50 px-5 py-3">
             <label className="flex items-center gap-2 text-sm text-stone-500">
               <Checkbox
                 checked={allSelected}
@@ -197,7 +197,7 @@ function RedeemCodesContent() {
             </label>
             <Button
               variant="ghost"
-              className="h-8 rounded-lg px-3 text-rose-500 hover:bg-rose-50 hover:text-rose-600"
+              className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-50 hover:text-stone-600"
               onClick={handleExportCodes}
               disabled={selectedCodes.length === 0}
             >
@@ -206,7 +206,7 @@ function RedeemCodesContent() {
             </Button>
             <Button
               variant="ghost"
-              className="h-8 rounded-lg px-3 text-rose-500 hover:bg-rose-50 hover:text-rose-600"
+              className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-50 hover:text-stone-600"
               onClick={() => openDeleteCodes(selectedCodes)}
               disabled={selectedCodes.length === 0 || isDeleting}
             >
@@ -221,13 +221,13 @@ function RedeemCodesContent() {
           </div>
           {isLoading ? (
             <div className="flex h-40 items-center justify-center">
-              <LoaderCircle className="size-5 animate-spin text-rose-400" />
+              <LoaderCircle className="size-5 animate-spin text-stone-400" />
             </div>
           ) : items.length === 0 ? (
             <div className="px-6 py-14 text-center text-sm text-stone-500">暂无兑换码</div>
           ) : (
             items.map((item) => (
-              <div key={item.id} className="grid gap-3 border-b border-rose-50 px-5 py-4 text-sm last:border-0 lg:grid-cols-[44px_1.4fr_100px_100px_120px_120px_160px_180px] lg:items-center">
+              <div key={item.id} className="grid gap-3 border-b border-stone-50 px-5 py-4 text-sm last:border-0 lg:grid-cols-[44px_1.4fr_100px_100px_120px_120px_160px_180px] lg:items-center">
                 <Checkbox
                   checked={selectedIds.includes(item.id)}
                   onCheckedChange={(checked) => {
@@ -240,7 +240,7 @@ function RedeemCodesContent() {
                   aria-label={`选择兑换码 ${item.code}`}
                 />
                 <div className="flex min-w-0 items-center gap-3">
-                  <div className="rounded-2xl bg-rose-50 p-3 text-rose-500">
+                  <div className="rounded-2xl bg-stone-50 p-3 text-stone-500">
                     <Gift className="size-4" />
                   </div>
                   <div className="min-w-0">
@@ -248,13 +248,13 @@ function RedeemCodesContent() {
                     <div className="truncate text-xs text-stone-400">{item.note || "无备注"}</div>
                   </div>
                 </div>
-                <div className="font-semibold text-rose-600">{item.quota} 点</div>
+                <div className="font-semibold text-stone-600">{item.quota} 点</div>
                 <div className="text-stone-600">{item.used_count}/{item.max_uses}</div>
                 <Badge variant={item.status === "enabled" ? "success" : "secondary"}>{item.status === "enabled" ? "启用" : "停用"}</Badge>
                 <div className="text-xs text-stone-500">{item.valid_months > 0 ? `${item.valid_months} 个月` : "不限期"}</div>
                 <div className="text-xs text-stone-500">{item.expires_at || "永不过期"}</div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="h-8 rounded-lg border-rose-100 bg-white" onClick={() => void handleToggle(item)}>
+                  <Button variant="outline" size="sm" className="h-8 rounded-lg border-stone-100 bg-white" onClick={() => void handleToggle(item)}>
                     {item.status === "enabled" ? "停用" : "启用"}
                   </Button>
                   <Button
@@ -278,7 +278,7 @@ function RedeemCodesContent() {
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <div className="mb-1 flex size-10 items-center justify-center rounded-full bg-rose-50 text-rose-500">
+            <div className="mb-1 flex size-10 items-center justify-center rounded-full bg-stone-50 text-stone-500">
               <AlertTriangle className="size-5" />
             </div>
             <DialogTitle>{deleteCount === 1 ? "删除兑换码" : "批量删除兑换码"}</DialogTitle>
@@ -304,7 +304,7 @@ export default function RedeemCodesPage() {
   if (isCheckingAuth || !session) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-rose-400" />
+        <LoaderCircle className="size-5 animate-spin text-stone-400" />
       </div>
     );
   }
