@@ -54,7 +54,6 @@ import type { ImageConversationMode } from "@/store/image-conversations";
 import { cn } from "@/lib/utils";
 
 const BANANA_PROMPTS_ASSET_BASE_URL = "/banana-prompt-quicker/";
-const PROMPT_LIBRARY_API_TIMEOUT_MS = 2200;
 
 const GLASSES_PROMPT = `
 不知道自己适合佩戴什么样式的眼镜？
@@ -579,18 +578,6 @@ function getPromptDescription(item: PromptPickerItem) {
   return item.description || summarizeBananaPrompt(item);
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<T>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error("提示词管理接口响应超时")), timeoutMs);
-  });
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-  });
-}
-
 function isBananaPromptItem(value: unknown): value is PromptPickerItem {
   if (!value || typeof value !== "object") {
     return false;
@@ -776,7 +763,7 @@ export function ImageComposer({
       setBananaPromptStatus("loading");
       setBananaPromptError("");
       try {
-        const payload = await withTimeout(fetchPromptLibrary(), PROMPT_LIBRARY_API_TIMEOUT_MS);
+        const payload = await fetchPromptLibrary();
         const items = normalizeBananaPromptsPayload(payload);
         if (controller.signal.aborted) {
           return;
