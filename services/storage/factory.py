@@ -14,7 +14,7 @@ from services.storage.git_storage import GitStorageBackend
 from services.storage.json_storage import JSONStorageBackend
 
 
-PROMPT_LIBRARY_JSON_IMPORT_MARKER = "storage_migration.prompt_library_json_imported"
+PROMPT_LIBRARY_JSON_IMPORT_MARKER = "storage_migration.prompt_library_seed_v2"
 BUNDLED_PROMPT_LIBRARY_PATH = (
     Path(__file__).resolve().parents[2] / "web_dist" / "banana-prompt-quicker" / "prompts.json"
 )
@@ -100,9 +100,14 @@ def _import_json_prompt_library_once(backend: DatabaseStorageBackend, data_dir: 
             return
 
         existing_prompts = provider.prompts.list()
-        if existing_prompts:
+        public_prompts = [
+            item
+            for item in existing_prompts
+            if str(item.get("status") or "public").strip().lower() == "public"
+        ]
+        if public_prompts:
             settings.set_setting(PROMPT_LIBRARY_JSON_IMPORT_MARKER, True)
-            print(f"[storage] Prompt library already contains {len(existing_prompts)} items; skipping seed")
+            print(f"[storage] Prompt library already contains {len(public_prompts)} public items; skipping seed")
             return
 
         json_prompts, source_path = _load_prompt_library_seed(data_dir)
@@ -110,9 +115,11 @@ def _import_json_prompt_library_once(backend: DatabaseStorageBackend, data_dir: 
             print("[storage] No prompt library seed data found")
             return
 
-        provider.prompts.replace_all(json_prompts)
+        existing_ids = {str(item.get("id") or "").strip() for item in existing_prompts}
+        new_prompts = [item for item in json_prompts if str(item.get("id") or "").strip() not in existing_ids]
+        provider.prompts.replace_all([*existing_prompts, *new_prompts])
         settings.set_setting(PROMPT_LIBRARY_JSON_IMPORT_MARKER, True)
-        print(f"[storage] Imported {len(json_prompts)} prompts from {source_path}")
+        print(f"[storage] Imported {len(new_prompts)} public prompts from {source_path}")
     except Exception as exc:
         print(f"[storage] Failed to import JSON prompt library: {exc}")
 

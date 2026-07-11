@@ -234,6 +234,34 @@ class StorageFactoryTest(unittest.TestCase):
             finally:
                 backend.close()
 
+    def test_json_prompt_import_preserves_non_public_database_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_dir = Path(tmp_dir)
+            (data_dir / "prompt_library.json").write_text(
+                json.dumps([{"id": "public-prompt", "title": "Public", "prompt": "Public seed"}]),
+                encoding="utf-8",
+            )
+            backend = DatabaseStorageBackend(f"sqlite:///{(data_dir / 'storage.db').as_posix()}")
+            try:
+                backend.save_prompt_library(
+                    [
+                        {
+                            "id": "personal-prompt",
+                            "title": "Personal",
+                            "prompt": "Private prompt",
+                            "status": "personal",
+                        }
+                    ]
+                )
+
+                _import_json_prompt_library_once(backend, data_dir)
+
+                prompts = {item["id"]: item for item in backend.load_prompt_library()}
+                self.assertEqual(set(prompts), {"personal-prompt", "public-prompt"})
+                self.assertEqual(prompts["personal-prompt"]["status"], "personal")
+            finally:
+                backend.close()
+
     def test_bundled_prompt_library_is_used_when_mounted_json_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
