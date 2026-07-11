@@ -13,6 +13,7 @@ from services.storage.database_storage import DatabaseStorageBackend, ensure_dat
 from services.storage.factory import (
     PROMPT_LIBRARY_JSON_IMPORT_MARKER,
     _import_json_prompt_library_once,
+    _load_prompt_library_seed,
     _mask_password,
     _normalize_database_url,
     create_storage_backend,
@@ -142,7 +143,7 @@ class StorageFactoryTest(unittest.TestCase):
                         "DATABASE_URL": "postgresql://yanai:pass@127.0.0.1:5432/yanai_from_config",
                     }
                 ),
-                encoding="utf-8",
+                encoding="utf-8-sig",
             )
 
             with mock.patch.dict("os.environ", {"STORAGE_BACKEND": "json"}, clear=True), mock.patch(
@@ -232,6 +233,28 @@ class StorageFactoryTest(unittest.TestCase):
                 )
             finally:
                 backend.close()
+
+    def test_bundled_prompt_library_is_used_when_mounted_json_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            bundled_path = root / "bundled-prompts.json"
+            bundled_path.write_text(
+                json.dumps(
+                    {
+                        "prompts": [
+                            {"title": "Bundled prompt", "prompt": "Draw from the bundled seed"}
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch("services.storage.factory.BUNDLED_PROMPT_LIBRARY_PATH", bundled_path):
+                prompts, source_path = _load_prompt_library_seed(root / "empty-data")
+
+            self.assertEqual(source_path, bundled_path)
+            self.assertEqual(len(prompts), 1)
+            self.assertEqual(len(prompts[0]["id"]), 16)
 
     def test_create_git_storage_backend_uses_dataset_path_env_vars(self) -> None:
         env = {

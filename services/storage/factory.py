@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import hashlib
 import json
 import os
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote, unquote
 
 from services.storage.base import StorageBackend
@@ -13,6 +15,9 @@ from services.storage.json_storage import JSONStorageBackend
 
 
 PROMPT_LIBRARY_JSON_IMPORT_MARKER = "storage_migration.prompt_library_json_imported"
+BUNDLED_PROMPT_LIBRARY_PATH = (
+    Path(__file__).resolve().parents[2] / "web_dist" / "banana-prompt-quicker" / "prompts.json"
+)
 
 
 def create_storage_backend(data_dir: Path, settings: Mapping[str, object] | None = None) -> StorageBackend:
@@ -86,27 +91,59 @@ def create_storage_backend(data_dir: Path, settings: Mapping[str, object] | None
 
 
 def _import_json_prompt_library_once(backend: DatabaseStorageBackend, data_dir: Path) -> None:
-    """Seed an empty database from the legacy prompt library mounted in data/."""
+    """Seed an empty database from a mounted or image-bundled prompt library."""
     provider = backend.repository_provider
     settings = provider.system_config
     try:
         if settings.get_setting(PROMPT_LIBRARY_JSON_IMPORT_MARKER, False):
+            print("[storage] Prompt library seed already completed")
             return
 
         existing_prompts = provider.prompts.list()
         if existing_prompts:
             settings.set_setting(PROMPT_LIBRARY_JSON_IMPORT_MARKER, True)
+            print(f"[storage] Prompt library already contains {len(existing_prompts)} items; skipping seed")
             return
 
-        json_prompts = JSONStorageBackend(data_dir).load_prompt_library()
+        json_prompts, source_path = _load_prompt_library_seed(data_dir)
         if not json_prompts:
+            print("[storage] No prompt library seed data found")
             return
 
         provider.prompts.replace_all(json_prompts)
         settings.set_setting(PROMPT_LIBRARY_JSON_IMPORT_MARKER, True)
-        print(f"[storage] Imported {len(json_prompts)} prompts from {data_dir / 'prompt_library.json'}")
+        print(f"[storage] Imported {len(json_prompts)} prompts from {source_path}")
     except Exception as exc:
         print(f"[storage] Failed to import JSON prompt library: {exc}")
+
+
+def _load_prompt_library_seed(data_dir: Path) -> tuple[list[dict[str, Any]], Path | None]:
+    candidates = (data_dir / "prompt_library.json", BUNDLED_PROMPT_LIBRARY_PATH)
+    for source_path in candidates:
+        try:
+            payload = json.loads(source_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        raw_prompts = payload.get("prompts") if isinstance(payload, dict) else payload
+        if not isinstance(raw_prompts, list):
+            continue
+        prompts = [_with_prompt_id(item) for item in raw_prompts if isinstance(item, dict)]
+        prompts = [item for item in prompts if item.get("title") and item.get("prompt")]
+        if prompts:
+            return prompts, source_path
+    return [], None
+
+
+def _with_prompt_id(item: dict[str, Any]) -> dict[str, Any]:
+    prompt = dict(item)
+    if str(prompt.get("id") or "").strip():
+        return prompt
+    seed = "\0".join(
+        str(prompt.get(key) or "").strip()
+        for key in ("title", "prompt", "created")
+    )
+    prompt["id"] = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:16]
+    return prompt
 
 
 def _mask_password(url: str) -> str:
