@@ -12,6 +12,9 @@ from services.storage.git_storage import GitStorageBackend
 from services.storage.json_storage import JSONStorageBackend
 
 
+PROMPT_LIBRARY_JSON_IMPORT_MARKER = "storage_migration.prompt_library_json_imported"
+
+
 def create_storage_backend(data_dir: Path, settings: Mapping[str, object] | None = None) -> StorageBackend:
     """
     Create the configured storage backend.
@@ -39,7 +42,9 @@ def create_storage_backend(data_dir: Path, settings: Mapping[str, object] | None
         else:
             database_url = _normalize_database_url(database_url)
             print(f"[storage] Using database storage: {_mask_password(database_url)}")
-        return DatabaseStorageBackend(database_url)
+        backend = DatabaseStorageBackend(database_url)
+        _import_json_prompt_library_once(backend, data_dir)
+        return backend
 
     if backend_type == "git":
         repo_url = _get_setting("GIT_REPO_URL", "", resolved_settings)
@@ -78,6 +83,30 @@ def create_storage_backend(data_dir: Path, settings: Mapping[str, object] | None
         f"Unknown storage backend: {backend_type}. "
         "Supported backends: json, sqlite, postgres, git"
     )
+
+
+def _import_json_prompt_library_once(backend: DatabaseStorageBackend, data_dir: Path) -> None:
+    """Seed an empty database from the legacy prompt library mounted in data/."""
+    provider = backend.repository_provider
+    settings = provider.system_config
+    try:
+        if settings.get_setting(PROMPT_LIBRARY_JSON_IMPORT_MARKER, False):
+            return
+
+        existing_prompts = provider.prompts.list()
+        if existing_prompts:
+            settings.set_setting(PROMPT_LIBRARY_JSON_IMPORT_MARKER, True)
+            return
+
+        json_prompts = JSONStorageBackend(data_dir).load_prompt_library()
+        if not json_prompts:
+            return
+
+        provider.prompts.replace_all(json_prompts)
+        settings.set_setting(PROMPT_LIBRARY_JSON_IMPORT_MARKER, True)
+        print(f"[storage] Imported {len(json_prompts)} prompts from {data_dir / 'prompt_library.json'}")
+    except Exception as exc:
+        print(f"[storage] Failed to import JSON prompt library: {exc}")
 
 
 def _mask_password(url: str) -> str:

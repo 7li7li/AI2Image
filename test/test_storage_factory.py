@@ -9,8 +9,14 @@ from unittest import mock
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import OperationalError
 
-from services.storage.database_storage import ensure_database_exists
-from services.storage.factory import _mask_password, _normalize_database_url, create_storage_backend
+from services.storage.database_storage import DatabaseStorageBackend, ensure_database_exists
+from services.storage.factory import (
+    PROMPT_LIBRARY_JSON_IMPORT_MARKER,
+    _import_json_prompt_library_once,
+    _mask_password,
+    _normalize_database_url,
+    create_storage_backend,
+)
 
 
 class _ScalarResult:
@@ -179,6 +185,53 @@ class StorageFactoryTest(unittest.TestCase):
             ensure_database_exists("sqlite:///data/storage.db")
 
         create_engine_mock.assert_not_called()
+
+    def test_empty_database_imports_json_prompt_library_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_dir = Path(tmp_dir)
+            (data_dir / "prompt_library.json").write_text(
+                json.dumps([{"id": "prompt-a", "title": "Prompt A", "prompt": "Draw A"}]),
+                encoding="utf-8",
+            )
+            backend = DatabaseStorageBackend(f"sqlite:///{(data_dir / 'storage.db').as_posix()}")
+            try:
+                _import_json_prompt_library_once(backend, data_dir)
+
+                self.assertEqual([item["id"] for item in backend.load_prompt_library()], ["prompt-a"])
+                self.assertTrue(
+                    backend.repository_provider.system_config.get_setting(PROMPT_LIBRARY_JSON_IMPORT_MARKER)
+                )
+
+                backend.save_prompt_library([])
+                _import_json_prompt_library_once(backend, data_dir)
+                self.assertEqual(backend.load_prompt_library(), [])
+            finally:
+                backend.close()
+
+    def test_json_prompt_import_does_not_overwrite_existing_database_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_dir = Path(tmp_dir)
+            (data_dir / "prompt_library.json").write_text(
+                json.dumps([{"id": "json-prompt", "title": "JSON", "prompt": "From JSON"}]),
+                encoding="utf-8",
+            )
+            backend = DatabaseStorageBackend(f"sqlite:///{(data_dir / 'storage.db').as_posix()}")
+            try:
+                backend.save_prompt_library(
+                    [{"id": "database-prompt", "title": "Database", "prompt": "From database"}]
+                )
+
+                _import_json_prompt_library_once(backend, data_dir)
+
+                self.assertEqual(
+                    [item["id"] for item in backend.load_prompt_library()],
+                    ["database-prompt"],
+                )
+                self.assertTrue(
+                    backend.repository_provider.system_config.get_setting(PROMPT_LIBRARY_JSON_IMPORT_MARKER)
+                )
+            finally:
+                backend.close()
 
     def test_create_git_storage_backend_uses_dataset_path_env_vars(self) -> None:
         env = {

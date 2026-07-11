@@ -50,7 +50,6 @@ import {
   clearImageConversations,
   deleteImageConversation,
   DEFAULT_IMAGE_MODERATION,
-  DEFAULT_IMAGE_OUTPUT_FORMAT,
   DEFAULT_IMAGE_QUALITY,
   DEFAULT_IMAGE_TRANSPARENT_BACKGROUND,
   getImageConversationOwnerKey,
@@ -74,8 +73,6 @@ const QUOTA_REFRESH_EVENT = "yanai:quota-refresh";
 const IMAGE_SIZE_STORAGE_KEY = "chatgpt2api:image_last_size";
 const IMAGE_RESOLUTION_STORAGE_KEY = "chatgpt2api:image_last_resolution";
 const IMAGE_QUALITY_STORAGE_KEY = "chatgpt2api:image_last_quality";
-const IMAGE_OUTPUT_FORMAT_STORAGE_KEY = "chatgpt2api:image_last_output_format";
-const IMAGE_OUTPUT_COMPRESSION_STORAGE_KEY = "chatgpt2api:image_last_output_compression";
 const IMAGE_MODERATION_STORAGE_KEY = "chatgpt2api:image_last_moderation";
 const IMAGE_TRANSPARENT_BACKGROUND_STORAGE_KEY = "chatgpt2api:image_last_transparent_background";
 const IMAGE_MODEL_STORAGE_KEY = "chatgpt2api:image_last_model";
@@ -232,17 +229,6 @@ function sortImageConversations(conversations: ImageConversation[]) {
   return [...conversations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-function normalizeOutputCompression(value: number | string | null | undefined) {
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-  const normalized = Number(value);
-  if (!Number.isFinite(normalized)) {
-    return null;
-  }
-  return Math.max(0, Math.min(100, Math.round(normalized)));
-}
-
 function normalizeImageSize(value: string | null | undefined) {
   const normalized = String(value || "").trim();
   return SUPPORTED_IMAGE_SIZES.has(normalized) ? normalized : "";
@@ -250,15 +236,14 @@ function normalizeImageSize(value: string | null | undefined) {
 
 function buildImageRequestOptions(turn: Pick<
   ImageTurn,
-  "size" | "resolution" | "quality" | "outputFormat" | "outputCompression" | "moderation" | "transparentBackground"
+  "size" | "resolution" | "quality" | "moderation" | "transparentBackground"
 >): ImageRequestOptions {
-  const outputFormat = turn.transparentBackground ? "png" : turn.outputFormat || DEFAULT_IMAGE_OUTPUT_FORMAT;
   return {
     size: normalizeImageSize(turn.size),
     resolution: turn.resolution,
     quality: turn.quality || DEFAULT_IMAGE_QUALITY,
-    output_format: outputFormat,
-    output_compression: outputFormat === "png" ? null : normalizeOutputCompression(turn.outputCompression),
+    output_format: "png",
+    output_compression: null,
     moderation: turn.moderation || DEFAULT_IMAGE_MODERATION,
     background: turn.transparentBackground ? "transparent" : undefined,
   };
@@ -456,8 +441,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   const [imageSize, setImageSize] = useState("");
   const [imageResolution, setImageResolution] = useState("auto");
   const [imageQuality, setImageQuality] = useState(DEFAULT_IMAGE_QUALITY);
-  const [imageOutputFormat, setImageOutputFormat] = useState(DEFAULT_IMAGE_OUTPUT_FORMAT);
-  const [imageOutputCompression, setImageOutputCompression] = useState("");
   const [imageModeration, setImageModeration] = useState(DEFAULT_IMAGE_MODERATION);
   const [imageTransparentBackground, setImageTransparentBackground] = useState(DEFAULT_IMAGE_TRANSPARENT_BACKGROUND);
   const [selectedImageModel, setSelectedImageModel] = useState("");
@@ -492,14 +475,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   );
   const imageQualityStorageKey = useMemo(
     () => getScopedStorageKey(IMAGE_QUALITY_STORAGE_KEY, imageConversationOwnerKey),
-    [imageConversationOwnerKey],
-  );
-  const imageOutputFormatStorageKey = useMemo(
-    () => getScopedStorageKey(IMAGE_OUTPUT_FORMAT_STORAGE_KEY, imageConversationOwnerKey),
-    [imageConversationOwnerKey],
-  );
-  const imageOutputCompressionStorageKey = useMemo(
-    () => getScopedStorageKey(IMAGE_OUTPUT_COMPRESSION_STORAGE_KEY, imageConversationOwnerKey),
     [imageConversationOwnerKey],
   );
   const imageModerationStorageKey = useMemo(
@@ -603,9 +578,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
           const storedSize = typeof window !== "undefined" ? window.localStorage.getItem(imageSizeStorageKey) : null;
           const storedResolution = typeof window !== "undefined" ? window.localStorage.getItem(imageResolutionStorageKey) : null;
           const storedQuality = typeof window !== "undefined" ? window.localStorage.getItem(imageQualityStorageKey) : null;
-          const storedOutputFormat = typeof window !== "undefined" ? window.localStorage.getItem(imageOutputFormatStorageKey) : null;
-          const storedOutputCompression =
-            typeof window !== "undefined" ? window.localStorage.getItem(imageOutputCompressionStorageKey) : null;
           const storedModeration =
             typeof window !== "undefined" ? window.localStorage.getItem(imageModerationStorageKey) : null;
           const storedTransparentBackground =
@@ -618,12 +590,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
           } else {
             setImageQuality(DEFAULT_IMAGE_QUALITY);
           }
-          if (storedOutputFormat === "png" || storedOutputFormat === "jpeg" || storedOutputFormat === "webp") {
-            setImageOutputFormat(storedOutputFormat);
-          } else {
-            setImageOutputFormat(DEFAULT_IMAGE_OUTPUT_FORMAT);
-          }
-          setImageOutputCompression(storedOutputCompression || "");
           if (storedModeration === "auto" || storedModeration === "low") {
             setImageModeration(storedModeration);
           } else {
@@ -688,8 +654,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     imageConversationOwnerKey,
     imageModelStorageKey,
     imageModerationStorageKey,
-    imageOutputCompressionStorageKey,
-    imageOutputFormatStorageKey,
     imageQualityStorageKey,
     imageResolutionStorageKey,
     imageSizeStorageKey,
@@ -767,29 +731,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     if (typeof window === "undefined" || isLoadingHistory) {
       return;
     }
-    if (imageOutputFormat && imageOutputFormat !== DEFAULT_IMAGE_OUTPUT_FORMAT) {
-      window.localStorage.setItem(imageOutputFormatStorageKey, imageOutputFormat);
-      return;
-    }
-    window.localStorage.removeItem(imageOutputFormatStorageKey);
-  }, [imageOutputFormat, imageOutputFormatStorageKey, isLoadingHistory]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || isLoadingHistory) {
-      return;
-    }
-    const normalized = normalizeOutputCompression(imageOutputCompression);
-    if (normalized !== null) {
-      window.localStorage.setItem(imageOutputCompressionStorageKey, String(normalized));
-      return;
-    }
-    window.localStorage.removeItem(imageOutputCompressionStorageKey);
-  }, [imageOutputCompression, imageOutputCompressionStorageKey, isLoadingHistory]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || isLoadingHistory) {
-      return;
-    }
     if (imageModeration && imageModeration !== DEFAULT_IMAGE_MODERATION) {
       window.localStorage.setItem(imageModerationStorageKey, imageModeration);
       return;
@@ -826,12 +767,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
       setSelectedImageModel(selectableImageModels[0]);
     }
   }, [selectableImageModels, selectedImageModel]);
-
-  useEffect(() => {
-    if (imageOutputFormat !== "png" && imageTransparentBackground) {
-      setImageTransparentBackground(false);
-    }
-  }, [imageOutputFormat, imageTransparentBackground]);
 
   useEffect(() => {
     if (selectedConversationId && !conversations.some((conversation) => conversation.id === selectedConversationId)) {
@@ -1350,8 +1285,8 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
       size: imageSize,
       resolution: imageResolution,
       quality: imageQuality,
-      outputFormat: imageTransparentBackground ? "png" : imageOutputFormat,
-      outputCompression: imageOutputFormat === "png" || imageTransparentBackground ? null : normalizeOutputCompression(imageOutputCompression),
+      outputFormat: "png",
+      outputCompression: null,
       moderation: imageModeration,
       transparentBackground: imageTransparentBackground,
       images: Array.from({ length: parsedCount }, (_, index) => ({
@@ -1439,8 +1374,8 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
       size: turn.size,
       resolution: turn.resolution,
       quality: turn.quality,
-      outputFormat: turn.transparentBackground ? "png" : turn.outputFormat,
-      outputCompression: turn.outputFormat === "png" || turn.transparentBackground ? null : turn.outputCompression,
+      outputFormat: "png",
+      outputCompression: null,
       moderation: turn.moderation,
       transparentBackground: turn.transparentBackground,
       images: Array.from({ length: Math.max(1, turn.count) }, (_, index) => ({
@@ -1587,8 +1522,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
                   imageSize={imageSize}
                   imageResolution={imageResolution}
                   imageQuality={imageQuality}
-                  imageOutputFormat={imageOutputFormat}
-                  imageOutputCompression={imageOutputCompression}
                   imageModeration={imageModeration}
                   imageTransparentBackground={imageTransparentBackground}
                   selectedImageModel={activeImageModel}
@@ -1604,8 +1537,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
                   onImageSizeChange={(value) => setImageSize(normalizeImageSize(value))}
                   onImageResolutionChange={setImageResolution}
                   onImageQualityChange={setImageQuality}
-                  onImageOutputFormatChange={setImageOutputFormat}
-                  onImageOutputCompressionChange={setImageOutputCompression}
                   onImageModerationChange={setImageModeration}
                   onImageTransparentBackgroundChange={setImageTransparentBackground}
                   onImageModelChange={setSelectedImageModel}

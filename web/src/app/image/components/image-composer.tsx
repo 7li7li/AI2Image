@@ -37,7 +37,6 @@ import { ImageLightbox } from "@/components/image-lightbox";
 import { ModelIcon } from "@/components/model-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -47,7 +46,6 @@ import {
   fetchPromptLibrary,
   resolveImageRequestSize,
   type ImageModeration,
-  type ImageOutputFormat,
   type ImageQuality,
   type PromptLibraryItem,
 } from "@/lib/api";
@@ -608,8 +606,6 @@ type ImageComposerProps = {
   imageSize: string;
   imageResolution: string;
   imageQuality: ImageQuality;
-  imageOutputFormat: ImageOutputFormat;
-  imageOutputCompression: string;
   imageModeration: ImageModeration;
   imageTransparentBackground: boolean;
   selectedImageModel: string;
@@ -625,8 +621,6 @@ type ImageComposerProps = {
   onImageSizeChange: (value: string) => void;
   onImageResolutionChange: (value: string) => void;
   onImageQualityChange: (value: ImageQuality) => void;
-  onImageOutputFormatChange: (value: ImageOutputFormat) => void;
-  onImageOutputCompressionChange: (value: string) => void;
   onImageModerationChange: (value: ImageModeration) => void;
   onImageTransparentBackgroundChange: (value: boolean) => void;
   onImageModelChange: (value: string) => void;
@@ -646,8 +640,6 @@ export function ImageComposer({
   imageSize,
   imageResolution,
   imageQuality,
-  imageOutputFormat,
-  imageOutputCompression,
   imageModeration,
   imageTransparentBackground,
   selectedImageModel,
@@ -663,8 +655,6 @@ export function ImageComposer({
   onImageSizeChange,
   onImageResolutionChange,
   onImageQualityChange,
-  onImageOutputFormatChange,
-  onImageOutputCompressionChange,
   onImageModerationChange,
   onImageTransparentBackgroundChange,
   onImageModelChange,
@@ -719,10 +709,9 @@ export function ImageComposer({
     { value: "medium", label: "中" },
     { value: "high", label: "高" },
   ];
-  const imageOutputFormatOptions: Array<{ value: ImageOutputFormat; label: string }> = [
-    { value: "png", label: "PNG" },
-    { value: "jpeg", label: "JPEG" },
-    { value: "webp", label: "WebP" },
+  const transparentBackgroundOptions = [
+    { value: "true", label: "是" },
+    { value: "false", label: "否" },
   ];
   const imageModerationOptions: Array<{ value: ImageModeration; label: string }> = [
     { value: "auto", label: "自动" },
@@ -770,7 +759,6 @@ export function ImageComposer({
     onModeChange("edit");
     onPromptChange(item.prompt);
     if (item.transparentBackground) {
-      onImageOutputFormatChange("png");
       onImageTransparentBackgroundChange(true);
     }
     setIsQuickToolsOpen(false);
@@ -1272,16 +1260,10 @@ export function ImageComposer({
                       <div className="rounded-lg border border-stone-100 bg-stone-50/35 p-3">
                         <div className="grid gap-2 sm:grid-cols-2">
                           <SettingSelect
-                            label="格式"
-                            value={imageOutputFormat}
-                            options={imageOutputFormatOptions}
-                            onChange={(value) => {
-                              const nextFormat = value as ImageOutputFormat;
-                              onImageOutputFormatChange(nextFormat);
-                              if (nextFormat !== "png") {
-                                onImageTransparentBackgroundChange(false);
-                              }
-                            }}
+                            label="透明"
+                            value={String(imageTransparentBackground)}
+                            options={transparentBackgroundOptions}
+                            onChange={(value) => onImageTransparentBackgroundChange(value === "true")}
                           />
                           <SettingSelect
                             label="审核"
@@ -1290,33 +1272,6 @@ export function ImageComposer({
                             onChange={(value) => onImageModerationChange(value as ImageModeration)}
                           />
                         </div>
-                        {imageOutputFormat === "png" ? (
-                          <label className="mt-2 flex h-9 items-center justify-between gap-3 rounded-lg border border-stone-100 bg-white/85 px-3 text-sm">
-                            <span className="font-medium text-stone-700">透明背景</span>
-                            <span className="flex items-center gap-2 text-xs font-medium text-stone-500">
-                              <Checkbox
-                                checked={imageTransparentBackground}
-                                onCheckedChange={(checked) => onImageTransparentBackgroundChange(checked === true)}
-                                className="border-stone-200 data-[state=checked]:border-stone-500 data-[state=checked]:bg-stone-500"
-                              />
-                              PNG
-                            </span>
-                          </label>
-                        ) : (
-                          <div className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-stone-100 bg-white/85 px-3 text-sm">
-                            <span className="font-medium text-stone-700">压缩率</span>
-                            <Input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={imageOutputCompression}
-                              onChange={(event) => onImageOutputCompressionChange(event.target.value)}
-                              placeholder="自动"
-                              className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 text-right text-sm font-bold text-stone-700 shadow-none placeholder:text-stone-400 focus-visible:ring-0"
-                            />
-                          </div>
-                        )}
                         <div className="mt-2 flex h-9 items-center justify-between rounded-lg border border-stone-100 bg-white/85 px-3 text-sm">
                           <span className="font-medium text-stone-600">实际分辨率</span>
                           <span className="font-bold text-stone-900">{actualImageResolution}</span>

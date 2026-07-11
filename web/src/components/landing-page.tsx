@@ -2,6 +2,7 @@
 
 import {
   ArrowRight,
+  ArrowUp,
   Bot,
   Check,
   Eraser,
@@ -179,6 +180,7 @@ export function LandingPage() {
   const defaultImageModel = useSiteSettingsStore((state) => state.settings.default_image_model);
   const defaultTextModel = useSiteSettingsStore((state) => state.settings.default_text_model);
   const [publicModels, setPublicModels] = useState<PublicModelItem[]>([]);
+  const [showBackToTop, setShowBackToTop] = useState(false);
   const loginHref = getRouteHref("/login");
   const registerHref = getRouteHref("/register");
   const imageModels = publicModels.filter((item) => isImageGenerationModel(item.model));
@@ -203,6 +205,21 @@ export function LandingPage() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const updateBackToTopVisibility = () => {
+      setShowBackToTop(window.scrollY > 480);
+    };
+
+    updateBackToTopVisibility();
+    window.addEventListener("scroll", updateBackToTopVisibility, { passive: true });
+    return () => window.removeEventListener("scroll", updateBackToTopVisibility);
+  }, []);
+
+  const scrollToTop = () => {
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: 0, behavior: prefersReducedMotion ? "auto" : "smooth" });
+  };
 
   return (
     <div className="overflow-hidden bg-white text-[#60697b]">
@@ -537,6 +554,18 @@ export function LandingPage() {
           <span>AI 图片生成、编辑与智能对话</span>
         </div>
       </footer>
+
+      {showBackToTop && (
+        <button
+          type="button"
+          className="fixed right-4 bottom-5 z-50 grid size-12 place-items-center rounded-md bg-[#3f78e0] text-white shadow-[0_10px_28px_rgba(52,63,82,0.22)] transition-colors hover:bg-[#2f65c6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3f78e0] sm:right-8 sm:bottom-8"
+          aria-label="回到顶部"
+          title="回到顶部"
+          onClick={scrollToTop}
+        >
+          <ArrowUp className="size-6" strokeWidth={2.25} aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
 }
