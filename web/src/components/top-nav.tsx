@@ -45,6 +45,7 @@ type QuotaSummary = {
   subscriptionLabel: string;
   concurrencyLabel: string;
   subscriptionExpiryLabel: string;
+  showQuotaExpiry: boolean;
 };
 
 type QuotaPurchaseTarget = {
@@ -63,6 +64,7 @@ const UNKNOWN_QUOTA_SUMMARY: QuotaSummary = {
   subscriptionLabel: "",
   concurrencyLabel: "",
   subscriptionExpiryLabel: "",
+  showQuotaExpiry: false,
 };
 
 function formatQuotaValues(value: unknown) {
@@ -88,15 +90,16 @@ function formatQuotaTime(value?: string | null) {
 }
 
 function getQuotaSummary(user: CurrentUser): QuotaSummary {
+  const quotaExpiry = user.quota_expires_at ? formatQuotaTime(user.quota_expires_at) : "";
+  const subscriptionExpiry = user.subscription?.expires_at ? formatQuotaTime(user.subscription.expires_at) : "";
   return {
     ...formatQuotaValues(user.quota),
     spentLabel: `已消耗 ${user.spent_quota ?? user.quota_used ?? 0} 点`,
-    expiryLabel: user.quota_expires_at ? `有效期至 ${formatQuotaTime(user.quota_expires_at)}` : "额度长期有效",
+    expiryLabel: quotaExpiry ? `有效期至 ${quotaExpiry}` : "额度长期有效",
     subscriptionLabel: user.subscription?.plan_name || user.subscription?.plan_id || "未订阅",
     concurrencyLabel: `${Math.max(1, Number(user.task_concurrency ?? user.subscription_concurrency) || 1)} 个任务`,
-    subscriptionExpiryLabel: user.subscription?.expires_at
-      ? formatQuotaTime(user.subscription.expires_at)
-      : "",
+    subscriptionExpiryLabel: subscriptionExpiry,
+    showQuotaExpiry: !subscriptionExpiry || quotaExpiry !== subscriptionExpiry,
   };
 }
 
@@ -390,10 +393,14 @@ export function TopNav() {
                   <span className="truncate text-right font-medium text-stone-700" title={quotaSpentLabel}>
                     {quotaSpentLabel}
                   </span>
-                  <span className="text-stone-400">有效期</span>
-                  <span className="truncate text-right font-medium text-stone-700" title={quotaExpiryLabel}>
-                    {quotaExpiryLabel}
-                  </span>
+                  {quotaSummary.showQuotaExpiry ? (
+                    <>
+                      <span className="text-stone-400">额度有效期</span>
+                      <span className="truncate text-right font-medium text-stone-700" title={quotaExpiryLabel}>
+                        {quotaExpiryLabel}
+                      </span>
+                    </>
+                  ) : null}
                   <span className="text-stone-400">当前订阅</span>
                   <span className="truncate text-right font-medium text-stone-700" title={subscriptionLabel}>
                     {subscriptionLabel}

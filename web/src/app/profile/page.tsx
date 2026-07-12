@@ -29,6 +29,11 @@ function formatTime(value?: string | null) {
   }).format(date);
 }
 
+function hasDifferentExpiry(quotaExpiry?: string | null, subscriptionExpiry?: string | null) {
+  if (!subscriptionExpiry) return true;
+  return formatTime(quotaExpiry) !== formatTime(subscriptionExpiry);
+}
+
 function ProfileContent() {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [name, setName] = useState("");
@@ -123,9 +128,11 @@ function ProfileContent() {
             <div className="text-sm text-stone-500">可用额度</div>
             <div className="text-4xl font-semibold text-stone-600">{user?.quota ?? 0}</div>
             <div className="text-xs text-stone-400">已消耗 {user?.spent_quota ?? user?.quota_used ?? 0} 点</div>
-            <div className="text-xs text-stone-400">
-              {user?.quota_expires_at ? `有效期至 ${formatTime(user.quota_expires_at)}` : "额度长期有效"}
-            </div>
+            {hasDifferentExpiry(user?.quota_expires_at, user?.subscription?.expires_at) ? (
+              <div className="text-xs text-stone-400">
+                {user?.quota_expires_at ? `额度有效期至 ${formatTime(user.quota_expires_at)}` : "额度长期有效"}
+              </div>
+            ) : null}
             <div className="mt-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 border-t border-stone-100 pt-4 text-xs">
               <span className="text-stone-400">当前订阅</span>
               <span className="truncate text-right font-medium text-stone-700">
