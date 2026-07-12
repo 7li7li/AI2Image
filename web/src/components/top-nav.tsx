@@ -39,6 +39,7 @@ type NavItem = {
 
 type QuotaSummary = {
   value: string;
+  compactValue: string;
   spentLabel: string;
   expiryLabel: string;
 };
@@ -53,9 +54,19 @@ const QUOTA_REFRESH_EVENT = "yanai:quota-refresh";
 
 const UNKNOWN_QUOTA_SUMMARY: QuotaSummary = {
   value: "--",
+  compactValue: "--",
   spentLabel: "",
   expiryLabel: "",
 };
+
+function formatQuotaValues(value: unknown) {
+  const parsed = Number(value ?? 0);
+  const normalized = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  return {
+    value: String(normalized),
+    compactValue: String(Math.floor(normalized)),
+  };
+}
 
 function formatQuotaTime(value?: string | null) {
   if (!value) return "";
@@ -72,7 +83,7 @@ function formatQuotaTime(value?: string | null) {
 
 function getQuotaSummary(user: CurrentUser): QuotaSummary {
   return {
-    value: String(user.quota ?? 0),
+    ...formatQuotaValues(user.quota),
     spentLabel: `已消耗 ${user.spent_quota ?? user.quota_used ?? 0} 点`,
     expiryLabel: user.quota_expires_at ? `有效期至 ${formatQuotaTime(user.quota_expires_at)}` : "额度长期有效",
   };
@@ -82,7 +93,7 @@ function getStoredQuotaSummary(session: StoredAuthSession | null | undefined): Q
   if (session?.role === "user" && typeof session.quota === "number") {
     return {
       ...UNKNOWN_QUOTA_SUMMARY,
-      value: String(session.quota),
+      ...formatQuotaValues(session.quota),
     };
   }
   return UNKNOWN_QUOTA_SUMMARY;
@@ -348,7 +359,7 @@ export function TopNav() {
                 >
                   <span className="flex max-w-full items-center justify-center gap-1">
                     <Sparkles className="size-4 shrink-0 text-sky-600" />
-                    <span className="min-w-0 truncate text-xs font-bold text-sky-600">{quotaSummary.value}</span>
+                    <span className="min-w-0 truncate text-xs font-bold text-sky-600">{quotaSummary.compactValue}</span>
                   </span>
                   <span className="h-px w-8 bg-stone-200" aria-hidden="true" />
                   <span className="max-w-full truncate text-[10px] text-sky-600">{roleLabel}</span>
