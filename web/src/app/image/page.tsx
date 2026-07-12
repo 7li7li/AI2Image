@@ -461,7 +461,9 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   const [isPolishingPrompt, setIsPolishingPrompt] = useState(false);
 
   const defaultImageModel = useSiteSettingsStore((state) => state.settings.default_image_model || "gpt-image-2");
-  const defaultTextModel = useSiteSettingsStore((state) => state.settings.default_text_model || "gpt-5.5");
+  const defaultImagePromptPolishModel = useSiteSettingsStore(
+    (state) => state.settings.default_image_prompt_polish_model || "gpt-5.5",
+  );
   const imageConversationOwnerKey = useMemo(() => getImageConversationOwnerKey(session), [session]);
   const activeConversationStorageKey = useMemo(
     () => getScopedStorageKey(ACTIVE_CONVERSATION_STORAGE_KEY, imageConversationOwnerKey),
@@ -1360,7 +1362,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
 
     setIsPolishingPrompt(true);
     try {
-      const polished = await polishImagePrompt(prompt, imageMode, defaultTextModel);
+      const polished = await polishImagePrompt(prompt, imageMode, defaultImagePromptPolishModel);
       setImagePrompt(polished);
       window.dispatchEvent(new Event(QUOTA_REFRESH_EVENT));
       window.requestAnimationFrame(() => textareaRef.current?.focus());

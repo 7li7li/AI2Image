@@ -35,6 +35,7 @@ export function ConfigCard() {
   const setSiteBackground = useSettingsStore((state) => state.setSiteBackground);
   const setDefaultImageModel = useSettingsStore((state) => state.setDefaultImageModel);
   const setDefaultTextModel = useSettingsStore((state) => state.setDefaultTextModel);
+  const setDefaultImagePromptPolishModel = useSettingsStore((state) => state.setDefaultImagePromptPolishModel);
   const patchConfig = useSettingsStore((state) => state.patchConfig);
   const saveConfig = useSettingsStore((state) => state.saveConfig);
 
@@ -427,6 +428,16 @@ export function ConfigCard() {
                 className="h-10 rounded-xl border-stone-200 bg-white"
               />
               <p className="text-xs text-stone-500">用于文本对话，每次成功回复按模型计费配置扣除额度。</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">画图提示词润色模型</label>
+              <Input
+                value={String(config?.default_image_prompt_polish_model || "")}
+                onChange={(event) => setDefaultImagePromptPolishModel(event.target.value)}
+                placeholder="gpt-5.5"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+              <p className="text-xs text-stone-500">用于画图页 AI 润色提示词，请填写已配置渠道支持的文本模型名。</p>
             </div>
             <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
               <div>

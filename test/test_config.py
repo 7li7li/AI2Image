@@ -55,15 +55,25 @@ class ConfigLoadingTests(unittest.TestCase):
 
             self.assertEqual(store.default_image_model, "gpt-image-2")
             self.assertEqual(store.default_text_model, "gpt-5.5")
+            self.assertEqual(store.default_image_prompt_polish_model, "gpt-5.5")
             self.assertEqual(store.public_settings()["default_image_model"], "gpt-image-2")
             self.assertEqual(store.public_settings()["default_text_model"], "gpt-5.5")
+            self.assertEqual(store.public_settings()["default_image_prompt_polish_model"], "gpt-5.5")
 
-            store.update({"default_image_model": "custom-image", "default_text_model": "custom-chat"})
+            store.update(
+                {
+                    "default_image_model": "custom-image",
+                    "default_text_model": "custom-chat",
+                    "default_image_prompt_polish_model": "custom-polish",
+                }
+            )
 
             self.assertEqual(store.default_image_model, "custom-image")
             self.assertEqual(store.default_text_model, "custom-chat")
+            self.assertEqual(store.default_image_prompt_polish_model, "custom-polish")
             self.assertEqual(store.get()["default_image_model"], "custom-image")
             self.assertEqual(store.get()["default_text_model"], "custom-chat")
+            self.assertEqual(store.get()["default_image_prompt_polish_model"], "custom-polish")
 
     def test_quota_purchase_url_is_admin_configured_and_public(self) -> None:
         module = self.config_module

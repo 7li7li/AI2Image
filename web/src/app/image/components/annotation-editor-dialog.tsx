@@ -133,11 +133,19 @@ function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: n
 
 function drawArrow(ctx: CanvasRenderingContext2D, mark: Pick<ArrowMark, "start" | "end">, lineWidth: number) {
   const angle = Math.atan2(mark.end.y - mark.start.y, mark.end.x - mark.start.x);
-  const headLength = Math.max(18, lineWidth * 4);
+  const headLength = Math.max(16, lineWidth * 4.5);
+  const headAngle = Math.PI / 6;
+  const left = {
+    x: mark.end.x - headLength * Math.cos(angle - headAngle),
+    y: mark.end.y - headLength * Math.sin(angle - headAngle),
+  };
+  const right = {
+    x: mark.end.x - headLength * Math.cos(angle + headAngle),
+    y: mark.end.y - headLength * Math.sin(angle + headAngle),
+  };
 
   ctx.save();
   ctx.strokeStyle = ANNOTATION_STROKE_COLOR;
-  ctx.fillStyle = ANNOTATION_STROKE_COLOR;
   ctx.lineWidth = lineWidth;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -148,11 +156,10 @@ function drawArrow(ctx: CanvasRenderingContext2D, mark: Pick<ArrowMark, "start" 
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.moveTo(mark.end.x, mark.end.y);
-  ctx.lineTo(mark.end.x - headLength * Math.cos(angle - Math.PI / 6), mark.end.y - headLength * Math.sin(angle - Math.PI / 6));
-  ctx.lineTo(mark.end.x - headLength * Math.cos(angle + Math.PI / 6), mark.end.y - headLength * Math.sin(angle + Math.PI / 6));
-  ctx.closePath();
-  ctx.fill();
+  ctx.moveTo(left.x, left.y);
+  ctx.lineTo(mark.end.x, mark.end.y);
+  ctx.lineTo(right.x, right.y);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -320,7 +327,7 @@ function drawAnnotationCanvas(
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(sourceImage, 0, 0, canvas.width, canvas.height);
 
-  const lineWidth = Math.max(4, Math.round(Math.max(canvas.width, canvas.height) * 0.004));
+  const lineWidth = Math.max(3, Math.round(Math.max(canvas.width, canvas.height) * 0.003));
 
   for (const mark of marks) {
     if (mark.type === "arrow") {

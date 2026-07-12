@@ -88,6 +88,10 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     subscription_plans: normalizeSubscriptionPlans(config.subscription_plans),
     default_image_model: typeof config.default_image_model === "string" ? config.default_image_model : "gpt-image-2",
     default_text_model: typeof config.default_text_model === "string" ? config.default_text_model : "gpt-5.5",
+    default_image_prompt_polish_model:
+      typeof config.default_image_prompt_polish_model === "string"
+        ? config.default_image_prompt_polish_model
+        : "gpt-5.5",
     image_retention_days: Number(config.image_retention_days || 30),
     background_task_max_workers: boundedNumber(config.background_task_max_workers, 12, 1, 128),
     background_task_queue_limit: boundedNumber(config.background_task_queue_limit, 100, 1, 10000),
@@ -124,6 +128,7 @@ function syncSiteSettings(config: SettingsConfig) {
     subscription_plans: normalizeSubscriptionPlans(config.subscription_plans),
     default_image_model: String(config.default_image_model || "gpt-image-2"),
     default_text_model: String(config.default_text_model || "gpt-5.5"),
+    default_image_prompt_polish_model: String(config.default_image_prompt_polish_model || "gpt-5.5"),
   };
   useSiteSettingsStore.getState().setSettings(settings);
   applySiteSettings(settings);
@@ -151,6 +156,7 @@ type SettingsStore = {
   setSiteBackground: (value: string) => void;
   setDefaultImageModel: (value: string) => void;
   setDefaultTextModel: (value: string) => void;
+  setDefaultImagePromptPolishModel: (value: string) => void;
 };
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
@@ -190,6 +196,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         site_background: String(config.site_background || "").trim(),
         default_image_model: String(config.default_image_model || "").trim() || "gpt-image-2",
         default_text_model: String(config.default_text_model || "").trim() || "gpt-5.5",
+        default_image_prompt_polish_model:
+          String(config.default_image_prompt_polish_model || "").trim() || "gpt-5.5",
         image_retention_days: Math.max(1, Number(config.image_retention_days) || 30),
         background_task_max_workers: boundedNumber(config.background_task_max_workers, 12, 1, 128),
         background_task_queue_limit: boundedNumber(config.background_task_queue_limit, 100, 1, 10000),
@@ -285,5 +293,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setDefaultTextModel: (value) => {
     set((state) => (state.config ? { config: { ...state.config, default_text_model: value } } : {}));
+  },
+
+  setDefaultImagePromptPolishModel: (value) => {
+    set((state) =>
+      state.config ? { config: { ...state.config, default_image_prompt_polish_model: value } } : {},
+    );
   },
 }));

@@ -13,6 +13,7 @@ const DEFAULT_SITE_SETTINGS: PublicSiteSettings = {
   subscription_plans: [],
   default_image_model: "gpt-image-2",
   default_text_model: "gpt-5.5",
+  default_image_prompt_polish_model: "gpt-5.5",
 };
 
 type SiteSettingsStore = {
@@ -47,6 +48,10 @@ function normalizeSiteSettings(settings?: Partial<PublicSiteSettings> | null): P
     default_text_model:
       String(settings?.default_text_model || DEFAULT_SITE_SETTINGS.default_text_model).trim() ||
       DEFAULT_SITE_SETTINGS.default_text_model,
+    default_image_prompt_polish_model:
+      String(
+        settings?.default_image_prompt_polish_model || DEFAULT_SITE_SETTINGS.default_image_prompt_polish_model,
+      ).trim() || DEFAULT_SITE_SETTINGS.default_image_prompt_polish_model,
   };
 }
 

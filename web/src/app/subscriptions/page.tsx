@@ -72,6 +72,7 @@ function syncPublicSiteSettings(config: SettingsConfig) {
     subscription_plans: normalizeSubscriptionPlans(config.subscription_plans),
     default_image_model: String(config.default_image_model || "gpt-image-2"),
     default_text_model: String(config.default_text_model || "gpt-5.5"),
+    default_image_prompt_polish_model: String(config.default_image_prompt_polish_model || "gpt-5.5"),
   };
   useSiteSettingsStore.getState().setSettings(settings);
   applySiteSettings(settings);

@@ -38,6 +38,7 @@ export type SettingsConfig = {
   base_url?: string;
   default_image_model?: string;
   default_text_model?: string;
+  default_image_prompt_polish_model?: string;
   image_retention_days?: number | string;
   background_task_max_workers?: number | string;
   background_task_queue_limit?: number | string;
@@ -71,6 +72,7 @@ export type PublicSiteSettings = {
   subscription_plans: SubscriptionPlan[];
   default_image_model: string;
   default_text_model: string;
+  default_image_prompt_polish_model: string;
 };
 
 export type PublicAuthSettings = {

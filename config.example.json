@@ -22,6 +22,7 @@
   "epay_type": "",
   "default_image_model": "gpt-image-2",
   "default_text_model": "gpt-5.5",
+  "default_image_prompt_polish_model": "gpt-5.5",
   "image_retention_days": 15,
   "background_task_max_workers": 12,
   "background_task_queue_limit": 100,

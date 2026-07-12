@@ -30,6 +30,7 @@ DEFAULT_QUOTA_PURCHASE_MODE = "url"
 DEFAULT_EPAY_URL = ""
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_TEXT_MODEL = "gpt-5.5"
+DEFAULT_IMAGE_PROMPT_POLISH_MODEL = DEFAULT_TEXT_MODEL
 DEFAULT_BACKGROUND_TASK_MAX_WORKERS = 12
 DEFAULT_BACKGROUND_TASK_QUEUE_LIMIT = 100
 DEFAULT_BACKGROUND_TASK_USER_LIMIT = 3
@@ -297,6 +298,12 @@ def _normalize_update_data(data: dict[str, object]) -> dict[str, object]:
         updates["default_text_model"] = _clean_site_text(
             updates.get("default_text_model"),
             default=DEFAULT_TEXT_MODEL,
+            max_length=120,
+        )
+    if "default_image_prompt_polish_model" in updates:
+        updates["default_image_prompt_polish_model"] = _clean_site_text(
+            updates.get("default_image_prompt_polish_model"),
+            default=DEFAULT_IMAGE_PROMPT_POLISH_MODEL,
             max_length=120,
         )
 
@@ -588,6 +595,15 @@ class ConfigStore:
         )
 
     @property
+    def default_image_prompt_polish_model(self) -> str:
+        return _clean_site_text(
+            os.getenv("YANAI_DEFAULT_IMAGE_PROMPT_POLISH_MODEL")
+            or self._get_config_value("default_image_prompt_polish_model"),
+            default=DEFAULT_IMAGE_PROMPT_POLISH_MODEL,
+            max_length=120,
+        )
+
+    @property
     def background_task_max_workers(self) -> int:
         return _bounded_int(
             os.getenv("YANAI_BACKGROUND_TASK_MAX_WORKERS")
@@ -775,6 +791,7 @@ class ConfigStore:
         data["epay_key_set"] = bool(self.epay_key)
         data["default_image_model"] = self.default_image_model
         data["default_text_model"] = self.default_text_model
+        data["default_image_prompt_polish_model"] = self.default_image_prompt_polish_model
         data["image_retention_days"] = self.image_retention_days
         data["log_levels"] = self.log_levels
         data["image_model_mappings"] = self.image_model_mappings
@@ -813,6 +830,7 @@ class ConfigStore:
             "subscription_plans": self.subscription_plans,
             "default_image_model": self.default_image_model,
             "default_text_model": self.default_text_model,
+            "default_image_prompt_polish_model": self.default_image_prompt_polish_model,
         }
 
     def public_auth_settings(self) -> dict[str, object]:
