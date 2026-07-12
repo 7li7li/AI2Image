@@ -311,6 +311,7 @@ export function TopNav() {
   const subscriptionLabel = quotaSummary.subscriptionLabel || "未订阅";
   const concurrencyLabel = quotaSummary.concurrencyLabel || "--";
   const subscriptionExpiryLabel = quotaSummary.subscriptionExpiryLabel || "--";
+  const quotaButtonLabel = quotaSummary.subscriptionExpiryLabel ? subscriptionLabel : roleLabel;
 
   return (
     <aside className="flex h-full w-[72px] shrink-0 flex-col items-center border-r border-stone-200/70 bg-white/92 px-2 py-4 backdrop-blur-xl sm:w-[76px]">
@@ -371,15 +372,17 @@ export function TopNav() {
                 <button
                   type="button"
                   className="flex min-h-[56px] w-full flex-col items-center justify-center gap-1 rounded-lg border border-stone-200 bg-white px-1 text-center text-[11px] font-medium leading-none text-stone-500 shadow-sm transition hover:bg-sky-50 hover:text-sky-700"
-                  title={`剩余额度 ${quotaSummary.value}`}
-                  aria-label={`剩余额度 ${quotaSummary.value}`}
+                  title={`剩余额度 ${quotaSummary.value} · ${quotaButtonLabel}`}
+                  aria-label={`剩余额度 ${quotaSummary.value}，${quotaButtonLabel}`}
                 >
                   <span className="flex max-w-full items-center justify-center gap-1">
                     <Sparkles className="size-4 shrink-0 text-sky-600" />
                     <span className="min-w-0 truncate text-xs font-bold text-sky-600">{quotaSummary.compactValue}</span>
                   </span>
                   <span className="h-px w-8 bg-stone-200" aria-hidden="true" />
-                  <span className="max-w-full truncate text-[10px] text-sky-600">{roleLabel}</span>
+                  <span className="max-w-full truncate text-[10px] text-sky-600" title={quotaButtonLabel}>
+                    {quotaButtonLabel}
+                  </span>
                 </button>
               </PopoverTrigger>
               <PopoverContent side="right" align="end" sideOffset={10} className="w-64 p-3">
