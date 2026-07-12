@@ -1644,6 +1644,16 @@ export async function updateAdminUserQuota(
   });
 }
 
+export async function updateAdminUserSubscription(
+  userId: string,
+  payload: { plan_id: string; expires_at?: string | null },
+) {
+  return httpRequest<{ item: AdminUser; items: AdminUser[] }>(`/api/admin/users/${userId}/subscription`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
 export async function resetAdminUserPassword(userId: string, password?: string) {
   return httpRequest<{ item: AdminUser; password: string }>(`/api/admin/users/${userId}/reset-password`, {
     method: "POST",

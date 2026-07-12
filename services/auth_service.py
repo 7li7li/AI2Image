@@ -297,6 +297,7 @@ class AuthService:
             "quota_used": quota_used,
             "quota_expires_at": quota_expires_at,
             "subscription_entitlements": _normalize_subscription_entitlements(raw.get("subscription_entitlements")),
+            "subscription_admin_override": _bool(raw.get("subscription_admin_override"), False),
             "email_verified": _bool(raw.get("email_verified"), status != "pending"),
             "email_verified_at": self._clean(raw.get("email_verified_at")) or None,
             "email_verification_hash": self._clean(raw.get("email_verification_hash")),
@@ -1079,6 +1080,7 @@ class AuthService:
             current_quota_expiry = _parse_time(user.get("quota_expires_at"))
             user["quota_expires_at"] = max(current_quota_expiry or now, expires_at).isoformat()
             user["subscription_entitlements"] = entitlements
+            user["subscription_admin_override"] = False
             user["updated_at"] = now.isoformat()
             self._users[index] = self._normalize_user(user) or user
             self._save_users()
@@ -1092,6 +1094,56 @@ class AuthService:
                 return max(1, int(default or 1))
             subscription = _active_subscription_summary(self._users[index])
             return max(1, int((subscription or {}).get("concurrency") or default or 1))
+
+    def set_user_subscription(
+        self,
+        user_id: str,
+        *,
+        plan_id: str = "",
+        plan_name: str = "",
+        concurrency: int = 1,
+        valid_months: int = 1,
+        expires_at: str | None = None,
+    ) -> dict[str, object] | None:
+        normalized_id = self._clean(user_id)
+        now = _now()
+        normalized_plan_id = self._clean(plan_id)
+        normalized_expiry = _parse_time(expires_at) if expires_at else _add_months(
+            now,
+            max(1, min(120, int(valid_months or 1))),
+        )
+        if normalized_plan_id and (normalized_expiry is None or normalized_expiry <= now):
+            raise ValueError("subscription expiry must be in the future")
+        with self._lock:
+            index = self._find_user_index_by_id(normalized_id)
+            if index < 0:
+                return None
+            user = dict(self._users[index])
+            entitlements = [
+                item
+                for item in _normalize_subscription_entitlements(user.get("subscription_entitlements"))
+                if (_parse_time(item.get("expires_at")) or now) <= now
+            ]
+            if normalized_plan_id:
+                entitlements.append({
+                    "plan_id": normalized_plan_id,
+                    "plan_name": self._clean(plan_name),
+                    "order_id": f"admin-{int(now.timestamp())}",
+                    "concurrency": max(1, min(50, int(concurrency or 1))),
+                    "starts_at": now.isoformat(),
+                    "expires_at": normalized_expiry.isoformat(),
+                })
+            user["subscription_entitlements"] = entitlements
+            user["subscription_admin_override"] = True
+            user["updated_at"] = now.isoformat()
+            self._users[index] = self._normalize_user(user) or user
+            self._save_users()
+            return self._public_user(self._users[index])
+
+    def subscription_is_admin_overridden(self, user_id: str) -> bool:
+        with self._lock:
+            index = self._find_user_index_by_id(self._clean(user_id))
+            return index >= 0 and bool(self._users[index].get("subscription_admin_override"))
 
     def ensure_quota(self, user_id: str, amount: float) -> None:
         if amount <= 0:

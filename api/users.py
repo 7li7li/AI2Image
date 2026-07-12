@@ -91,6 +91,11 @@ class AdminUserQuotaRequest(BaseModel):
     quota_expires_at: str | None = None
 
 
+class AdminUserSubscriptionRequest(BaseModel):
+    plan_id: str = ""
+    expires_at: str | None = None
+
+
 class ResetPasswordRequest(BaseModel):
     password: str = ""
 
@@ -198,6 +203,29 @@ def create_router() -> APIRouter:
             ((access.get("subscription") or {}).get("concurrency") or 0)
         )
         return enriched
+
+    def with_resolved_task_access(user: dict[str, object], access: dict[str, object]) -> dict[str, object]:
+        enriched = dict(user)
+        enriched["task_concurrency"] = int(access["concurrency"])
+        enriched["subscription"] = access.get("subscription")
+        enriched["subscription_concurrency"] = int(
+            ((access.get("subscription") or {}).get("concurrency") or 0)
+        )
+        return enriched
+
+    def list_users_with_task_access(query: str = "", status: str = "", role: str = "") -> list[dict[str, object]]:
+        users = auth_service.list_users(query=query, status=status, role=role)
+        default = max(1, int(config.background_task_user_limit or 1))
+        access_by_user = payment_service.active_subscription_accesses(users, default=default)
+        return [
+            with_resolved_task_access(
+                user,
+                access_by_user.get(str(user.get("id") or ""), {"concurrency": default, "subscription": None}),
+            )
+            if user.get("role") == "user"
+            else user
+            for user in users
+        ]
 
     @router.get("/api/me")
     async def get_me(authorization: str | None = Header(default=None)):
@@ -414,7 +442,7 @@ def create_router() -> APIRouter:
             authorization: str | None = Header(default=None),
     ):
         require_admin(authorization)
-        return {"items": auth_service.list_users(query=query, status=status, role=role)}
+        return {"items": list_users_with_task_access(query=query, status=status, role=role)}
 
     @router.post("/api/admin/users")
     async def admin_create_user(body: AdminUserCreateRequest, authorization: str | None = Header(default=None)):
@@ -443,7 +471,7 @@ def create_router() -> APIRouter:
                 "status": user.get("status"),
             },
         )
-        return {"item": user, "password": body.password, "session_token": password_or_token, "items": auth_service.list_users()}
+        return {"item": with_task_access(user), "password": body.password, "session_token": password_or_token, "items": list_users_with_task_access()}
 
     @router.post("/api/admin/users/{user_id}")
     async def admin_update_user(user_id: str, body: AdminUserUpdateRequest, authorization: str | None = Header(default=None)):
@@ -468,7 +496,7 @@ def create_router() -> APIRouter:
                     "current_quota": user.get("quota"),
                 },
             )
-        return {"item": user, "items": auth_service.list_users()}
+        return {"item": with_task_access(user), "items": list_users_with_task_access()}
 
     @router.delete("/api/admin/users/{user_id}")
     async def admin_delete_user(user_id: str, authorization: str | None = Header(default=None)):
@@ -476,7 +504,7 @@ def create_router() -> APIRouter:
         if not auth_service.delete_user(user_id):
             raise HTTPException(status_code=404, detail={"error": "user not found"})
         audit_service.add(actor=admin, action="users.delete", resource="user", target_id=user_id)
-        return {"items": auth_service.list_users()}
+        return {"items": list_users_with_task_access()}
 
     @router.delete("/api/admin/users")
     async def admin_delete_users(body: IdsDeleteRequest, authorization: str | None = Header(default=None)):
@@ -486,7 +514,7 @@ def create_router() -> APIRouter:
         removed = auth_service.delete_users(body.ids)
         if removed <= 0:
             raise HTTPException(status_code=404, detail={"error": "users not found"})
-        return {"items": auth_service.list_users(), "removed": removed}
+        return {"items": list_users_with_task_access(), "removed": removed}
 
     @router.post("/api/admin/users/{user_id}/quota")
     async def admin_update_user_quota(user_id: str, body: AdminUserQuotaRequest, authorization: str | None = Header(default=None)):
@@ -513,7 +541,45 @@ def create_router() -> APIRouter:
                 "current_quota_expires_at": user.get("quota_expires_at"),
             },
         )
-        return {"item": user, "items": auth_service.list_users()}
+        return {"item": with_task_access(user), "items": list_users_with_task_access()}
+
+    @router.post("/api/admin/users/{user_id}/subscription")
+    async def admin_update_user_subscription(
+            user_id: str,
+            body: AdminUserSubscriptionRequest,
+            authorization: str | None = Header(default=None),
+    ):
+        admin = require_admin(authorization)
+        plan_id = body.plan_id.strip()
+        plan = next((item for item in config.subscription_plans if str(item.get("id") or "") == plan_id), None)
+        if plan_id and plan is None:
+            raise HTTPException(status_code=400, detail={"error": "subscription plan not found"})
+        before = with_task_access(auth_service.get_user(user_id))
+        try:
+            user = auth_service.set_user_subscription(
+                user_id,
+                plan_id=plan_id,
+                plan_name=str((plan or {}).get("name") or ""),
+                concurrency=int((plan or {}).get("concurrency") or 1),
+                valid_months=int((plan or {}).get("valid_months") or 1),
+                expires_at=body.expires_at,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        if user is None:
+            raise HTTPException(status_code=404, detail={"error": "user not found"})
+        enriched = with_task_access(user)
+        audit_service.add(
+            actor=admin,
+            action="users.subscription.update",
+            resource="user",
+            target_id=user_id,
+            detail={
+                "previous_subscription": (before or {}).get("subscription"),
+                "current_subscription": (enriched or {}).get("subscription"),
+            },
+        )
+        return {"item": enriched, "items": list_users_with_task_access()}
 
     @router.post("/api/admin/users/{user_id}/reset-password")
     async def admin_reset_password(user_id: str, body: ResetPasswordRequest, authorization: str | None = Header(default=None)):
@@ -535,7 +601,7 @@ def create_router() -> APIRouter:
                 "generated": not bool(body.password.strip()),
             },
         )
-        return {"item": user, "password": password}
+        return {"item": with_task_access(user), "password": password}
 
     @router.get("/api/admin/redeem-codes")
     async def admin_list_redeem_codes(query: str = "", status: str = "", authorization: str | None = Header(default=None)):

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { addMonths, format, parseISO } from "date-fns";
-import { AlertTriangle, CalendarIcon, Copy, KeyRound, LoaderCircle, Plus, ReceiptText, RefreshCw, Search, Trash2, UserRound } from "lucide-react";
+import { AlertTriangle, CalendarIcon, Copy, CreditCard, KeyRound, LoaderCircle, Plus, ReceiptText, RefreshCw, Search, Trash2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -20,14 +20,18 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   createAdminUser,
   deleteAdminUsers,
   fetchAdminUsers,
+  fetchPublicSettings,
   resetAdminUserPassword,
   updateAdminUser,
   updateAdminUserQuota,
+  updateAdminUserSubscription,
   type AdminUser,
+  type SubscriptionPlan,
 } from "@/lib/api";
 import { getRouteHref } from "@/lib/routes";
 import { useAuthGuard } from "@/lib/use-auth-guard";
@@ -85,9 +89,10 @@ type QuotaExpiryPickerProps = {
   value?: string | null;
   onChange: (value: string) => void;
   className?: string;
+  allowClear?: boolean;
 };
 
-function QuotaExpiryPicker({ value, onChange, className = "" }: QuotaExpiryPickerProps) {
+function QuotaExpiryPicker({ value, onChange, className = "", allowClear = true }: QuotaExpiryPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const selectedDate = parseDateValue(value);
   const label = value ? formatDateValue(value) || "选择日期" : "选择到期";
@@ -125,15 +130,17 @@ function QuotaExpiryPicker({ value, onChange, className = "" }: QuotaExpiryPicke
             </Button>
           ))}
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="mb-2 h-8 w-full rounded-lg text-xs text-stone-500 hover:bg-stone-50"
-          onClick={() => handleChange("")}
-        >
-          不限期
-        </Button>
+        {allowClear ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="mb-2 h-8 w-full rounded-lg text-xs text-stone-500 hover:bg-stone-50"
+            onClick={() => handleChange("")}
+          >
+            不限期
+          </Button>
+        ) : null}
         <Calendar
           mode="single"
           selected={selectedDate}
@@ -159,6 +166,11 @@ function UsersPageContent() {
   const [resetPasswordInput, setResetPasswordInput] = useState("");
   const [resetPasswordResult, setResetPasswordResult] = useState("");
   const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>([]);
+  const [subscriptionTarget, setSubscriptionTarget] = useState<AdminUser | null>(null);
+  const [subscriptionPlanId, setSubscriptionPlanId] = useState("");
+  const [subscriptionExpiresAt, setSubscriptionExpiresAt] = useState("");
+  const [isSavingSubscription, setIsSavingSubscription] = useState(false);
 
   const activeCount = useMemo(() => items.filter((item) => item.status === "active").length, [items]);
   const totalQuota = useMemo(() => items.reduce((sum, item) => sum + Number(item.quota || 0), 0), [items]);
@@ -179,6 +191,12 @@ function UsersPageContent() {
       const data = await fetchAdminUsers({ query });
       setItems(data.items);
       setSelectedIds((current) => current.filter((id) => data.items.some((item) => item.id === id)));
+      try {
+        const settings = await fetchPublicSettings();
+        setSubscriptionPlans(settings.settings.subscription_plans);
+      } catch {
+        setSubscriptionPlans([]);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "加载用户失败");
     } finally {
@@ -241,6 +259,37 @@ function UsersPageContent() {
     setResetTarget(user);
     setResetPasswordInput("");
     setResetPasswordResult("");
+  };
+
+  const openSubscriptionEditor = (user: AdminUser) => {
+    const currentPlanId = user.subscription?.plan_id || "";
+    setSubscriptionTarget(user);
+    setSubscriptionPlanId(subscriptionPlans.some((plan) => plan.id === currentPlanId) ? currentPlanId : "");
+    setSubscriptionExpiresAt(formatDateValue(user.subscription?.expires_at));
+  };
+
+  const handleSubscriptionPlanChange = (planId: string) => {
+    setSubscriptionPlanId(planId);
+    const plan = subscriptionPlans.find((item) => item.id === planId);
+    setSubscriptionExpiresAt(plan ? createExpiryDate(plan.valid_months) : "");
+  };
+
+  const handleSaveSubscription = async () => {
+    if (!subscriptionTarget) return;
+    setIsSavingSubscription(true);
+    try {
+      const data = await updateAdminUserSubscription(subscriptionTarget.id, {
+        plan_id: subscriptionPlanId,
+        expires_at: subscriptionPlanId ? subscriptionExpiresAt || undefined : null,
+      });
+      setItems(data.items);
+      setSubscriptionTarget(null);
+      toast.success(subscriptionPlanId ? "用户订阅已更新" : "用户订阅已清除");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "更新用户订阅失败");
+    } finally {
+      setIsSavingSubscription(false);
+    }
   };
 
   const handleCopyPassword = async (password: string) => {
@@ -425,6 +474,19 @@ function UsersPageContent() {
                   <div className="min-w-0">
                     <div className="truncate font-medium text-stone-900">{user.name}</div>
                     <div className="truncate text-xs text-stone-500">{user.email}</div>
+                    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-stone-400">
+                      <span className="max-w-24 truncate font-medium text-stone-600" title={user.subscription?.plan_name || "未订阅"}>
+                        {user.subscription?.plan_name || user.subscription?.plan_id || "未订阅"}
+                      </span>
+                      <span>·</span>
+                      <span>并发 {Math.max(1, Number(user.task_concurrency) || 1)}</span>
+                      {user.subscription?.expires_at ? (
+                        <>
+                          <span>·</span>
+                          <span>{formatDateValue(user.subscription.expires_at)} 到期</span>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center justify-between gap-3 2xl:block">
@@ -477,6 +539,15 @@ function UsersPageContent() {
                     variant="outline"
                     size="sm"
                     className="h-8 rounded-lg border-stone-100 bg-white"
+                    onClick={() => openSubscriptionEditor(user)}
+                  >
+                    <CreditCard className="size-4" />
+                    订阅
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-lg border-stone-100 bg-white"
                     onClick={() => openResetPassword(user)}
                   >
                     <KeyRound className="size-4" />
@@ -498,6 +569,65 @@ function UsersPageContent() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(subscriptionTarget)}
+        onOpenChange={(open) => {
+          if (!open && !isSavingSubscription) {
+            setSubscriptionTarget(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <div className="mb-1 flex size-10 items-center justify-center rounded-full bg-stone-50 text-stone-500">
+              <CreditCard className="size-5" />
+            </div>
+            <DialogTitle>更改用户订阅</DialogTitle>
+            <DialogDescription>
+              为 {subscriptionTarget?.email || "当前用户"} 设置订阅权益。此操作只修改套餐、并发和有效期，不调整额度。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-stone-700">订阅套餐</label>
+              <Select value={subscriptionPlanId || "none"} onValueChange={(value) => handleSubscriptionPlanChange(value === "none" ? "" : value)}>
+                <SelectTrigger className="h-10 rounded-xl border-stone-100 bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">不订阅</SelectItem>
+                  {subscriptionPlans.map((plan) => (
+                    <SelectItem key={plan.id} value={plan.id}>
+                      {plan.name} · 并发 {plan.concurrency}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {subscriptionPlanId ? (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-stone-700">订阅到期</label>
+                <QuotaExpiryPicker
+                  value={subscriptionExpiresAt}
+                  onChange={setSubscriptionExpiresAt}
+                  className="h-10 w-full rounded-xl"
+                  allowClear={false}
+                />
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSubscriptionTarget(null)} disabled={isSavingSubscription}>
+              取消
+            </Button>
+            <Button className="bg-stone-950 text-white hover:bg-stone-800" onClick={() => void handleSaveSubscription()} disabled={isSavingSubscription}>
+              {isSavingSubscription ? <LoaderCircle className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+              保存订阅
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(resetTarget)}

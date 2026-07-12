@@ -104,7 +104,7 @@ class PaymentServiceTest(unittest.TestCase):
 
     def test_legacy_paid_order_uses_current_plan_concurrency(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            service, _auth, user = self._create_service(tmp_dir)
+            service, auth, user = self._create_service(tmp_dir)
             order, _ = service.create_subscription_order(
                 user=user,
                 plan_id="starter",
@@ -122,6 +122,22 @@ class PaymentServiceTest(unittest.TestCase):
             access = service.active_subscription_access(str(user["id"]), default=1)
             self.assertEqual(access["concurrency"], 4)
             self.assertEqual(access["subscription"]["plan_id"], "starter")  # type: ignore[index]
+
+            auth.set_user_subscription(str(user["id"]), plan_id="")
+            cleared = service.active_subscription_access(str(user["id"]), default=1)
+            self.assertEqual(cleared["concurrency"], 1)
+            self.assertIsNone(cleared["subscription"])
+
+            auth.set_user_subscription(
+                str(user["id"]),
+                plan_id="manual",
+                plan_name="Manual",
+                concurrency=2,
+                valid_months=1,
+            )
+            overridden = service.active_subscription_access(str(user["id"]), default=1)
+            self.assertEqual(overridden["concurrency"], 2)
+            self.assertEqual(overridden["subscription"]["plan_id"], "manual")  # type: ignore[index]
 
     def test_epay_callback_grants_quota_once(self) -> None:
         original_type = os.environ.get("YANAI_EPAY_TYPE")

@@ -389,19 +389,49 @@ class PaymentService:
 
     def active_subscription_access(self, user_id: str, *, default: int = 1) -> dict[str, object]:
         normalized_user_id = _clean(user_id)
-        effective = self.auth.task_concurrency(normalized_user_id, default=default)
         user = self.auth.get_user(normalized_user_id)
-        selected = dict((user or {}).get("subscription") or {})
+        if user is None:
+            return {"concurrency": max(1, int(default or 1)), "subscription": None}
+        return self.active_subscription_accesses([user], default=default).get(
+            normalized_user_id,
+            {"concurrency": max(1, int(default or 1)), "subscription": None},
+        )
+
+    def active_subscription_accesses(
+        self,
+        users: list[Mapping[str, object]],
+        *,
+        default: int = 1,
+    ) -> dict[str, dict[str, object]]:
+        normalized_default = max(1, int(default or 1))
+        access_by_user: dict[str, dict[str, object]] = {}
+        overridden_user_ids: set[str] = set()
+        for user in users:
+            user_id = _clean(user.get("id"))
+            if not user_id:
+                continue
+            selected = dict(user.get("subscription") or {})
+            access_by_user[user_id] = {
+                "concurrency": max(normalized_default, int(selected.get("concurrency") or 0)),
+                "subscription": selected or None,
+            }
+            if self.auth.subscription_is_admin_overridden(user_id):
+                overridden_user_ids.add(user_id)
+
         now = _now()
         with self._lock:
             orders = self._load_orders_unlocked()
             for order in orders:
+                user_id = _clean(order.get("user_id"))
                 if (
-                    _clean(order.get("user_id")) != normalized_user_id
+                    user_id not in access_by_user
+                    or user_id in overridden_user_ids
                     or _clean(order.get("status")).lower() != "paid"
                     or (_parse_time(order.get("quota_expires_at")) or now) <= now
                 ):
                     continue
+                access = access_by_user[user_id]
+                selected = dict(access.get("subscription") or {})
                 raw_concurrency = order.get("concurrency")
                 if raw_concurrency is None or raw_concurrency == "":
                     try:
@@ -417,10 +447,11 @@ class PaymentService:
                             "concurrency": current_concurrency,
                             "expires_at": order.get("quota_expires_at"),
                         }
-                    effective = max(effective, current_concurrency)
+                    access["concurrency"] = max(int(access.get("concurrency") or normalized_default), current_concurrency)
+                    access["subscription"] = selected or None
                 except (TypeError, ValueError):
                     continue
-        return {"concurrency": effective, "subscription": selected or None}
+        return access_by_user
 
     def list_orders(self, *, status: str = "", query: str = "", limit: int = 200) -> list[dict[str, object]]:
         normalized_status = _clean(status).lower()
