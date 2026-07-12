@@ -253,10 +253,10 @@ def create_router() -> APIRouter:
         default = max(1, int(config.background_task_user_limit or 1))
         if identity.get("role") != "user":
             return default
-        return payment_service.active_subscription_concurrency(
+        return int(payment_service.active_subscription_access(
             str(identity.get("id") or ""),
             default=default,
-        )
+        )["concurrency"])
 
     def execute_generation_request(
             *,

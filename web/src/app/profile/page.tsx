@@ -126,6 +126,24 @@ function ProfileContent() {
             <div className="text-xs text-stone-400">
               {user?.quota_expires_at ? `有效期至 ${formatTime(user.quota_expires_at)}` : "额度长期有效"}
             </div>
+            <div className="mt-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 border-t border-stone-100 pt-4 text-xs">
+              <span className="text-stone-400">当前订阅</span>
+              <span className="truncate text-right font-medium text-stone-700">
+                {user?.subscription?.plan_name || user?.subscription?.plan_id || "未订阅"}
+              </span>
+              <span className="text-stone-400">任务并发</span>
+              <span className="text-right font-medium text-stone-700">
+                {Math.max(1, Number(user?.task_concurrency ?? user?.subscription_concurrency) || 1)} 个任务
+              </span>
+              {user?.subscription?.expires_at ? (
+                <>
+                  <span className="text-stone-400">订阅到期</span>
+                  <span className="truncate text-right font-medium text-stone-700" title={formatTime(user.subscription.expires_at)}>
+                    {formatTime(user.subscription.expires_at)}
+                  </span>
+                </>
+              ) : null}
+            </div>
           </CardContent>
         </Card>
       </div>

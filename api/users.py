@@ -16,6 +16,8 @@ from services.channel_service import channel_service
 from services.image_service import collect_downloadable_images, delete_images, list_images
 from services.log_service import audit_service
 from services.model_service import model_service
+from services.config import config
+from services.payment_service import payment_service
 from services.webdav_service import get_webdav_config, save_webdav_config, sync_images_to_webdav
 
 
@@ -182,13 +184,28 @@ def _build_image_download_zip(downloads: list[dict[str, object]]) -> bytes:
 def create_router() -> APIRouter:
     router = APIRouter()
 
+    def with_task_access(user: dict[str, object] | None) -> dict[str, object] | None:
+        if user is None or user.get("role") != "user":
+            return user
+        access = payment_service.active_subscription_access(
+            str(user.get("id") or ""),
+            default=max(1, int(config.background_task_user_limit or 1)),
+        )
+        enriched = dict(user)
+        enriched["task_concurrency"] = int(access["concurrency"])
+        enriched["subscription"] = access.get("subscription")
+        enriched["subscription_concurrency"] = int(
+            ((access.get("subscription") or {}).get("concurrency") or 0)
+        )
+        return enriched
+
     @router.get("/api/me")
     async def get_me(authorization: str | None = Header(default=None)):
         identity = require_identity(authorization)
         if identity.get("role") == "user":
             user = auth_service.get_user(str(identity.get("id") or ""))
             if user is not None:
-                return {"user": user}
+                return {"user": with_task_access(user)}
         return {"user": identity}
 
     @router.post("/api/me/profile")
@@ -202,7 +219,7 @@ def create_router() -> APIRouter:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
         if user is None:
             raise HTTPException(status_code=404, detail={"error": "user not found"})
-        return {"user": user}
+        return {"user": with_task_access(user)}
 
     @router.get("/api/me/image-channel")
     async def get_my_image_channel(authorization: str | None = Header(default=None)):
@@ -239,7 +256,7 @@ def create_router() -> APIRouter:
                 "has_api_key": channel.get("has_api_key"),
             },
         )
-        return {"channel": channel, "user": auth_service.get_user(user_id)}
+        return {"channel": channel, "user": with_task_access(auth_service.get_user(user_id))}
 
     @router.post("/api/me/image-channel/models/test")
     async def test_my_image_channel_models(
@@ -277,7 +294,7 @@ def create_router() -> APIRouter:
             user, code = auth_service.redeem_code(str(identity.get("id") or ""), body.code)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
-        return {"user": user, "redeem_code": code}
+        return {"user": with_task_access(user), "redeem_code": code}
 
     @router.get("/api/me/images")
     async def get_my_images(

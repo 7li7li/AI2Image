@@ -385,8 +385,13 @@ class PaymentService:
         return orders[: max(1, min(100, int(limit or 20)))]
 
     def active_subscription_concurrency(self, user_id: str, *, default: int = 1) -> int:
+        return int(self.active_subscription_access(user_id, default=default)["concurrency"])
+
+    def active_subscription_access(self, user_id: str, *, default: int = 1) -> dict[str, object]:
         normalized_user_id = _clean(user_id)
         effective = self.auth.task_concurrency(normalized_user_id, default=default)
+        user = self.auth.get_user(normalized_user_id)
+        selected = dict((user or {}).get("subscription") or {})
         now = _now()
         with self._lock:
             orders = self._load_orders_unlocked()
@@ -404,10 +409,18 @@ class PaymentService:
                     except PaymentError:
                         raw_concurrency = 1
                 try:
-                    effective = max(effective, max(1, min(50, int(raw_concurrency or 1))))
+                    current_concurrency = max(1, min(50, int(raw_concurrency or 1)))
+                    if current_concurrency > int(selected.get("concurrency") or 0):
+                        selected = {
+                            "plan_id": order.get("plan_id"),
+                            "plan_name": order.get("plan_name"),
+                            "concurrency": current_concurrency,
+                            "expires_at": order.get("quota_expires_at"),
+                        }
+                    effective = max(effective, current_concurrency)
                 except (TypeError, ValueError):
                     continue
-        return effective
+        return {"concurrency": effective, "subscription": selected or None}
 
     def list_orders(self, *, status: str = "", query: str = "", limit: int = 200) -> list[dict[str, object]]:
         normalized_status = _clean(status).lower()

@@ -645,6 +645,14 @@ export type CurrentUser = {
   quota?: number;
   quota_used?: number;
   quota_expires_at?: string | null;
+  subscription?: {
+    plan_id?: string;
+    plan_name?: string;
+    concurrency: number;
+    expires_at?: string | null;
+  } | null;
+  subscription_concurrency?: number;
+  task_concurrency?: number;
   email_verified?: boolean;
   email_verified_at?: string | null;
   image_count?: number;

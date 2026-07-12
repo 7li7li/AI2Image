@@ -119,6 +119,9 @@ class PaymentServiceTest(unittest.TestCase):
                 service.active_subscription_concurrency(str(user["id"]), default=1),
                 4,
             )
+            access = service.active_subscription_access(str(user["id"]), default=1)
+            self.assertEqual(access["concurrency"], 4)
+            self.assertEqual(access["subscription"]["plan_id"], "starter")  # type: ignore[index]
 
     def test_epay_callback_grants_quota_once(self) -> None:
         original_type = os.environ.get("YANAI_EPAY_TYPE")

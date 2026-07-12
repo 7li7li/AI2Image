@@ -42,6 +42,9 @@ type QuotaSummary = {
   compactValue: string;
   spentLabel: string;
   expiryLabel: string;
+  subscriptionLabel: string;
+  concurrencyLabel: string;
+  subscriptionExpiryLabel: string;
 };
 
 type QuotaPurchaseTarget = {
@@ -57,6 +60,9 @@ const UNKNOWN_QUOTA_SUMMARY: QuotaSummary = {
   compactValue: "--",
   spentLabel: "",
   expiryLabel: "",
+  subscriptionLabel: "",
+  concurrencyLabel: "",
+  subscriptionExpiryLabel: "",
 };
 
 function formatQuotaValues(value: unknown) {
@@ -86,6 +92,11 @@ function getQuotaSummary(user: CurrentUser): QuotaSummary {
     ...formatQuotaValues(user.quota),
     spentLabel: `已消耗 ${user.spent_quota ?? user.quota_used ?? 0} 点`,
     expiryLabel: user.quota_expires_at ? `有效期至 ${formatQuotaTime(user.quota_expires_at)}` : "额度长期有效",
+    subscriptionLabel: user.subscription?.plan_name || user.subscription?.plan_id || "未订阅",
+    concurrencyLabel: `${Math.max(1, Number(user.task_concurrency ?? user.subscription_concurrency) || 1)} 个任务`,
+    subscriptionExpiryLabel: user.subscription?.expires_at
+      ? formatQuotaTime(user.subscription.expires_at)
+      : "",
   };
 }
 
@@ -294,6 +305,9 @@ export function TopNav() {
   const profileActive = normalizedPathname === "/profile";
   const quotaSpentLabel = quotaSummary.spentLabel || "已消耗 -- 点";
   const quotaExpiryLabel = quotaSummary.expiryLabel || "有效期 --";
+  const subscriptionLabel = quotaSummary.subscriptionLabel || "未订阅";
+  const concurrencyLabel = quotaSummary.concurrencyLabel || "--";
+  const subscriptionExpiryLabel = quotaSummary.subscriptionExpiryLabel || "--";
 
   return (
     <aside className="flex h-full w-[72px] shrink-0 flex-col items-center border-r border-stone-200/70 bg-white/92 px-2 py-4 backdrop-blur-xl sm:w-[76px]">
@@ -365,7 +379,7 @@ export function TopNav() {
                   <span className="max-w-full truncate text-[10px] text-sky-600">{roleLabel}</span>
                 </button>
               </PopoverTrigger>
-              <PopoverContent side="right" align="end" sideOffset={10} className="w-60 p-3">
+              <PopoverContent side="right" align="end" sideOffset={10} className="w-64 p-3">
                 <div className="text-sm font-semibold text-stone-950">本地额度</div>
                 <div className="mt-2 flex items-end gap-1">
                   <span className="text-3xl font-bold tracking-tight text-stone-950">{quotaSummary.value}</span>
@@ -380,6 +394,20 @@ export function TopNav() {
                   <span className="truncate text-right font-medium text-stone-700" title={quotaExpiryLabel}>
                     {quotaExpiryLabel}
                   </span>
+                  <span className="text-stone-400">当前订阅</span>
+                  <span className="truncate text-right font-medium text-stone-700" title={subscriptionLabel}>
+                    {subscriptionLabel}
+                  </span>
+                  <span className="text-stone-400">任务并发</span>
+                  <span className="truncate text-right font-medium text-stone-700">{concurrencyLabel}</span>
+                  {quotaSummary.subscriptionExpiryLabel ? (
+                    <>
+                      <span className="text-stone-400">订阅到期</span>
+                      <span className="truncate text-right font-medium text-stone-700" title={subscriptionExpiryLabel}>
+                        {subscriptionExpiryLabel}
+                      </span>
+                    </>
+                  ) : null}
                 </div>
                 {isRefreshingPurchaseSettings ? (
                   <div className="mt-3 flex h-10 w-full items-center justify-center rounded-lg bg-stone-100 px-3 text-sm font-medium text-stone-500">
