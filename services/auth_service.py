@@ -462,7 +462,7 @@ class AuthService:
                 include_api_key=False,
             ),
             "image_count": int((stats or {}).get("image_count") or 0),
-            "spent_quota": _quota_value((stats or {}).get("spent_quota") or user.get("quota_used")),
+            "spent_quota": _quota_value(user.get("quota_used")),
         }
 
     def _find_user_index_by_id(self, user_id: str) -> int:

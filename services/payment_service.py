@@ -336,7 +336,7 @@ class PaymentService:
         concurrency = int(plan.get("concurrency") or 1)
         money = _normalize_money(plan.get("price"))
         now = _now()
-        out_trade_no = f"YAI{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}{secrets.token_hex(4).upper()}"
+        out_trade_no = f"IKUN{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}{secrets.token_hex(4).upper()}"
         api_base = api_base_url.rstrip("/")
         return_base = return_base_url.rstrip("/")
         order: dict[str, object] = {

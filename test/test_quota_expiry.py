@@ -21,11 +21,21 @@ class QuotaExpiryTest(unittest.TestCase):
             service.confirm_quota("request-confirm")
             service.reserve_quota(str(user["id"]), 0.4, "request-release")
             service.release_quota("request-release")
+            storage.save_image_records(
+                [
+                    {
+                        "id": "legacy-image",
+                        "owner_user_id": str(user["id"]),
+                        "quota_cost": 1,
+                    }
+                ]
+            )
 
             current = service.get_user(str(user["id"]))
             self.assertIsNotNone(current)
             self.assertEqual(current["quota"], 1.25)  # type: ignore[index]
             self.assertEqual(current["quota_used"], 0.25)  # type: ignore[index]
+            self.assertEqual(current["spent_quota"], 0.25)  # type: ignore[index]
 
     def test_decimal_quota_is_preserved_in_database_storage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

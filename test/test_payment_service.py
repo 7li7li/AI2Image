@@ -152,6 +152,7 @@ class PaymentServiceTest(unittest.TestCase):
                     api_base_url="https://example.com",
                     return_base_url="https://app.example.com",
                 )
+                self.assertTrue(str(order["out_trade_no"]).startswith("IKUN"))
                 parsed = urlparse(pay_url)
                 pay_params = {key: values[0] for key, values in parse_qs(parsed.query).items()}
 
