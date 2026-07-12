@@ -37,6 +37,7 @@ function normalizeSiteSettings(settings?: Partial<PublicSiteSettings> | null): P
         name: String(plan?.name || "").trim(),
         quota: Number(plan?.quota || 0),
         valid_months: Number(plan?.valid_months || 0),
+        concurrency: Math.max(1, Math.min(50, Math.trunc(Number(plan?.concurrency) || 1))),
         price: String(plan?.price || "").trim(),
       }))
       .filter((plan) => plan.id && plan.quota > 0 && plan.valid_months > 0 && plan.price),

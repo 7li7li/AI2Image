@@ -240,6 +240,7 @@ class PaymentService:
             "plan_name": order.get("plan_name"),
             "quota": order.get("quota"),
             "valid_months": order.get("valid_months"),
+            "concurrency": order.get("concurrency") or 1,
             "price": order.get("price"),
             "money": order.get("money"),
             "status": order.get("status"),
@@ -280,12 +281,14 @@ class PaymentService:
             raise PaymentError("canceled payment order cannot be marked as paid")
 
         now = _now()
-        quota_expires_at = _add_months(now, int(order.get("valid_months") or 0)).isoformat()
-        user = self.auth.adjust_user_quota(
+        user = self.auth.grant_subscription(
             _clean(order.get("user_id")),
-            int(order.get("quota") or 0),
-            mode="add",
-            quota_expires_at=quota_expires_at,
+            plan_id=_clean(order.get("plan_id")),
+            plan_name=_clean(order.get("plan_name")),
+            order_id=_clean(order.get("out_trade_no")),
+            quota=int(order.get("quota") or 0),
+            valid_months=int(order.get("valid_months") or 1),
+            concurrency=int(order.get("concurrency") or 1),
         )
         if user is None:
             raise PaymentError("payment user not found")
@@ -295,7 +298,7 @@ class PaymentService:
                 "status": "paid",
                 "paid_at": order.get("paid_at") or now.isoformat(),
                 "updated_at": now.isoformat(),
-                "quota_expires_at": quota_expires_at,
+                "quota_expires_at": user.get("quota_expires_at"),
                 "quota_granted_at": now.isoformat(),
                 "epay_trade_no": epay_trade_no or _clean(order.get("epay_trade_no")),
                 "paid_source": paid_source,
@@ -330,6 +333,7 @@ class PaymentService:
         plan = self._find_plan(plan_id)
         quota = int(plan.get("quota") or 0)
         valid_months = int(plan.get("valid_months") or 0)
+        concurrency = int(plan.get("concurrency") or 1)
         money = _normalize_money(plan.get("price"))
         now = _now()
         out_trade_no = f"YAI{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}{secrets.token_hex(4).upper()}"
@@ -344,6 +348,7 @@ class PaymentService:
             "plan_name": plan.get("name"),
             "quota": quota,
             "valid_months": valid_months,
+            "concurrency": concurrency,
             "price": plan.get("price"),
             "money": money,
             "status": "pending",
@@ -378,6 +383,31 @@ class PaymentService:
                 if _clean(order.get("user_id")) == normalized_user_id
             ]
         return orders[: max(1, min(100, int(limit or 20)))]
+
+    def active_subscription_concurrency(self, user_id: str, *, default: int = 1) -> int:
+        normalized_user_id = _clean(user_id)
+        effective = self.auth.task_concurrency(normalized_user_id, default=default)
+        now = _now()
+        with self._lock:
+            orders = self._load_orders_unlocked()
+            for order in orders:
+                if (
+                    _clean(order.get("user_id")) != normalized_user_id
+                    or _clean(order.get("status")).lower() != "paid"
+                    or (_parse_time(order.get("quota_expires_at")) or now) <= now
+                ):
+                    continue
+                raw_concurrency = order.get("concurrency")
+                if raw_concurrency is None or raw_concurrency == "":
+                    try:
+                        raw_concurrency = self._find_plan(_clean(order.get("plan_id"))).get("concurrency")
+                    except PaymentError:
+                        raw_concurrency = 1
+                try:
+                    effective = max(effective, max(1, min(50, int(raw_concurrency or 1))))
+                except (TypeError, ValueError):
+                    continue
+        return effective
 
     def list_orders(self, *, status: str = "", query: str = "", limit: int = 200) -> list[dict[str, object]]:
         normalized_status = _clean(status).lower()

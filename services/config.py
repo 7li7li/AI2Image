@@ -33,6 +33,7 @@ DEFAULT_TEXT_MODEL = "gpt-5.5"
 DEFAULT_BACKGROUND_TASK_MAX_WORKERS = 12
 DEFAULT_BACKGROUND_TASK_QUEUE_LIMIT = 100
 DEFAULT_BACKGROUND_TASK_USER_LIMIT = 3
+DEFAULT_BACKGROUND_TASK_USER_QUEUE_LIMIT = 20
 DEFAULT_SMTP_PORT = 587
 DEFAULT_VERIFICATION_CODE_MINUTES = 10
 
@@ -165,7 +166,8 @@ def _clean_subscription_plans(value: object) -> list[dict[str, object]]:
             maximum=120,
         )
         price = str(raw.get("price", "")).strip()[:80]
-        if quota is None or valid_months is None or not price:
+        concurrency = _strict_bounded_int(raw.get("concurrency", 1), minimum=1, maximum=50)
+        if quota is None or valid_months is None or concurrency is None or not price:
             continue
         plan_id = _clean_subscription_plan_id(raw.get("id"), fallback=f"plan-{index + 1}", seen=seen)
         name = _clean_site_text(raw.get("name"), default="", max_length=80)
@@ -177,6 +179,7 @@ def _clean_subscription_plans(value: object) -> list[dict[str, object]]:
                 "name": name,
                 "quota": quota,
                 "valid_months": valid_months,
+                "concurrency": concurrency,
                 "price": price,
             }
         )
@@ -317,6 +320,13 @@ def _normalize_update_data(data: dict[str, object]) -> dict[str, object]:
             default=DEFAULT_BACKGROUND_TASK_USER_LIMIT,
             minimum=0,
             maximum=50,
+        )
+    if "background_task_user_queue_limit" in updates:
+        updates["background_task_user_queue_limit"] = _bounded_int(
+            updates.get("background_task_user_queue_limit"),
+            default=DEFAULT_BACKGROUND_TASK_USER_QUEUE_LIMIT,
+            minimum=1,
+            maximum=1000,
         )
     if "image_retention_days" in updates:
         updates["image_retention_days"] = _bounded_int(
@@ -608,6 +618,16 @@ class ConfigStore:
         )
 
     @property
+    def background_task_user_queue_limit(self) -> int:
+        return _bounded_int(
+            os.getenv("YANAI_BACKGROUND_TASK_USER_QUEUE_LIMIT")
+            or self._get_config_value("background_task_user_queue_limit"),
+            default=DEFAULT_BACKGROUND_TASK_USER_QUEUE_LIMIT,
+            minimum=1,
+            maximum=1000,
+        )
+
+    @property
     def allow_user_registration(self) -> bool:
         return _bool(self._get_config_value("allow_user_registration"), False)
 
@@ -761,6 +781,7 @@ class ConfigStore:
         data["background_task_max_workers"] = self.background_task_max_workers
         data["background_task_queue_limit"] = self.background_task_queue_limit
         data["background_task_user_limit"] = self.background_task_user_limit
+        data["background_task_user_queue_limit"] = self.background_task_user_queue_limit
         data["allow_user_registration"] = self.allow_user_registration
         data["email_verification_enabled"] = self.email_verification_enabled
         data["email_domain_whitelist_enabled"] = self.email_domain_whitelist_enabled
@@ -828,6 +849,7 @@ class ConfigStore:
                 max_workers=self.background_task_max_workers,
                 max_pending_tasks=self.background_task_queue_limit,
                 max_tasks_per_owner=self.background_task_user_limit,
+                max_pending_tasks_per_owner=self.background_task_user_queue_limit,
             )
         except Exception:
             return

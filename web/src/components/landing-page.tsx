@@ -503,7 +503,7 @@ export function LandingPage() {
                       </div>
                       <div className="flex items-center gap-3">
                         <Check className="size-4 shrink-0 text-[#45c4a0]" aria-hidden="true" />
-                        <span>用于站内 AI 创作服务</span>
+                        <span>支持 <strong className="font-semibold text-[#343f52]">{plan.concurrency}</strong> 个任务并发</span>
                       </div>
                     </div>
                     <a

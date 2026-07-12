@@ -11,12 +11,14 @@ export type SubscriptionPlan = {
   name: string;
   quota: number;
   valid_months: number;
+  concurrency: number;
   price: string;
 };
 
-export type SettingsSubscriptionPlan = Omit<SubscriptionPlan, "quota" | "valid_months"> & {
+export type SettingsSubscriptionPlan = Omit<SubscriptionPlan, "quota" | "valid_months" | "concurrency"> & {
   quota: number | string;
   valid_months: number | string;
+  concurrency: number | string;
 };
 
 export type SettingsConfig = {
@@ -40,6 +42,7 @@ export type SettingsConfig = {
   background_task_max_workers?: number | string;
   background_task_queue_limit?: number | string;
   background_task_user_limit?: number | string;
+  background_task_user_queue_limit?: number | string;
   log_levels?: string[];
   allow_user_registration?: boolean;
   email_verification_enabled?: boolean;
@@ -86,6 +89,7 @@ export type SubscriptionOrder = {
   plan_name: string;
   quota: number;
   valid_months: number;
+  concurrency?: number;
   price: string;
   money: string;
   status: "pending" | "paid" | "canceled" | string;
@@ -351,6 +355,16 @@ export type BackgroundTaskStatus<T = unknown> = {
   updated_at?: string;
   result?: T;
   error?: string;
+};
+
+export type BackgroundTaskStats = {
+  max_workers: number;
+  max_pending_tasks: number;
+  max_pending_tasks_per_owner: number;
+  concurrency: number;
+  queued: number;
+  running: number;
+  active: number;
 };
 
 export type ChatTaskResult = {
@@ -930,6 +944,10 @@ export async function createChatCompletionTask(
 
 export async function fetchBackgroundTask<T = unknown>(taskId: string) {
   return httpRequest<BackgroundTaskStatus<T>>(`/api/tasks/${encodeURIComponent(taskId)}`);
+}
+
+export async function fetchBackgroundTaskStats() {
+  return httpRequest<{ stats: BackgroundTaskStats }>("/api/tasks");
 }
 
 function parseTaskSseEvent<T>(raw: string): { type: "update"; task: BackgroundTaskStatus<T> } | { type: "error"; error: string } | null {

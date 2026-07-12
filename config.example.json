@@ -11,6 +11,7 @@
       "name": "基础套餐",
       "quota": 100,
       "valid_months": 1,
+      "concurrency": 1,
       "price": "19.9"
     }
   ],
@@ -25,6 +26,7 @@
   "background_task_max_workers": 12,
   "background_task_queue_limit": 100,
   "background_task_user_limit": 3,
+  "background_task_user_queue_limit": 20,
   "allow_user_registration": false,
   "email_verification_enabled": false,
   "email_domain_whitelist_enabled": false,

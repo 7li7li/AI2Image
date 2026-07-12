@@ -33,6 +33,7 @@ import {
   createImageEditTask,
   createImageGenerationTask,
   fetchBackgroundTask,
+  fetchBackgroundTaskStats,
   fetchAvailableModels,
   fetchModelQuotaCosts,
   fetchMyImages,
@@ -78,8 +79,7 @@ const IMAGE_TRANSPARENT_BACKGROUND_STORAGE_KEY = "chatgpt2api:image_last_transpa
 const IMAGE_MODEL_STORAGE_KEY = "chatgpt2api:image_last_model";
 const SUPPORTED_IMAGE_SIZES = new Set(["", "1:1", "3:2", "2:3", "16:9", "9:16", "4:3", "3:4", "21:9", "9:21"]);
 const BACKGROUND_TASK_POLL_INTERVAL_MS = 1500;
-const activeConversationQueueIds = new Set<string>();
-let isImageGenerationQueueRunning = false;
+const activeImageTurnQueueIds = new Set<string>();
 
 type PreparedReferenceImage = {
   referenceImage: StoredReferenceImage;
@@ -452,6 +452,8 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   const [conversations, setConversations] = useState<ImageConversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [taskConcurrency, setTaskConcurrency] = useState(1);
+  const [queueTick, setQueueTick] = useState(0);
   const [lightboxImages, setLightboxImages] = useState<ImageLightboxItem[]>([]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -561,9 +563,27 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
 
   useEffect(() => {
     let cancelled = false;
+    void fetchBackgroundTaskStats()
+      .then((payload) => {
+        if (!cancelled) {
+          setTaskConcurrency(Math.max(1, Number(payload.stats.concurrency) || 1));
+        }
+      })
+      .catch(() => {
+        // The backend remains authoritative; one local worker is the safe fallback.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [imageConversationOwnerKey]);
+
+  useEffect(() => {
+    let cancelled = false;
 
     const isConversationQueueActive = (conversationId: string) =>
-      activeConversationQueueIds.has(`${imageConversationOwnerKey}:${conversationId}`);
+      Array.from(activeImageTurnQueueIds).some((key) =>
+        key.startsWith(`${imageConversationOwnerKey}:${conversationId}:`),
+      );
 
     const loadHistory = async ({ resetBeforeLoad = false }: { resetBeforeLoad?: boolean } = {}) => {
       if (resetBeforeLoad) {
@@ -997,20 +1017,26 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
 
   /* eslint-disable react-hooks/preserve-manual-memoization */
   const runConversationQueue = useCallback(
-    async (conversationId: string) => {
-      const queueId = `${imageConversationOwnerKey}:${conversationId}`;
-      if (isImageGenerationQueueRunning || activeConversationQueueIds.has(queueId)) {
+    async (conversationId: string, requestedTurnId?: string) => {
+      const ownerPrefix = `${imageConversationOwnerKey}:`;
+      const activeCount = Array.from(activeImageTurnQueueIds).filter((key) => key.startsWith(ownerPrefix)).length;
+      if (activeCount >= taskConcurrency) {
         return;
       }
 
       const snapshot = conversationsRef.current.find((conversation) => conversation.id === conversationId);
-      const queuedTurn = snapshot?.turns.find((turn) => turn.status === "queued");
+      const queuedTurn = snapshot?.turns.find(
+        (turn) => turn.status === "queued" && (!requestedTurnId || turn.id === requestedTurnId),
+      );
       if (!snapshot || !queuedTurn) {
         return;
       }
 
-      isImageGenerationQueueRunning = true;
-      activeConversationQueueIds.add(queueId);
+      const queueId = `${imageConversationOwnerKey}:${conversationId}:${queuedTurn.id}`;
+      if (activeImageTurnQueueIds.has(queueId)) {
+        return;
+      }
+      activeImageTurnQueueIds.add(queueId);
       try {
         await updateConversation(conversationId, (current) => {
           const conversation = current ?? snapshot;
@@ -1223,35 +1249,31 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
         });
         toast.error(message);
       } finally {
-        activeConversationQueueIds.delete(queueId);
-        isImageGenerationQueueRunning = false;
-
-        const nextQueuedConversation = conversationsRef.current.find((conversation) => {
-          const nextQueueId = `${imageConversationOwnerKey}:${conversation.id}`;
-          return (
-            !activeConversationQueueIds.has(nextQueueId) &&
-            conversation.turns.some((turn) => turn.status === "queued")
-          );
-        });
-        if (nextQueuedConversation) {
-          void runConversationQueue(nextQueuedConversation.id);
-        }
+        activeImageTurnQueueIds.delete(queueId);
+        setQueueTick((current) => current + 1);
       }
     },
-    [imageConversationOwnerKey, updateConversation],
+    [imageConversationOwnerKey, taskConcurrency, updateConversation],
   );
   /* eslint-enable react-hooks/preserve-manual-memoization */
 
   useEffect(() => {
-    const nextQueuedConversation = conversations.find(
-      (conversation) =>
-        !activeConversationQueueIds.has(`${imageConversationOwnerKey}:${conversation.id}`) &&
-        conversation.turns.some((turn) => turn.status === "queued"),
+    const ownerPrefix = `${imageConversationOwnerKey}:`;
+    const activeCount = Array.from(activeImageTurnQueueIds).filter((key) => key.startsWith(ownerPrefix)).length;
+    const availableSlots = Math.max(0, taskConcurrency - activeCount);
+    const queuedTurns = conversations.flatMap((conversation) =>
+      conversation.turns
+        .filter(
+          (turn) =>
+            turn.status === "queued" &&
+            !activeImageTurnQueueIds.has(`${imageConversationOwnerKey}:${conversation.id}:${turn.id}`),
+        )
+        .map((turn) => ({ conversationId: conversation.id, turnId: turn.id })),
     );
-    if (nextQueuedConversation) {
-      void runConversationQueue(nextQueuedConversation.id);
+    for (const item of queuedTurns.slice(0, availableSlots)) {
+      void runConversationQueue(item.conversationId, item.turnId);
     }
-  }, [conversations, imageConversationOwnerKey, runConversationQueue]);
+  }, [conversations, imageConversationOwnerKey, queueTick, runConversationQueue, taskConcurrency]);
 
   const handleSubmit = async () => {
     const prompt = imagePrompt.trim();

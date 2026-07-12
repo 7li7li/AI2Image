@@ -26,6 +26,7 @@ export function ConfigCard() {
   const setBackgroundTaskMaxWorkers = useSettingsStore((state) => state.setBackgroundTaskMaxWorkers);
   const setBackgroundTaskQueueLimit = useSettingsStore((state) => state.setBackgroundTaskQueueLimit);
   const setBackgroundTaskUserLimit = useSettingsStore((state) => state.setBackgroundTaskUserLimit);
+  const setBackgroundTaskUserQueueLimit = useSettingsStore((state) => state.setBackgroundTaskUserQueueLimit);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
   const setProxy = useSettingsStore((state) => state.setProxy);
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
@@ -382,7 +383,7 @@ export function ConfigCard() {
               <p className="text-xs text-stone-500">排队和运行中的后台任务总数达到该值后，新任务会返回繁忙。</p>
             </div>
             <div className="space-y-2">
-              <label className="text-sm text-stone-700">单账号任务上限</label>
+              <label className="text-sm text-stone-700">默认账号并发</label>
               <Input
                 type="number"
                 min={0}
@@ -392,7 +393,20 @@ export function ConfigCard() {
                 placeholder="3"
                 className="h-10 rounded-xl border-stone-200 bg-white"
               />
-              <p className="text-xs text-stone-500">单个账号排队和运行中的任务上限，填 0 表示不限制。</p>
+              <p className="text-xs text-stone-500">未订阅账号和管理员的默认运行并发；订阅用户使用套餐并发数。</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">单账号待处理上限</label>
+              <Input
+                type="number"
+                min={1}
+                max={1000}
+                value={String(config?.background_task_user_queue_limit ?? "")}
+                onChange={(event) => setBackgroundTaskUserQueueLimit(event.target.value)}
+                placeholder="20"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+              <p className="text-xs text-stone-500">单个账号排队和运行中的任务总数达到该值后拒绝新任务。</p>
             </div>
             <div className="space-y-2">
               <label className="text-sm text-stone-700">默认画图模型</label>

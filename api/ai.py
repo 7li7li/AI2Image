@@ -18,6 +18,7 @@ from services.image_service import record_image_result
 from services.log_service import LOG_TYPE_CALL, log_service
 from services.model_service import model_service
 from services.observability import request_id_from_request
+from services.payment_service import payment_service
 
 
 PUBLIC_CHANNEL_ERROR = "服务暂时不可用，请稍后重试"
@@ -247,6 +248,15 @@ def create_router() -> APIRouter:
     def task_owner_key(identity: dict[str, object]) -> str:
         subject = str(identity.get("id") or identity.get("email") or identity.get("name") or "").strip()
         return f"{identity.get('role') or 'unknown'}:{subject}"
+
+    def task_concurrency(identity: dict[str, object]) -> int:
+        default = max(1, int(config.background_task_user_limit or 1))
+        if identity.get("role") != "user":
+            return default
+        return payment_service.active_subscription_concurrency(
+            str(identity.get("id") or ""),
+            default=default,
+        )
 
     def execute_generation_request(
             *,
@@ -487,9 +497,13 @@ def create_router() -> APIRouter:
     def sse_event(event: str, data: dict[str, object]) -> str:
         return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
-    def submit_background_task(*, quota_request_id: str | None = None, **kwargs):
+    def submit_background_task(*, identity: dict[str, object], quota_request_id: str | None = None, **kwargs):
         try:
-            return background_task_service.submit(**kwargs)
+            return background_task_service.submit(
+                owner_concurrency=task_concurrency(identity),
+                owner_concurrency_resolver=lambda: task_concurrency(identity),
+                **kwargs,
+            )
         except ValueError as exc:
             if quota_request_id:
                 auth_service.release_quota(quota_request_id)
@@ -662,7 +676,12 @@ def create_router() -> APIRouter:
         identity = require_identity(authorization)
         if identity.get("role") == "admin":
             return {"stats": background_task_service.stats()}
-        return {"stats": background_task_service.stats(task_owner_key(identity))}
+        return {
+            "stats": background_task_service.stats(
+                task_owner_key(identity),
+                owner_concurrency=task_concurrency(identity),
+            )
+        }
 
     @router.get("/api/tasks/{task_id}/events")
     async def stream_background_task_events(
@@ -735,6 +754,7 @@ def create_router() -> APIRouter:
         quota_cost = image_quota_cost(identity, str(payload.get("model") or ""))
         quota_request_id = reserve_image_quota(identity, int(body.n or 1) * quota_cost, request_id)
         return submit_background_task(
+            identity=identity,
             quota_request_id=quota_request_id,
             task_id=request_id,
             owner_key=owner_key,
@@ -814,6 +834,7 @@ def create_router() -> APIRouter:
         quota_cost = image_quota_cost(identity, str(payload.get("model") or ""))
         quota_request_id = reserve_image_quota(identity, int(n or 1) * quota_cost, request_id)
         return submit_background_task(
+            identity=identity,
             quota_request_id=quota_request_id,
             task_id=request_id,
             owner_key=owner_key,
@@ -910,6 +931,7 @@ def create_router() -> APIRouter:
             except ValueError as exc:
                 raise HTTPException(status_code=429, detail={"error": str(exc)}) from exc
         return submit_background_task(
+            identity=identity,
             quota_request_id=quota_request_id,
             task_id=request_id,
             owner_key=owner_key,

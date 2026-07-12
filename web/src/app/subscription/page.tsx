@@ -353,6 +353,10 @@ function SubscriptionContent() {
                       <span className="text-stone-500">到期时间</span>
                       <span className="font-semibold text-stone-800">{validityLabel(plan.valid_months)}</span>
                     </div>
+                    <div className="flex items-center justify-between rounded-lg bg-stone-50 px-3 py-2">
+                      <span className="text-stone-500">任务并发</span>
+                      <span className="font-semibold text-stone-800">{plan.concurrency}</span>
+                    </div>
                   </div>
                   <Button
                     className="mt-5 h-10 rounded-xl bg-stone-950 text-white hover:bg-stone-800"

@@ -13,6 +13,7 @@ class BackgroundTaskServiceTest(unittest.TestCase):
             max_workers=1,
             max_pending_tasks=2,
             max_tasks_per_owner=1,
+            max_pending_tasks_per_owner=1,
             retention_seconds=60,
         )
         try:
@@ -22,7 +23,7 @@ class BackgroundTaskServiceTest(unittest.TestCase):
                 kind="test",
                 runner=lambda: (release_first.wait(5) and {"ok": True}) or {"ok": False},
             )
-            self.assertEqual(first["status"], "queued")
+            self.assertEqual(first["status"], "running")
 
             with self.assertRaises(ValueError):
                 service.submit(
@@ -67,6 +68,7 @@ class BackgroundTaskServiceTest(unittest.TestCase):
             max_workers=1,
             max_pending_tasks=1,
             max_tasks_per_owner=1,
+            max_pending_tasks_per_owner=1,
             retention_seconds=60,
         )
         try:
@@ -96,6 +98,47 @@ class BackgroundTaskServiceTest(unittest.TestCase):
         finally:
             release_first.set()
             release_second.set()
+            service.shutdown(wait=True)
+
+    def test_owner_concurrency_queues_without_blocking_other_owners(self) -> None:
+        release = Event()
+        service = BackgroundTaskService(
+            max_workers=3,
+            max_pending_tasks=10,
+            max_tasks_per_owner=1,
+            max_pending_tasks_per_owner=10,
+            retention_seconds=60,
+        )
+        try:
+            first = service.submit(
+                task_id="task-a-1",
+                owner_key="user:a",
+                kind="test",
+                owner_concurrency=1,
+                runner=lambda: (release.wait(5) and {"ok": True}) or {"ok": False},
+            )
+            second = service.submit(
+                task_id="task-a-2",
+                owner_key="user:a",
+                kind="test",
+                owner_concurrency=1,
+                runner=lambda: {"ok": True},
+            )
+            other = service.submit(
+                task_id="task-b-1",
+                owner_key="user:b",
+                kind="test",
+                owner_concurrency=1,
+                runner=lambda: (release.wait(5) and {"ok": True}) or {"ok": False},
+            )
+
+            self.assertEqual(first["status"], "running")
+            self.assertEqual(second["status"], "queued")
+            self.assertEqual(other["status"], "running")
+            self.assertEqual(service.stats("user:a", owner_concurrency=1)["running"], 1)
+            self.assertEqual(service.stats("user:a", owner_concurrency=1)["queued"], 1)
+        finally:
+            release.set()
             service.shutdown(wait=True)
 
 

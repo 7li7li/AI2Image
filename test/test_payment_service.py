@@ -34,6 +34,7 @@ class PaymentServiceTest(unittest.TestCase):
                             "name": "基础套餐",
                             "quota": 100,
                             "valid_months": 1,
+                            "concurrency": 4,
                             "price": "19.9",
                         }
                     ],
@@ -62,6 +63,62 @@ class PaymentServiceTest(unittest.TestCase):
             ),
             expected,
         )
+
+    def test_active_subscription_uses_highest_concurrency_and_renews_same_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _service, auth, user = self._create_service(tmp_dir)
+            user_id = str(user["id"])
+            first = auth.grant_subscription(
+                user_id,
+                plan_id="starter",
+                plan_name="Starter",
+                order_id="order-1",
+                quota=100,
+                valid_months=1,
+                concurrency=4,
+            )
+            first_expiry = str((first or {}).get("subscription", {}).get("expires_at"))  # type: ignore[union-attr]
+            auth.grant_subscription(
+                user_id,
+                plan_id="basic",
+                plan_name="Basic",
+                order_id="order-2",
+                quota=50,
+                valid_months=1,
+                concurrency=2,
+            )
+            renewed = auth.grant_subscription(
+                user_id,
+                plan_id="starter",
+                plan_name="Starter",
+                order_id="order-3",
+                quota=100,
+                valid_months=1,
+                concurrency=4,
+            )
+
+            self.assertEqual(auth.task_concurrency(user_id, default=1), 4)
+            self.assertEqual((renewed or {}).get("subscription_concurrency"), 4)
+            self.assertGreater(str((renewed or {}).get("subscription", {}).get("expires_at")), first_expiry)  # type: ignore[union-attr]
+            self.assertEqual((renewed or {}).get("quota"), 250)
+
+    def test_legacy_paid_order_uses_current_plan_concurrency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service, _auth, user = self._create_service(tmp_dir)
+            order, _ = service.create_subscription_order(
+                user=user,
+                plan_id="starter",
+                api_base_url="https://example.com",
+            )
+            orders = json.loads(service.path.read_text(encoding="utf-8"))
+            orders[0].pop("concurrency", None)
+            service.path.write_text(json.dumps(orders), encoding="utf-8")
+            service.mark_order_paid(str(order["out_trade_no"]))
+
+            self.assertEqual(
+                service.active_subscription_concurrency(str(user["id"]), default=1),
+                4,
+            )
 
     def test_epay_callback_grants_quota_once(self) -> None:
         original_type = os.environ.get("YANAI_EPAY_TYPE")
@@ -103,7 +160,9 @@ class PaymentServiceTest(unittest.TestCase):
                 paid_order, granted = service.handle_epay_callback(callback)
                 self.assertTrue(granted)
                 self.assertEqual(paid_order["status"], "paid")
+                self.assertEqual(paid_order["concurrency"], 4)
                 self.assertEqual(auth.get_user(str(user["id"]))["quota"], 100)  # type: ignore[index]
+                self.assertEqual(auth.get_user(str(user["id"]))["subscription_concurrency"], 4)  # type: ignore[index]
 
                 _, duplicate_granted = service.handle_epay_callback(callback)
                 self.assertFalse(duplicate_granted)

@@ -60,8 +60,9 @@ function normalizeSubscriptionPlans(value: unknown): SubscriptionPlan[] {
       const item = plan && typeof plan === "object" ? (plan as Record<string, unknown>) : {};
       const quota = strictBoundedNumber(item.quota, 1, 1_000_000);
       const validMonths = strictBoundedNumber(item.valid_months, 1, 120);
+      const concurrency = strictBoundedNumber(item.concurrency ?? 1, 1, 50);
       const price = String(item.price ?? "").trim();
-      if (quota === null || validMonths === null || !price) {
+      if (quota === null || validMonths === null || concurrency === null || !price) {
         return null;
       }
       return {
@@ -69,6 +70,7 @@ function normalizeSubscriptionPlans(value: unknown): SubscriptionPlan[] {
         name: String(item.name || "").trim(),
         quota,
         valid_months: validMonths,
+        concurrency,
         price,
       };
     })
@@ -90,6 +92,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     background_task_max_workers: boundedNumber(config.background_task_max_workers, 12, 1, 128),
     background_task_queue_limit: boundedNumber(config.background_task_queue_limit, 100, 1, 10000),
     background_task_user_limit: boundedNumber(config.background_task_user_limit, 3, 0, 50),
+    background_task_user_queue_limit: boundedNumber(config.background_task_user_queue_limit, 20, 1, 1000),
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
     proxy: typeof config.proxy === "string" ? config.proxy : "",
     base_url: typeof config.base_url === "string" ? config.base_url : "",
@@ -138,6 +141,7 @@ type SettingsStore = {
   setBackgroundTaskMaxWorkers: (value: string) => void;
   setBackgroundTaskQueueLimit: (value: string) => void;
   setBackgroundTaskUserLimit: (value: string) => void;
+  setBackgroundTaskUserQueueLimit: (value: string) => void;
   setLogLevel: (level: string, enabled: boolean) => void;
   patchConfig: (updates: Partial<SettingsConfig>) => void;
   setProxy: (value: string) => void;
@@ -190,6 +194,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         background_task_max_workers: boundedNumber(config.background_task_max_workers, 12, 1, 128),
         background_task_queue_limit: boundedNumber(config.background_task_queue_limit, 100, 1, 10000),
         background_task_user_limit: boundedNumber(config.background_task_user_limit, 3, 0, 50),
+        background_task_user_queue_limit: boundedNumber(config.background_task_user_queue_limit, 20, 1, 1000),
         proxy: String(config.proxy || "").trim(),
         base_url: String(config.base_url || "").trim(),
         log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
@@ -234,6 +239,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setBackgroundTaskUserLimit: (value) => {
     set((state) => (state.config ? { config: { ...state.config, background_task_user_limit: value } } : {}));
+  },
+
+  setBackgroundTaskUserQueueLimit: (value) => {
+    set((state) => (state.config ? { config: { ...state.config, background_task_user_queue_limit: value } } : {}));
   },
 
   setLogLevel: (level, enabled) => {

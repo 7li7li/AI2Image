@@ -98,6 +98,54 @@ def _add_months(value: datetime, months: int) -> datetime:
     return value.replace(year=year, month=month, day=day)
 
 
+def _normalize_subscription_entitlements(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    items: list[dict[str, object]] = []
+    for raw in value[-100:]:
+        if not isinstance(raw, dict):
+            continue
+        expires_at = _parse_time(raw.get("expires_at"))
+        starts_at = _parse_time(raw.get("starts_at"))
+        try:
+            concurrency = max(1, min(50, int(raw.get("concurrency") or 1)))
+        except (TypeError, ValueError):
+            concurrency = 1
+        if expires_at is None:
+            continue
+        items.append({
+            "plan_id": str(raw.get("plan_id") or "").strip(),
+            "plan_name": str(raw.get("plan_name") or "").strip(),
+            "order_id": str(raw.get("order_id") or "").strip(),
+            "concurrency": concurrency,
+            "starts_at": (starts_at or _now()).isoformat(),
+            "expires_at": expires_at.isoformat(),
+        })
+    return items
+
+
+def _active_subscription_summary(user: dict[str, object], now: datetime | None = None) -> dict[str, object] | None:
+    current = now or _now()
+    active = [
+        item
+        for item in _normalize_subscription_entitlements(user.get("subscription_entitlements"))
+        if (_parse_time(item.get("starts_at")) or current) <= current
+        and (_parse_time(item.get("expires_at")) or current) > current
+    ]
+    if not active:
+        return None
+    selected = max(
+        active,
+        key=lambda item: (int(item.get("concurrency") or 1), _parse_time(item.get("expires_at")) or current),
+    )
+    return {
+        "plan_id": selected.get("plan_id"),
+        "plan_name": selected.get("plan_name"),
+        "concurrency": max(int(item.get("concurrency") or 1) for item in active),
+        "expires_at": selected.get("expires_at"),
+    }
+
+
 def _clean_text(value: object) -> str:
     return str(value or "").strip()
 
@@ -248,6 +296,7 @@ class AuthService:
             "quota": quota,
             "quota_used": quota_used,
             "quota_expires_at": quota_expires_at,
+            "subscription_entitlements": _normalize_subscription_entitlements(raw.get("subscription_entitlements")),
             "email_verified": _bool(raw.get("email_verified"), status != "pending"),
             "email_verified_at": self._clean(raw.get("email_verified_at")) or None,
             "email_verification_hash": self._clean(raw.get("email_verification_hash")),
@@ -389,6 +438,7 @@ class AuthService:
 
     @staticmethod
     def _public_user(user: dict[str, object], stats: dict[str, object] | None = None) -> dict[str, object]:
+        subscription = _active_subscription_summary(user)
         return {
             "id": user.get("id"),
             "email": user.get("email"),
@@ -398,6 +448,8 @@ class AuthService:
             "quota": _quota_value(user.get("quota")),
             "quota_used": _quota_value(user.get("quota_used")),
             "quota_expires_at": user.get("quota_expires_at"),
+            "subscription": subscription,
+            "subscription_concurrency": int((subscription or {}).get("concurrency") or 0),
             "email_verified": bool(user.get("email_verified", user.get("status") != "pending")),
             "email_verified_at": user.get("email_verified_at"),
             "created_at": user.get("created_at"),
@@ -975,6 +1027,71 @@ class AuthService:
             self._users[index] = self._normalize_user(user) or user
             self._save_users()
             return self._public_user(self._users[index])
+
+    def grant_subscription(
+        self,
+        user_id: str,
+        *,
+        plan_id: str,
+        plan_name: str,
+        order_id: str,
+        quota: float,
+        valid_months: int,
+        concurrency: int,
+    ) -> dict[str, object] | None:
+        normalized_id = self._clean(user_id)
+        now = _now()
+        months = max(1, min(120, int(valid_months or 1)))
+        normalized_concurrency = max(1, min(50, int(concurrency or 1)))
+        with self._lock:
+            index = self._find_user_index_by_id(normalized_id)
+            if index < 0:
+                return None
+            user = self._clear_expired_quota_locked(dict(self._users[index]), now=now)
+            entitlements = _normalize_subscription_entitlements(user.get("subscription_entitlements"))
+            matching_index = next(
+                (
+                    item_index
+                    for item_index, item in enumerate(entitlements)
+                    if str(item.get("plan_id") or "") == self._clean(plan_id)
+                    and (_parse_time(item.get("expires_at")) or now) > now
+                ),
+                -1,
+            )
+            base_time = now
+            if matching_index >= 0:
+                base_time = max(now, _parse_time(entitlements[matching_index].get("expires_at")) or now)
+            expires_at = _add_months(base_time, months)
+            entitlement = {
+                "plan_id": self._clean(plan_id),
+                "plan_name": self._clean(plan_name),
+                "order_id": self._clean(order_id),
+                "concurrency": normalized_concurrency,
+                "starts_at": now.isoformat(),
+                "expires_at": expires_at.isoformat(),
+            }
+            if matching_index >= 0:
+                entitlements[matching_index] = entitlement
+            else:
+                entitlements.append(entitlement)
+
+            user["quota"] = _quota_value(_quota_value(user.get("quota")) + _quota_value(quota))
+            current_quota_expiry = _parse_time(user.get("quota_expires_at"))
+            user["quota_expires_at"] = max(current_quota_expiry or now, expires_at).isoformat()
+            user["subscription_entitlements"] = entitlements
+            user["updated_at"] = now.isoformat()
+            self._users[index] = self._normalize_user(user) or user
+            self._save_users()
+            return self._public_user(self._users[index])
+
+    def task_concurrency(self, user_id: str, default: int = 1) -> int:
+        normalized_id = self._clean(user_id)
+        with self._lock:
+            index = self._find_user_index_by_id(normalized_id)
+            if index < 0:
+                return max(1, int(default or 1))
+            subscription = _active_subscription_summary(self._users[index])
+            return max(1, int((subscription or {}).get("concurrency") or default or 1))
 
     def ensure_quota(self, user_id: str, amount: float) -> None:
         if amount <= 0:

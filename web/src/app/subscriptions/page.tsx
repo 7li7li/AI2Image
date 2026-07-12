@@ -45,8 +45,9 @@ function normalizeSubscriptionPlans(value: unknown): SubscriptionPlan[] {
       const item = plan && typeof plan === "object" ? (plan as Record<string, unknown>) : {};
       const quota = strictBoundedNumber(item.quota, 1, 1_000_000);
       const validMonths = strictBoundedNumber(item.valid_months, 1, 120);
+      const concurrency = strictBoundedNumber(item.concurrency ?? 1, 1, 50);
       const price = String(item.price ?? "").trim();
-      if (quota === null || validMonths === null || !price) {
+      if (quota === null || validMonths === null || concurrency === null || !price) {
         return null;
       }
       return {
@@ -54,6 +55,7 @@ function normalizeSubscriptionPlans(value: unknown): SubscriptionPlan[] {
         name: String(item.name || "").trim(),
         quota,
         valid_months: validMonths,
+        concurrency,
         price,
       };
     })
@@ -126,6 +128,7 @@ function SubscriptionsContent() {
           name: "",
           quota: "100",
           valid_months: "1",
+          concurrency: "1",
           price: "19.9",
         },
       ],
@@ -344,7 +347,7 @@ function SubscriptionsContent() {
               subscriptionPlans.map((plan, index) => (
                 <div
                   key={`${plan.id}-${index}`}
-                  className="grid gap-3 rounded-xl border border-stone-100 bg-stone-50/70 p-3 lg:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr_auto]"
+                  className="grid gap-3 rounded-xl border border-stone-100 bg-stone-50/70 p-3 lg:grid-cols-[1.2fr_0.7fr_0.7fr_0.7fr_0.7fr_auto]"
                 >
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-stone-500">套餐名</label>
@@ -375,6 +378,18 @@ function SubscriptionsContent() {
                       max={120}
                       value={String(plan.valid_months ?? "")}
                       onChange={(event) => updateSubscriptionPlan(index, { valid_months: event.target.value })}
+                      placeholder="1"
+                      className="h-10 rounded-xl border-stone-200 bg-white"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-stone-500">并发数</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={String(plan.concurrency ?? 1)}
+                      onChange={(event) => updateSubscriptionPlan(index, { concurrency: event.target.value })}
                       placeholder="1"
                       className="h-10 rounded-xl border-stone-200 bg-white"
                     />

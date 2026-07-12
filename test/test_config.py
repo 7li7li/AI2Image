@@ -105,7 +105,7 @@ class ConfigLoadingTests(unittest.TestCase):
                 {
                     "quota_purchase_mode": "subscription",
                     "subscription_plans": [
-                        {"id": "basic plan", "name": "基础套餐", "quota": "100", "valid_months": "1", "price": "19.9"},
+                        {"id": "basic plan", "name": "基础套餐", "quota": "100", "valid_months": "1", "concurrency": "8", "price": "19.9"},
                         {"id": "basic plan", "quota": 250, "validity_months": 3, "price": 49},
                         {"id": "bad", "quota": 0, "valid_months": 1, "price": "1"},
                         {"id": "missing-price", "quota": 10, "valid_months": 1, "price": ""},
@@ -122,6 +122,7 @@ class ConfigLoadingTests(unittest.TestCase):
                         "name": "基础套餐",
                         "quota": 100,
                         "valid_months": 1,
+                        "concurrency": 8,
                         "price": "19.9",
                     },
                     {
@@ -129,6 +130,7 @@ class ConfigLoadingTests(unittest.TestCase):
                         "name": "250 点 / 3 个月",
                         "quota": 250,
                         "valid_months": 3,
+                        "concurrency": 1,
                         "price": "49",
                     },
                 ],
