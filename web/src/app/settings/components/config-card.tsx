@@ -131,6 +131,71 @@ export function ConfigCard() {
 
         <div className="space-y-3">
           <div>
+            <h2 className="text-base font-semibold text-stone-900">用户群组</h2>
+            <p className="mt-1 text-sm text-stone-500">配置在个人中心展示的 QQ 群和 Telegram 群入口。</p>
+          </div>
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm text-stone-700">QQ 群号</label>
+                  <Input
+                    inputMode="numeric"
+                    maxLength={20}
+                    value={String(config?.qq_group_number || "")}
+                    onChange={(event) => patchConfig({ qq_group_number: event.target.value })}
+                    placeholder="123456789"
+                    className="h-10 rounded-xl border-stone-200 bg-white"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm text-stone-700">QQ 群链接</label>
+                  <Input
+                    type="url"
+                    value={String(config?.qq_group_link || "")}
+                    onChange={(event) => patchConfig({ qq_group_link: event.target.value })}
+                    placeholder="https://qm.qq.com/q/..."
+                    className="h-10 rounded-xl border-stone-200 bg-white"
+                  />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(config?.qq_group_subscription_required)}
+                  onCheckedChange={(checked) =>
+                    patchConfig({ qq_group_subscription_required: checked === true })
+                  }
+                />
+                QQ 群仅向有有效订阅的用户显示
+              </label>
+            </div>
+
+            <div className="space-y-3 border-t border-stone-100 pt-4">
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Telegram 群链接</label>
+                <Input
+                  type="url"
+                  value={String(config?.telegram_group_link || "")}
+                  onChange={(event) => patchConfig({ telegram_group_link: event.target.value })}
+                  placeholder="https://t.me/example"
+                  className="h-10 rounded-xl border-stone-200 bg-white"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(config?.telegram_group_subscription_required)}
+                  onCheckedChange={(checked) =>
+                    patchConfig({ telegram_group_subscription_required: checked === true })
+                  }
+                />
+                Telegram 群仅向有有效订阅的用户显示
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div>
             <h2 className="text-base font-semibold text-stone-900">注册与邮件</h2>
             <p className="mt-1 text-sm text-stone-500">控制用户自助注册、邮箱验证、白名单和 SMTP 发信配置。</p>
           </div>

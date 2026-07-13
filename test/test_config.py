@@ -100,6 +100,76 @@ class ConfigLoadingTests(unittest.TestCase):
             else:
                 os.environ["YANAI_QUOTA_PURCHASE_URL"] = original_env_value
 
+    def test_community_groups_are_admin_configured_and_subscription_filtered(self) -> None:
+        module = self.config_module
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+            store = module.ConfigStore(config_path)
+
+            self.assertEqual(store.qq_group_number, "")
+            self.assertEqual(store.qq_group_link, "")
+            self.assertEqual(store.telegram_group_link, "")
+            self.assertFalse(store.qq_group_subscription_required)
+            self.assertFalse(store.telegram_group_subscription_required)
+            self.assertEqual(store.community_groups_for_user(has_subscription=False), {})
+
+            updated = store.update(
+                {
+                    "qq_group_number": " QQ 群：123 456 789 ",
+                    "qq_group_link": " https://qm.qq.com/q/example ",
+                    "qq_group_subscription_required": "true",
+                    "telegram_group_link": "https://t.me/example",
+                    "telegram_group_subscription_required": False,
+                }
+            )
+
+            self.assertEqual(updated["qq_group_number"], "123456789")
+            self.assertEqual(updated["qq_group_link"], "https://qm.qq.com/q/example")
+            self.assertEqual(updated["telegram_group_link"], "https://t.me/example")
+            self.assertTrue(updated["qq_group_subscription_required"])
+            self.assertFalse(updated["telegram_group_subscription_required"])
+            self.assertEqual(
+                store.community_groups_for_user(has_subscription=False),
+                {"telegram": {"link": "https://t.me/example"}},
+            )
+            self.assertEqual(
+                store.community_groups_for_user(has_subscription=True),
+                {
+                    "qq": {"number": "123456789", "link": "https://qm.qq.com/q/example"},
+                    "telegram": {"link": "https://t.me/example"},
+                },
+            )
+
+            reloaded = module.ConfigStore(config_path)
+            self.assertEqual(reloaded.qq_group_number, "123456789")
+            self.assertEqual(reloaded.qq_group_link, "https://qm.qq.com/q/example")
+            self.assertEqual(reloaded.telegram_group_link, "https://t.me/example")
+            self.assertTrue(reloaded.qq_group_subscription_required)
+            self.assertFalse(reloaded.telegram_group_subscription_required)
+
+            public = store.public_settings()
+            self.assertNotIn("qq_group_number", public)
+            self.assertNotIn("qq_group_link", public)
+            self.assertNotIn("telegram_group_link", public)
+            self.assertNotIn("qq_group_subscription_required", public)
+            self.assertNotIn("telegram_group_subscription_required", public)
+
+            updated = store.update(
+                {
+                    "qq_group_link": "javascript:alert(1)",
+                    "telegram_group_link": "t.me/missing-scheme",
+                    "qq_group_subscription_required": False,
+                    "telegram_group_subscription_required": True,
+                }
+            )
+            self.assertEqual(updated["qq_group_link"], "")
+            self.assertEqual(updated["telegram_group_link"], "")
+            self.assertEqual(
+                store.community_groups_for_user(has_subscription=False),
+                {"qq": {"number": "123456789", "link": ""}},
+            )
+
     def test_subscription_plans_are_admin_configured_and_public(self) -> None:
         module = self.config_module
         with tempfile.TemporaryDirectory() as tmp_dir:

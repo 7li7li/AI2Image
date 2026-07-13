@@ -26,6 +26,11 @@ export type SettingsConfig = {
   site_title?: string;
   site_icon?: string;
   site_background?: string;
+  qq_group_number?: string;
+  qq_group_link?: string;
+  qq_group_subscription_required?: boolean;
+  telegram_group_link?: string;
+  telegram_group_subscription_required?: boolean;
   quota_purchase_url?: string;
   quota_purchase_mode?: QuotaPurchaseMode | string;
   subscription_plans?: SettingsSubscriptionPlan[];
@@ -661,6 +666,15 @@ export type CurrentUser = {
   updated_at?: string | null;
   last_login_at?: string | null;
   image_channel?: UserImageChannel;
+  community_groups?: {
+    qq?: {
+      number: string;
+      link: string;
+    };
+    telegram?: {
+      link: string;
+    };
+  };
 };
 
 export type UserImageChannel = {

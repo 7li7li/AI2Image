@@ -27,6 +27,9 @@ DEFAULT_SITE_ICON = "/favicon.ico"
 DEFAULT_SITE_BACKGROUND = ""
 DEFAULT_QUOTA_PURCHASE_URL = ""
 DEFAULT_QUOTA_PURCHASE_MODE = "url"
+DEFAULT_QQ_GROUP_NUMBER = ""
+DEFAULT_QQ_GROUP_LINK = ""
+DEFAULT_TELEGRAM_GROUP_LINK = ""
 DEFAULT_EPAY_URL = ""
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_TEXT_MODEL = "gpt-5.5"
@@ -112,6 +115,20 @@ def _clean_site_text(value: object, *, default: str, max_length: int) -> str:
     if not text:
         return default
     return text[:max_length]
+
+
+def _normalize_qq_group_number(value: object) -> str:
+    return "".join(char for char in str(value or "") if char in "0123456789")[:20]
+
+
+def _normalize_community_link(value: object) -> str:
+    text = str(value or "").strip()[:1000]
+    if not text:
+        return ""
+    parsed = urlparse(text)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return text
 
 
 def _clean_subscription_plan_id(value: object, *, fallback: str, seen: set[str]) -> str:
@@ -221,7 +238,13 @@ def _normalize_update_data(data: dict[str, object]) -> dict[str, object]:
         else:
             updates[secret_key] = secret_value
 
-    for key in ("allow_user_registration", "email_verification_enabled", "email_domain_whitelist_enabled"):
+    for key in (
+        "allow_user_registration",
+        "email_verification_enabled",
+        "email_domain_whitelist_enabled",
+        "qq_group_subscription_required",
+        "telegram_group_subscription_required",
+    ):
         if key in updates:
             updates[key] = _bool(updates.get(key), False)
     for key in ("smtp_use_ssl", "smtp_use_starttls", "smtp_force_auth_login"):
@@ -270,6 +293,12 @@ def _normalize_update_data(data: dict[str, object]) -> dict[str, object]:
             default=DEFAULT_SITE_BACKGROUND,
             max_length=1000,
         )
+    if "qq_group_number" in updates:
+        updates["qq_group_number"] = _normalize_qq_group_number(updates.get("qq_group_number"))
+    if "qq_group_link" in updates:
+        updates["qq_group_link"] = _normalize_community_link(updates.get("qq_group_link"))
+    if "telegram_group_link" in updates:
+        updates["telegram_group_link"] = _normalize_community_link(updates.get("telegram_group_link"))
     if "quota_purchase_url" in updates:
         updates["quota_purchase_url"] = _clean_site_text(
             updates.get("quota_purchase_url"),
@@ -537,6 +566,43 @@ class ConfigStore:
         )
 
     @property
+    def qq_group_number(self) -> str:
+        return _normalize_qq_group_number(self._get_config_value("qq_group_number", DEFAULT_QQ_GROUP_NUMBER))
+
+    @property
+    def qq_group_link(self) -> str:
+        return _normalize_community_link(self._get_config_value("qq_group_link", DEFAULT_QQ_GROUP_LINK))
+
+    @property
+    def telegram_group_link(self) -> str:
+        return _normalize_community_link(
+            self._get_config_value("telegram_group_link", DEFAULT_TELEGRAM_GROUP_LINK)
+        )
+
+    @property
+    def qq_group_subscription_required(self) -> bool:
+        return _bool(self._get_config_value("qq_group_subscription_required"), False)
+
+    @property
+    def telegram_group_subscription_required(self) -> bool:
+        return _bool(self._get_config_value("telegram_group_subscription_required"), False)
+
+    def community_groups_for_user(self, *, has_subscription: bool) -> dict[str, dict[str, str]]:
+        groups: dict[str, dict[str, str]] = {}
+        if (self.qq_group_number or self.qq_group_link) and (
+            has_subscription or not self.qq_group_subscription_required
+        ):
+            groups["qq"] = {
+                "number": self.qq_group_number,
+                "link": self.qq_group_link,
+            }
+        if self.telegram_group_link and (
+            has_subscription or not self.telegram_group_subscription_required
+        ):
+            groups["telegram"] = {"link": self.telegram_group_link}
+        return groups
+
+    @property
     def quota_purchase_url(self) -> str:
         return _clean_site_text(
             os.getenv("YANAI_QUOTA_PURCHASE_URL") or self._get_config_value("quota_purchase_url"),
@@ -781,6 +847,11 @@ class ConfigStore:
         data["site_title"] = self.site_title
         data["site_icon"] = self.site_icon
         data["site_background"] = self.site_background
+        data["qq_group_number"] = self.qq_group_number
+        data["qq_group_link"] = self.qq_group_link
+        data["telegram_group_link"] = self.telegram_group_link
+        data["qq_group_subscription_required"] = self.qq_group_subscription_required
+        data["telegram_group_subscription_required"] = self.telegram_group_subscription_required
         data["quota_purchase_url"] = self.quota_purchase_url
         data["quota_purchase_mode"] = self.quota_purchase_mode
         data["subscription_plans"] = self.subscription_plans

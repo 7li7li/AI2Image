@@ -198,9 +198,13 @@ def create_router() -> APIRouter:
         )
         enriched = dict(user)
         enriched["task_concurrency"] = int(access["concurrency"])
-        enriched["subscription"] = access.get("subscription")
+        subscription = access.get("subscription")
+        enriched["subscription"] = subscription
         enriched["subscription_concurrency"] = int(
-            ((access.get("subscription") or {}).get("concurrency") or 0)
+            ((subscription or {}).get("concurrency") or 0)
+        )
+        enriched["community_groups"] = config.community_groups_for_user(
+            has_subscription=subscription is not None
         )
         return enriched
 

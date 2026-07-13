@@ -3,6 +3,11 @@
   "site_title": "Image Studio",
   "site_icon": "/favicon.ico",
   "site_background": "",
+  "qq_group_number": "",
+  "qq_group_link": "",
+  "qq_group_subscription_required": false,
+  "telegram_group_link": "",
+  "telegram_group_subscription_required": false,
   "quota_purchase_url": "",
   "quota_purchase_mode": "url",
   "subscription_plans": [
