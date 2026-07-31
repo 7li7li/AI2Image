@@ -21,6 +21,7 @@ import {
   ScissorsLineDashed,
   SlidersHorizontal,
   Sparkles,
+  SquarePen,
   SunMedium,
   WandSparkles,
   X,
@@ -32,6 +33,7 @@ import { toast } from "sonner";
 import {
   AnnotationEditorDialog,
   type AnnotationEditResult,
+  type AnnotationEditorImage,
 } from "@/app/image/components/annotation-editor-dialog";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { ModelIcon } from "@/components/model-icon";
@@ -45,6 +47,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   fetchPromptLibrary,
   resolveGeminiImageRequestSize,
+  resolveImageCanvasSize,
   resolveImageRequestSize,
   type ImageModeration,
   type ImageQuality,
@@ -405,41 +408,83 @@ Once parameters are set, generate notes in the chosen language adhering strictly
 
 type PromptPickerItem = Omit<PromptLibraryItem, "id"> & { id?: string };
 
-type QuickImageToolPreset = {
-  label: string;
-  prompt: string;
-  icon: LucideIcon;
-  transparentBackground?: boolean;
-};
+type QuickImageToolPreset =
+  | {
+      kind: "prompt";
+      label: string;
+      prompt: string;
+      icon: LucideIcon;
+      transparentBackground?: boolean;
+    }
+  | {
+      kind: "sketch";
+      label: string;
+      icon: LucideIcon;
+    };
 
 const QUICK_IMAGE_TOOL_PRESETS: QuickImageToolPreset[] = [
   {
+    kind: "sketch",
+    label: "草图",
+    icon: SquarePen,
+  },
+  {
+    kind: "prompt",
     label: "抠图",
     icon: ScissorsLineDashed,
     prompt: "请对上传图片进行主体抠图，精准保留主体轮廓、发丝、半透明材质和边缘细节，移除背景，输出干净的透明背景效果。",
     transparentBackground: true,
   },
   {
+    kind: "prompt",
     label: "擦除",
     icon: Eraser,
     prompt: "请擦除图片中指定或标记的内容，并根据周围环境自然补全背景纹理、光影、透视和遮挡关系，不留下擦除痕迹。",
   },
   {
+    kind: "prompt",
     label: "标记改图",
     icon: ScanSearch,
     prompt: "请根据参考图中的标记、箭头、文字说明或蒙版进行局部修改，严格保持未标记区域不变，最终移除所有标记痕迹。",
   },
   {
+    kind: "prompt",
     label: "扩图",
     icon: Expand,
     prompt: "请在保持原图主体、风格、光线、透视和画面连续性的前提下扩展画面边界，自然补全周围场景，不改变原始主体内容。",
   },
   {
+    kind: "prompt",
     label: "变清晰",
     icon: WandSparkles,
     prompt: "请对上传图片进行高清修复、降噪和细节增强，提升清晰度、边缘细节和整体质感，同时保持人物身份、构图和原始内容不变。",
   },
 ];
+
+type AnnotationEditorTarget =
+  | { kind: "reference"; index: number }
+  | { kind: "sketch"; image: AnnotationEditorImage };
+
+function createBlankSketchImage(size: string): AnnotationEditorImage {
+  const match = size.match(/^(\d+)x(\d+)$/i);
+  const width = Number(match?.[1]) || 1024;
+  const height = Number(match?.[2]) || 1024;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("创建白板画布失败");
+  }
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  return {
+    name: `sketch-${width}x${height}-${timestamp}.png`,
+    type: "image/png",
+    dataUrl: canvas.toDataURL("image/png"),
+  };
+}
 
 const promptIconMap: Record<string, LucideIcon> = {
   aperture: Aperture,
@@ -658,7 +703,7 @@ export function ImageComposer({
 }: ImageComposerProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
-  const [annotationImageIndex, setAnnotationImageIndex] = useState<number | null>(null);
+  const [annotationEditorTarget, setAnnotationEditorTarget] = useState<AnnotationEditorTarget | null>(null);
   const [isPromptLibraryOpen, setIsPromptLibraryOpen] = useState(false);
   const [isQuickToolsOpen, setIsQuickToolsOpen] = useState(false);
   const [bananaPromptStatus, setBananaPromptStatus] = useState<BananaPromptStatus>("idle");
@@ -672,7 +717,11 @@ export function ImageComposer({
     [referenceImages],
   );
   const annotationEditorImage =
-    annotationImageIndex === null ? null : referenceImages[annotationImageIndex] ?? null;
+    annotationEditorTarget?.kind === "sketch"
+      ? annotationEditorTarget.image
+      : annotationEditorTarget?.kind === "reference"
+        ? referenceImages[annotationEditorTarget.index] ?? null
+        : null;
   const normalizedImageModel = selectedImageModel.trim().toLowerCase();
   const isGeminiImageModel = normalizedImageModel.includes("gemini");
   const supportsGeminiFlashRatios = isGeminiImageModel && normalizedImageModel.includes("flash");
@@ -764,6 +813,18 @@ export function ImageComposer({
   };
 
   const handleQuickToolSelect = (item: QuickImageToolPreset) => {
+    if (item.kind === "sketch") {
+      try {
+        const canvasSize = resolveImageCanvasSize(imageSize, imageResolution, isGeminiImageModel);
+        setAnnotationEditorTarget({ kind: "sketch", image: createBlankSketchImage(canvasSize) });
+        onModeChange("edit");
+        setIsQuickToolsOpen(false);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "创建白板画布失败");
+      }
+      return;
+    }
+
     onModeChange("edit");
     onPromptChange(item.prompt);
     if (item.transparentBackground) {
@@ -854,18 +915,30 @@ export function ImageComposer({
   };
 
   const handleRemoveReference = (index: number) => {
-    if (annotationImageIndex === index) {
-      setAnnotationImageIndex(null);
-    }
+    setAnnotationEditorTarget((currentTarget) => {
+      if (currentTarget?.kind !== "reference") {
+        return currentTarget;
+      }
+      if (currentTarget.index === index) {
+        return null;
+      }
+      return currentTarget.index > index ? { ...currentTarget, index: currentTarget.index - 1 } : currentTarget;
+    });
     onRemoveReferenceImage(index);
   };
 
   const handleApplyAnnotation = async (result: AnnotationEditResult) => {
-    if (annotationImageIndex === null) {
+    if (!annotationEditorTarget) {
       return;
     }
-    await onCreateAnnotatedReferenceImage(annotationImageIndex, result);
-    toast.success(result.insertInstruction ? "批注图已加入参考，提示词已插入" : "批注图已加入图生图参考");
+    const isSketch = annotationEditorTarget.kind === "sketch";
+    const sourceIndex = annotationEditorTarget.kind === "reference" ? annotationEditorTarget.index : -1;
+    await onCreateAnnotatedReferenceImage(sourceIndex, result);
+    toast.success(
+      result.insertInstruction
+        ? `${isSketch ? "草图" : "批注图"}已加入参考，提示词已插入`
+        : `${isSketch ? "草图" : "批注图"}已加入图生图参考`,
+    );
   };
 
   return (
@@ -891,10 +964,11 @@ export function ImageComposer({
 
       <AnnotationEditorDialog
         image={annotationEditorImage}
-        open={annotationImageIndex !== null}
+        mode={annotationEditorTarget?.kind === "sketch" ? "sketch" : "annotation"}
+        open={annotationEditorTarget !== null}
         onOpenChange={(open) => {
           if (!open) {
-            setAnnotationImageIndex(null);
+            setAnnotationEditorTarget(null);
           }
         }}
         onApply={handleApplyAnnotation}
@@ -935,7 +1009,7 @@ export function ImageComposer({
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
-                    setAnnotationImageIndex(index);
+                    setAnnotationEditorTarget({ kind: "reference", index });
                   }}
                   className="absolute -bottom-1 -left-1 inline-flex size-6 items-center justify-center rounded-full border border-stone-100 bg-white text-stone-600 shadow-sm transition hover:border-stone-200 hover:text-stone-600"
                   aria-label={`批注参考图 ${image.name || index + 1}`}
@@ -1123,7 +1197,7 @@ export function ImageComposer({
                   sideOffset={10}
                   className="w-[min(620px,calc(100vw-2rem))] border-transparent bg-white/95 p-3 shadow-[0_24px_80px_-32px_rgba(84,38,62,0.28)]"
                 >
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
                     {QUICK_IMAGE_TOOL_PRESETS.map((item) => {
                       const Icon = item.icon;
                       return (
@@ -1132,7 +1206,7 @@ export function ImageComposer({
                           type="button"
                           onClick={() => handleQuickToolSelect(item)}
                           className="flex h-20 flex-col items-center justify-center gap-2 rounded-lg px-2 text-center text-sm font-medium text-stone-800 transition hover:bg-stone-100"
-                          title={item.prompt}
+                          title={item.kind === "sketch" ? "创建当前分辨率的白板画布" : item.prompt}
                         >
                           <span className="grid size-8 place-items-center rounded-full bg-stone-50 text-stone-600">
                             <Icon className="size-4" />

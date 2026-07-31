@@ -21,6 +21,8 @@ export type AnnotationEditResult = {
   insertInstruction: boolean;
 };
 
+export type AnnotationEditorMode = "annotation" | "sketch";
+
 type Point = {
   x: number;
   y: number;
@@ -79,9 +81,9 @@ function createAnnotationId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function annotationScreenshotFileName() {
+function annotationScreenshotFileName(mode: AnnotationEditorMode) {
   const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
-  return `annotation-edit-${timestamp}.png`;
+  return `${mode === "sketch" ? "sketch" : "annotation-edit"}-${timestamp}.png`;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -390,13 +392,34 @@ function buildAnnotationInstruction(imageName: string, marks: AnnotationMark[]) 
     .join("\n");
 }
 
+function buildSketchInstruction(marks: AnnotationMark[]) {
+  const notes = marks
+    .filter((mark): mark is ArrowMark => mark.type === "arrow" && Boolean(mark.text.trim()))
+    .map((mark, index) => `${index + 1}. ${mark.text.trim()}`);
+  const textNotes = marks
+    .filter((mark): mark is TextMark => mark.type === "text" && Boolean(mark.text.trim()))
+    .map((mark, index) => `${index + 1}. ${mark.text.trim()}`);
+
+  return [
+    "请根据参考草图生成图片，将草图中的构图、位置关系、轮廓和文字说明作为创作依据。",
+    "白色画布上的箭头、橙色线条、紫色文字和半透明浅蓝色区域仅用于表达画面结构与创作意图，不属于最终画面。",
+    "最终输出应为完整、干净的成品图，不要保留草图线条、箭头、文字、蒙版、边框或编辑界面。",
+    notes.length > 0 ? `箭头说明：\n${notes.join("\n")}` : "",
+    textNotes.length > 0 ? `草图文字：\n${textNotes.join("\n")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function AnnotationEditorDialog({
   image,
+  mode = "annotation",
   open,
   onOpenChange,
   onApply,
 }: {
   image: AnnotationEditorImage | null;
+  mode?: AnnotationEditorMode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onApply: (result: AnnotationEditResult) => void | Promise<void>;
@@ -424,7 +447,7 @@ export function AnnotationEditorDialog({
       return;
     }
 
-    setTool("arrow");
+    setTool(mode === "sketch" ? "pen" : "arrow");
     setMarks([]);
     setDraft(null);
     setPendingArrow(null);
@@ -435,7 +458,7 @@ export function AnnotationEditorDialog({
     setIsHoveringText(false);
     setIsInsertPromptDialogOpen(false);
     draftRef.current = null;
-  }, [image, open]);
+  }, [image, mode, open]);
 
   useEffect(() => {
     if (!open || !image?.dataUrl) {
@@ -743,13 +766,30 @@ export function AnnotationEditorDialog({
       setPendingText(null);
       setPendingTextValue("");
       drawAnnotationCanvas(canvasRef.current, sourceImageRef.current, effectiveMarks, null);
-      const blob = await canvasToBlob(canvasRef.current);
-      const dataUrl = canvasRef.current.toDataURL("image/png");
-      const file = new File([blob], annotationScreenshotFileName(), { type: "image/png" });
+      let outputCanvas = canvasRef.current;
+      if (mode === "sketch") {
+        const sourceWidth = sourceImageRef.current.naturalWidth || sourceImageRef.current.width;
+        const sourceHeight = sourceImageRef.current.naturalHeight || sourceImageRef.current.height;
+        if (sourceWidth !== outputCanvas.width || sourceHeight !== outputCanvas.height) {
+          const fullSizeCanvas = document.createElement("canvas");
+          fullSizeCanvas.width = sourceWidth;
+          fullSizeCanvas.height = sourceHeight;
+          const fullSizeContext = fullSizeCanvas.getContext("2d");
+          if (!fullSizeContext) {
+            throw new Error("创建草图失败");
+          }
+          fullSizeContext.drawImage(outputCanvas, 0, 0, sourceWidth, sourceHeight);
+          outputCanvas = fullSizeCanvas;
+        }
+      }
+      const blob = await canvasToBlob(outputCanvas);
+      const dataUrl = outputCanvas.toDataURL("image/png");
+      const file = new File([blob], annotationScreenshotFileName(mode), { type: "image/png" });
       await onApply({
         file,
         dataUrl,
-        instruction: buildAnnotationInstruction(image.name, effectiveMarks),
+        instruction:
+          mode === "sketch" ? buildSketchInstruction(effectiveMarks) : buildAnnotationInstruction(image.name, effectiveMarks),
         insertInstruction,
       });
       setIsInsertPromptDialogOpen(false);
@@ -820,7 +860,9 @@ export function AnnotationEditorDialog({
       >
       <DialogContent className="flex h-[88vh] w-[min(96vw,1040px)] max-w-none flex-col overflow-hidden rounded-lg p-0">
         <DialogHeader className="border-b border-stone-100 px-5 py-4">
-          <DialogTitle className="text-base font-semibold text-stone-950">批注修改</DialogTitle>
+          <DialogTitle className="text-base font-semibold text-stone-950">
+            {mode === "sketch" ? "草图" : "批注修改"}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-stone-100 bg-white/75 px-4 py-3">
@@ -988,7 +1030,8 @@ export function AnnotationEditorDialog({
           <DialogHeader className="border-b border-stone-100 px-5 pt-5 pb-4">
             <DialogTitle className="text-base font-semibold text-stone-950">是否自动插入提示词？</DialogTitle>
             <DialogDescription className="pt-2 text-sm leading-6 text-stone-500">
-              批注图会加入图生图参考。你可以选择是否把批注说明同步追加到当前输入框。
+              {mode === "sketch" ? "草图会加入图生图参考。" : "批注图会加入图生图参考。"}
+              你可以选择是否把图中说明同步追加到当前输入框。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 px-5 py-4">

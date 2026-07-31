@@ -709,6 +709,25 @@ export function resolveGeminiImageRequestSize(size?: string, resolution?: string
   return GEMINI_IMAGE_SIZE_PRESETS[resolutionTier][normalizedSize] || resolutionTier.toUpperCase();
 }
 
+export function resolveImageCanvasSize(size?: string, resolution?: string, isGemini = false) {
+  const normalizedSize = String(size || "").trim().toLowerCase();
+  const normalizedResolution = String(resolution || "").trim().toLowerCase();
+  const resolutionTier = IMAGE_RESOLUTION_TIERS[normalizedResolution] || "1k";
+
+  if (isGemini) {
+    return (
+      GEMINI_IMAGE_SIZE_PRESETS[resolutionTier][normalizedSize || "1:1"] ||
+      GEMINI_IMAGE_SIZE_PRESETS[resolutionTier]["1:1"]
+    );
+  }
+
+  return (
+    resolveImageRequestSize(normalizedSize, normalizedResolution) ||
+    resolveImageRequestSize(normalizedSize, "1k") ||
+    "1024x1024"
+  );
+}
+
 export type LoginResponse = {
   ok: boolean;
   version: string;

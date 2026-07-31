@@ -49,13 +49,13 @@ const productFeatures: Array<{
   },
   {
     title: "内置快捷工具",
-    description: "常用图片操作集中在一个工具栏中，无需切换多个软件，生成后即可继续完成精修。",
+    description: "从白板草图起稿，到抠图、擦除和扩图，常用图片操作都能在一个工作台中完成。",
     image: "/landing-features/quick-tools.png",
-    imageAlt: "使用图片工具移除照片中的路人",
+    imageAlt: "使用快捷图片工具移除照片中的路人",
     icon: Wrench,
     iconClass: "text-[#d89222]",
     iconBackground: "bg-[#fff4df]",
-    highlights: ["抠图", "擦除", "标记改图", "扩图", "变清晰"],
+    highlights: ["草图", "抠图", "擦除", "标记改图", "扩图", "变清晰"],
   },
   {
     title: "提示词管理",
