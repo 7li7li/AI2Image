@@ -44,6 +44,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import {
   fetchPromptLibrary,
+  resolveGeminiImageRequestSize,
   resolveImageRequestSize,
   type ImageModeration,
   type ImageQuality,
@@ -598,6 +599,7 @@ type ImageComposerProps = {
   selectedImageModel: string;
   selectedImageQuotaCost: number;
   imageModelQuotaCosts: Record<string, number>;
+  supportedImageResolutions: string[];
   imageModelOptions: string[];
   referenceImages: Array<{ name: string; dataUrl: string }>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -632,6 +634,7 @@ export function ImageComposer({
   selectedImageModel,
   selectedImageQuotaCost,
   imageModelQuotaCosts,
+  supportedImageResolutions,
   imageModelOptions,
   referenceImages,
   textareaRef,
@@ -670,6 +673,9 @@ export function ImageComposer({
   );
   const annotationEditorImage =
     annotationImageIndex === null ? null : referenceImages[annotationImageIndex] ?? null;
+  const normalizedImageModel = selectedImageModel.trim().toLowerCase();
+  const isGeminiImageModel = normalizedImageModel.includes("gemini");
+  const supportsGeminiFlashRatios = isGeminiImageModel && normalizedImageModel.includes("flash");
   const imageSizeOptions = [
     { value: "", label: "自动" },
     { value: "1:1", label: "1:1 (正方形)" },
@@ -679,17 +685,32 @@ export function ImageComposer({
     { value: "9:16", label: "9:16 (竖版)" },
     { value: "4:3", label: "4:3 (横版)" },
     { value: "3:4", label: "3:4 (竖版)" },
+    ...(isGeminiImageModel
+      ? [
+          { value: "5:4", label: "5:4 (横版)" },
+          { value: "4:5", label: "4:5 (竖版)" },
+        ]
+      : []),
     { value: "21:9", label: "21:9 (超宽)" },
-    { value: "9:21", label: "9:21 (超高)" },
+    ...(!isGeminiImageModel ? [{ value: "9:21", label: "9:21 (超高)" }] : []),
+    ...(supportsGeminiFlashRatios
+      ? [
+          { value: "8:1", label: "8:1 (超宽长条)" },
+          { value: "4:1", label: "4:1 (宽长条)" },
+          { value: "1:4", label: "1:4 (高长条)" },
+          { value: "1:8", label: "1:8 (超高长条)" },
+        ]
+      : []),
   ];
   const imageResolutionOptions = [
     { value: "auto", label: "自动" },
-    { value: "1k", label: "1k" },
-    { value: "2k", label: "2k" },
-    { value: "4k", label: "4k" },
+    ...["1k", "2k", "4k"].filter((value) => supportedImageResolutions.includes(value)).map((value) => ({ value, label: value })),
   ];
   const imageResolutionLabel = imageResolutionOptions.find((option) => option.value === imageResolution)?.label || "自动";
-  const actualImageResolution = resolveImageRequestSize(imageSize, imageResolution) || "模型自动";
+  const actualImageResolution =
+    (isGeminiImageModel
+      ? resolveGeminiImageRequestSize(imageSize, imageResolution)
+      : resolveImageRequestSize(imageSize, imageResolution)) || "模型自动";
   const imageQualityOptions: Array<{ value: ImageQuality; label: string }> = [
     { value: "auto", label: "自动" },
     { value: "low", label: "低" },

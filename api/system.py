@@ -269,6 +269,11 @@ def create_router(app_version: str) -> APIRouter:
     async def get_public_auth_settings():
         return {"settings": config.public_auth_settings()}
 
+    @router.get("/api/announcements")
+    async def get_announcements(authorization: str | None = Header(default=None)):
+        require_identity(authorization)
+        return {"items": config.public_announcements()}
+
     @router.get("/api/settings")
     async def get_settings(authorization: str | None = Header(default=None)):
         require_admin(authorization)

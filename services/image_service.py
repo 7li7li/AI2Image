@@ -296,7 +296,7 @@ def list_images(
             continue
         items.append(_record_to_item(record, base_url))
     seen_urls = {str(item.get("url") or "") for item in items}
-    if not normalized_owner_user_id:
+    if not normalized_owner_user_id and not normalized_channel and not normalized_request_id:
         items.extend(_list_files(base_url, normalized_start_date, normalized_end_date, seen_urls))
     return _paginated_image_response(items, page=normalized_page, page_size=normalized_page_size)
 

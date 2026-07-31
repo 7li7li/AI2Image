@@ -40,6 +40,7 @@ DEFAULT_BACKGROUND_TASK_USER_LIMIT = 3
 DEFAULT_BACKGROUND_TASK_USER_QUEUE_LIMIT = 20
 DEFAULT_SMTP_PORT = 587
 DEFAULT_VERIFICATION_CODE_MINUTES = 10
+ANNOUNCEMENT_CATEGORIES = {"system", "update", "maintenance", "activity"}
 
 
 def _normalize_auth_key(value: object) -> str:
@@ -204,6 +205,53 @@ def _clean_subscription_plans(value: object) -> list[dict[str, object]]:
     return plans
 
 
+def _clean_announcements(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+
+    announcements: list[dict[str, object]] = []
+    seen_ids: set[str] = set()
+    for index, raw in enumerate(value[:100]):
+        if not isinstance(raw, dict):
+            continue
+
+        raw_id = str(raw.get("id") or "").strip()
+        announcement_id = "".join(
+            char for char in raw_id if char.isalnum() or char in {"-", "_"}
+        )[:100]
+        if not announcement_id:
+            announcement_id = f"announcement-{index + 1}"
+        if announcement_id in seen_ids:
+            continue
+
+        title = str(raw.get("title") or "").strip()[:120]
+        content = str(raw.get("content") or "").strip()[:10000]
+        if not title or not content:
+            continue
+
+        category = str(raw.get("category") or "system").strip().lower()
+        if category not in ANNOUNCEMENT_CATEGORIES:
+            category = "system"
+
+        created_at = str(raw.get("created_at") or "").strip()[:50]
+        updated_at = str(raw.get("updated_at") or created_at).strip()[:50]
+        seen_ids.add(announcement_id)
+        announcements.append(
+            {
+                "id": announcement_id,
+                "title": title,
+                "content": content,
+                "category": category,
+                "enabled": _bool(raw.get("enabled"), True),
+                "popup": _bool(raw.get("popup"), False),
+                "created_at": created_at,
+                "updated_at": updated_at,
+            }
+        )
+
+    return announcements
+
+
 def _parse_timestamp(value: object) -> float | None:
     text = str(value or "").strip()
     if not text:
@@ -309,6 +357,8 @@ def _normalize_update_data(data: dict[str, object]) -> dict[str, object]:
         updates["quota_purchase_mode"] = _normalize_quota_purchase_mode(updates.get("quota_purchase_mode"))
     if "subscription_plans" in updates:
         updates["subscription_plans"] = _clean_subscription_plans(updates.get("subscription_plans"))
+    if "announcements" in updates:
+        updates["announcements"] = _clean_announcements(updates.get("announcements"))
     if "epay_enabled" in updates:
         updates["epay_enabled"] = _bool(updates.get("epay_enabled"), False)
     if "epay_url" in updates:
@@ -670,6 +720,13 @@ class ConfigStore:
         )
 
     @property
+    def announcements(self) -> list[dict[str, object]]:
+        return _clean_announcements(self._get_config_value("announcements"))
+
+    def public_announcements(self) -> list[dict[str, object]]:
+        return [item for item in self.announcements if bool(item.get("enabled"))]
+
+    @property
     def background_task_max_workers(self) -> int:
         return _bounded_int(
             os.getenv("YANAI_BACKGROUND_TASK_MAX_WORKERS")
@@ -863,6 +920,7 @@ class ConfigStore:
         data["default_image_model"] = self.default_image_model
         data["default_text_model"] = self.default_text_model
         data["default_image_prompt_polish_model"] = self.default_image_prompt_polish_model
+        data["announcements"] = self.announcements
         data["image_retention_days"] = self.image_retention_days
         data["log_levels"] = self.log_levels
         data["image_model_mappings"] = self.image_model_mappings

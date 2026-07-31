@@ -538,12 +538,14 @@ export function AnnotationEditorDialog({
         text: "",
       });
       setPendingTextValue("");
-    } else {
+    } else if (tool === "mask") {
       updateDraft({
-        type: tool,
+        type: "mask",
         points: [point],
-        ...(tool === "mask" ? { brushSize: maskBrushSize } : {}),
+        brushSize: maskBrushSize,
       });
+    } else {
+      updateDraft({ type: "pen", points: [point] });
     }
   };
 

@@ -72,6 +72,22 @@ class ModelServiceTest(unittest.TestCase):
             self.assertEqual(by_model["gpt-5.5"]["pricing"]["billing_mode"], "fixed")
             self.assertEqual(by_model["gpt-5.5"]["pricing"]["model_price"], 1)
 
+    def test_image_resolution_preferences_are_normalized_and_persisted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            service = ModelService(ChannelService(storage), FakeConfigStore())
+
+            updated = service.update_pricing("gpt-image-2", {"image_resolutions": ["4K", "1k", "invalid"]})
+
+            self.assertEqual(updated["image_resolutions"], ["1k", "4k"])
+            self.assertEqual(service.supported_image_resolutions("gpt-image-2"), ["1k", "4k"])
+
+            updated = service.update_pricing("gpt-image-2", {"image_resolutions": []})
+
+            self.assertEqual(updated["image_resolutions"], [])
+            self.assertEqual(service.get_pricing("gpt-image-2")["image_resolutions"], [])
+            self.assertEqual(service.supported_image_resolutions("gpt-image-2"), [])
+
     def test_channel_model_test_reports_status_without_persisting_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")

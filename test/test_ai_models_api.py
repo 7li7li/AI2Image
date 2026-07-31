@@ -60,9 +60,9 @@ class AiModelsApiTests(unittest.TestCase):
         self.assertEqual(
             response.json()["items"],
             [
-                {"model": "gpt-5.5", "quota_cost": 1},
-                {"model": "gpt-image-2", "quota_cost": 3},
-                {"model": "gemini-3.1-flash-image", "quota_cost": 2},
+                {"model": "gpt-5.5", "quota_cost": 1, "image_resolutions": ["1k", "2k", "4k"]},
+                {"model": "gpt-image-2", "quota_cost": 3, "image_resolutions": ["1k", "2k", "4k"]},
+                {"model": "gemini-3.1-flash-image", "quota_cost": 2, "image_resolutions": ["1k", "2k", "4k"]},
             ],
         )
 

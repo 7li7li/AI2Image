@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -32,6 +33,9 @@ DEFAULT_GEMINI_MODELS = [
     "gemini-3.5-flash",
 ]
 DEFAULT_CHANNEL_TIMEOUT = 600
+
+DATA_IMAGE_URL_PATTERN = re.compile(r"data:image/[^;\s]+;base64,([A-Za-z0-9+/=]+)", re.IGNORECASE)
+MARKDOWN_IMAGE_URL_PATTERN = re.compile(r"!\[[^\]]*\]\((https?://[^\s)]+)\)", re.IGNORECASE)
 
 
 def _now_iso() -> str:
@@ -266,6 +270,32 @@ EXTERNAL_IMAGE_RATIO_DIMENSIONS = {
     "9:21": (9, 21),
 }
 
+GEMINI_COMMON_IMAGE_ASPECT_RATIOS = {
+    "1:1": (1, 1),
+    "16:9": (16, 9),
+    "9:16": (9, 16),
+    "4:3": (4, 3),
+    "3:4": (3, 4),
+    "3:2": (3, 2),
+    "2:3": (2, 3),
+    "5:4": (5, 4),
+    "4:5": (4, 5),
+    "21:9": (21, 9),
+}
+
+GEMINI_FLASH_IMAGE_ASPECT_RATIOS = {
+    "8:1": (8, 1),
+    "4:1": (4, 1),
+    "1:4": (1, 4),
+    "1:8": (1, 8),
+}
+
+GEMINI_IMAGE_SIZE_TIERS = {
+    "1k": "1K",
+    "2k": "2K",
+    "4k": "4K",
+}
+
 
 def _dedupe_models(models: list[str]) -> list[str]:
     seen: set[str] = set()
@@ -306,6 +336,59 @@ def _inline_data_from_part(part: object) -> dict[str, str] | None:
         "mimeType": _clean(inline_data.get("mimeType") or inline_data.get("mime_type")) or "image/png",
         "data": data,
     }
+
+
+def _file_data_from_part(part: object) -> dict[str, str] | None:
+    if not isinstance(part, dict):
+        return None
+    file_data = part.get("fileData") or part.get("file_data")
+    if not isinstance(file_data, dict):
+        return None
+    file_uri = _clean(file_data.get("fileUri") or file_data.get("file_uri") or file_data.get("url"))
+    if not file_uri:
+        return None
+    return {
+        "mimeType": _clean(file_data.get("mimeType") or file_data.get("mime_type")) or "image/png",
+        "fileUri": file_uri,
+    }
+
+
+def _image_items_from_text(value: object) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    text = _clean(value)
+    if not text:
+        return [], []
+    b64_items = [{"b64_json": match.group(1)} for match in DATA_IMAGE_URL_PATTERN.finditer(text)]
+    url_items = [{"url": match.group(1)} for match in MARKDOWN_IMAGE_URL_PATTERN.finditer(text)]
+    if not url_items and text.startswith(("http://", "https://")) and not any(char.isspace() for char in text):
+        url_items.append({"url": text})
+    return b64_items, url_items
+
+
+def _image_items_from_mapping(value: object) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    if not isinstance(value, dict):
+        return [], []
+    b64_value = _clean(
+        value.get("b64_json")
+        or value.get("base64")
+        or value.get("imageBase64")
+        or value.get("image_base64")
+        or value.get("imageBytes")
+        or value.get("image_bytes")
+        or value.get("bytesBase64Encoded")
+        or value.get("bytes_base64_encoded")
+    )
+    url_value = _clean(
+        value.get("url")
+        or value.get("fileUri")
+        or value.get("file_uri")
+        or value.get("imageUrl")
+        or value.get("image_url")
+    )
+    b64_items = [{"b64_json": b64_value}] if b64_value else []
+    url_items = [{"url": url_value}] if url_value else []
+    if not b64_items and not url_items and isinstance(value.get("image"), dict):
+        return _image_items_from_mapping(value["image"])
+    return b64_items, url_items
 
 
 def _is_explicit_image_size(value: str) -> bool:
@@ -366,6 +449,37 @@ def _normalize_external_image_request(prompt: object, size: object, resolution: 
     return normalized_prompt, normalized_size
 
 
+def _gemini_image_config(payload: dict[str, Any]) -> dict[str, str]:
+    image_config: dict[str, str] = {}
+    model = _clean(payload.get("model")).lower()
+    supported_ratios = dict(GEMINI_COMMON_IMAGE_ASPECT_RATIOS)
+    if "flash" in model:
+        supported_ratios.update(GEMINI_FLASH_IMAGE_ASPECT_RATIOS)
+
+    size = _clean(payload.get("size")).lower().replace(" ", "")
+    aspect_ratio = size if size in supported_ratios else ""
+    if not aspect_ratio and _is_explicit_image_size(size):
+        width, _, height = size.partition("x")
+        width_value = int(width)
+        height_value = int(height)
+        if width_value > 0 and height_value > 0:
+            requested_ratio = width_value / height_value
+            aspect_ratio, dimensions = min(
+                supported_ratios.items(),
+                key=lambda item: abs(requested_ratio - (item[1][0] / item[1][1])),
+            )
+            matched_ratio = dimensions[0] / dimensions[1]
+            if abs(requested_ratio - matched_ratio) / matched_ratio > 0.02:
+                aspect_ratio = ""
+    if aspect_ratio:
+        image_config["aspectRatio"] = aspect_ratio
+
+    image_size = GEMINI_IMAGE_SIZE_TIERS.get(_clean(payload.get("resolution")).lower())
+    if image_size:
+        image_config["imageSize"] = image_size
+    return image_config
+
+
 def _normalize_external_image_options(payload: dict[str, Any]) -> dict[str, object]:
     options: dict[str, object] = {}
     quality = _clean(payload.get("quality")).lower()
@@ -405,14 +519,19 @@ def _friendly_channel_error(error: object) -> str:
     normalized = message.lower()
     if "curl: (35)" in normalized or "connection was reset" in normalized or "recv failure" in normalized:
         return (
-            "连接被上游重置（curl 35）。请检查个人渠道 Base URL 是否正确、API Key 是否有效、"
+            "连接被上游重置（curl 35）。请检查渠道 Base URL 是否正确、API Key 是否有效、"
             "该渠道是否允许当前网络访问；如果系统设置里配置了代理，也请确认代理可用。"
         )
     if "curl: (28)" in normalized or "timed out" in normalized or "timeout" in normalized:
-        return "连接个人渠道超时。请检查渠道地址、代理或把个人渠道超时秒数调大后重试。"
+        return "连接上游渠道超时。请检查渠道地址、代理、渠道超时设置或上游服务状态。"
     if "proxy" in normalized and ("connect" in normalized or "failed" in normalized or "refused" in normalized):
-        return "代理连接失败。请检查系统设置里的代理地址是否可用，或暂时清空代理后重试个人渠道。"
+        return "代理连接失败。请检查系统设置里的代理地址是否可用，或暂时清空代理后重试。"
     return message
+
+
+def _is_timeout_error(error: object) -> bool:
+    normalized = _clean(error).lower()
+    return "curl: (28)" in normalized or "timed out" in normalized or "timeout" in normalized
 
 
 class ChannelService:
@@ -1017,6 +1136,57 @@ class ChannelService:
     def has_external_channels(self, model: str | None = None) -> bool:
         return bool(self._enabled_external_channels(model))
 
+    def _record_image_channel_attempt(
+            self,
+            payload: dict[str, Any],
+            channel: dict[str, object],
+            routed_payload: dict[str, Any],
+            *,
+            status: str,
+            elapsed_ms: int,
+    ) -> None:
+        attempts = payload.get("_channel_attempts")
+        if not isinstance(attempts, list):
+            attempts = []
+            payload["_channel_attempts"] = attempts
+        attempt: dict[str, object] = {
+            "channel": self._channel_result_name(channel),
+            "channel_type": _clean(channel.get("type")),
+            "model": _clean(routed_payload.get("model")),
+            "status": status,
+            "elapsed_ms": max(0, int(elapsed_ms)),
+            "has_reference_images": bool(routed_payload.get("images")),
+        }
+        if self._is_gemini_channel(channel):
+            image_config = _gemini_image_config(routed_payload)
+            attempt.update({
+                "aspect_ratio": image_config.get("aspectRatio") or "auto",
+                "image_size": image_config.get("imageSize") or "auto",
+                "response_format": _clean(routed_payload.get("response_format")) or "b64_json",
+                "response_modalities": self._gemini_image_response_modalities(channel, routed_payload),
+            })
+        attempts.append(attempt)
+
+    def _image_channel_error(
+            self,
+            channel: dict[str, object],
+            routed_payload: dict[str, Any],
+            error: object,
+            *,
+            elapsed_ms: int,
+    ) -> str:
+        friendly = _friendly_channel_error(error)
+        if not self._is_gemini_channel(channel) or not _is_timeout_error(error):
+            return friendly
+        image_config = _gemini_image_config(routed_payload)
+        aspect_ratio = image_config.get("aspectRatio") or "auto"
+        image_size = image_config.get("imageSize") or "auto"
+        elapsed_seconds = max(1, round(elapsed_ms / 1000))
+        return (
+            f"{friendly} 本次 Gemini 生图参数为 {aspect_ratio} / {image_size}，"
+            f"已等待约 {elapsed_seconds} 秒；高分辨率任务可先尝试 1K/2K。"
+        )
+
     def call_generation(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
         model = _clean(payload.get("model")) or "gpt-image-2"
         errors: list[str] = []
@@ -1039,10 +1209,32 @@ class ChannelService:
         ):
             resolved_model = self._resolve_external_model_for_channel(channel, model)
             routed_payload = {**payload, "model": resolved_model or model}
+            started_at = time.monotonic()
             try:
-                return self._call_generation(channel, routed_payload), self._channel_result_name(channel)
+                result = self._call_generation(channel, routed_payload)
+                self._record_image_channel_attempt(
+                    payload,
+                    channel,
+                    routed_payload,
+                    status="success",
+                    elapsed_ms=round((time.monotonic() - started_at) * 1000),
+                )
+                return result, self._channel_result_name(channel)
             except Exception as exc:
-                error = _friendly_channel_error(exc)
+                elapsed_ms = round((time.monotonic() - started_at) * 1000)
+                self._record_image_channel_attempt(
+                    payload,
+                    channel,
+                    routed_payload,
+                    status="error",
+                    elapsed_ms=elapsed_ms,
+                )
+                error = self._image_channel_error(
+                    channel,
+                    routed_payload,
+                    exc,
+                    elapsed_ms=elapsed_ms,
+                )
                 errors.append(f"{self._channel_result_name(channel)}: {error}")
                 print(f"[channel] generation failed channel={channel.get('name')} error={error}")
         if errors:
@@ -1075,10 +1267,32 @@ class ChannelService:
         ):
             resolved_model = self._resolve_external_model_for_channel(channel, model)
             routed_payload = {**payload, "model": resolved_model or model}
+            started_at = time.monotonic()
             try:
-                return self._call_edit(channel, routed_payload), self._channel_result_name(channel)
+                result = self._call_edit(channel, routed_payload)
+                self._record_image_channel_attempt(
+                    payload,
+                    channel,
+                    routed_payload,
+                    status="success",
+                    elapsed_ms=round((time.monotonic() - started_at) * 1000),
+                )
+                return result, self._channel_result_name(channel)
             except Exception as exc:
-                error = _friendly_channel_error(exc)
+                elapsed_ms = round((time.monotonic() - started_at) * 1000)
+                self._record_image_channel_attempt(
+                    payload,
+                    channel,
+                    routed_payload,
+                    status="error",
+                    elapsed_ms=elapsed_ms,
+                )
+                error = self._image_channel_error(
+                    channel,
+                    routed_payload,
+                    exc,
+                    elapsed_ms=elapsed_ms,
+                )
                 errors.append(f"{self._channel_result_name(channel)}: {error}")
                 print(f"[channel] edit failed channel={channel.get('name')} error={error}")
         if errors:
@@ -1136,6 +1350,8 @@ class ChannelService:
     def _gemini_generate_url(self, channel: dict[str, object], model: object, *, stream: bool = False) -> str:
         method = "streamGenerateContent" if stream else "generateContent"
         url = self._gemini_url(channel, f"/{self._gemini_model_resource(model)}:{method}")
+        if not self._gemini_uses_google_api_key_header(channel):
+            url = f"{url}/"
         return f"{url}?alt=sse" if stream else url
 
     def _gemini_text_part(self, value: object) -> dict[str, str] | None:
@@ -1198,10 +1414,19 @@ class ChannelService:
         system_instruction = {"parts": system_parts} if system_parts else None
         return contents, system_instruction
 
-    def _gemini_generation_config(self, payload: dict[str, Any], *, image: bool = False) -> dict[str, object]:
+    def _gemini_generation_config(
+            self,
+            payload: dict[str, Any],
+            *,
+            image: bool = False,
+            response_modalities: list[str] | None = None,
+    ) -> dict[str, object]:
         config_payload: dict[str, object] = {}
         if image:
-            config_payload["responseModalities"] = ["IMAGE"]
+            config_payload["responseModalities"] = response_modalities or ["IMAGE"]
+            image_config = _gemini_image_config(payload)
+            if image_config:
+                config_payload["imageConfig"] = image_config
         for source, target in {
             "temperature": "temperature",
             "top_p": "topP",
@@ -1225,9 +1450,14 @@ class ChannelService:
             *,
             image: bool = False,
             system_instruction: dict[str, object] | None = None,
+            response_modalities: list[str] | None = None,
     ) -> dict[str, object]:
         body: dict[str, object] = {"contents": contents}
-        generation_config = self._gemini_generation_config(payload, image=image)
+        generation_config = self._gemini_generation_config(
+            payload,
+            image=image,
+            response_modalities=response_modalities,
+        )
         if generation_config:
             body["generationConfig"] = generation_config
         if system_instruction:
@@ -1300,42 +1530,140 @@ class ChannelService:
             "usage": payload.get("usageMetadata") or payload.get("usage_metadata") or {},
         }
 
+    def _gemini_image_response_diagnostic(self, payload: dict[str, Any]) -> str:
+        details = [f"top_level={','.join(sorted(str(key) for key in payload.keys())) or 'empty'}"]
+        prompt_feedback = payload.get("promptFeedback") or payload.get("prompt_feedback")
+        if isinstance(prompt_feedback, dict):
+            block_reason = _clean(prompt_feedback.get("blockReason") or prompt_feedback.get("block_reason"))
+            if block_reason:
+                details.append(f"block_reason={block_reason}")
+
+        candidates = payload.get("candidates")
+        if isinstance(candidates, list):
+            details.append(f"candidates={len(candidates)}")
+            finish_reasons: list[str] = []
+            part_shapes: list[str] = []
+            for candidate in candidates[:4]:
+                if not isinstance(candidate, dict):
+                    continue
+                finish_reason = _clean(candidate.get("finishReason") or candidate.get("finish_reason"))
+                if finish_reason and finish_reason not in finish_reasons:
+                    finish_reasons.append(finish_reason)
+                content = candidate.get("content")
+                parts = content.get("parts") if isinstance(content, dict) else None
+                if isinstance(parts, list):
+                    for part in parts[:6]:
+                        if isinstance(part, dict):
+                            shape = "+".join(sorted(str(key) for key in part.keys())) or "empty"
+                            if shape not in part_shapes:
+                                part_shapes.append(shape)
+            if finish_reasons:
+                details.append(f"finish_reason={','.join(finish_reasons)}")
+            if part_shapes:
+                details.append(f"part_keys={','.join(part_shapes)}")
+
+        for key in ("data", "images", "predictions", "generatedImages", "generated_images"):
+            items = payload.get(key)
+            if isinstance(items, list):
+                item_shapes = []
+                for item in items[:4]:
+                    if isinstance(item, dict):
+                        shape = "+".join(sorted(str(item_key) for item_key in item.keys())) or "empty"
+                    else:
+                        shape = type(item).__name__
+                    if shape not in item_shapes:
+                        item_shapes.append(shape)
+                details.append(f"{key}={len(items)}[{','.join(item_shapes)}]")
+        return "; ".join(details)
+
     def _normalize_gemini_image_response(self, payload: object, original_payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise RuntimeError("gemini image response is invalid")
-        items: list[dict[str, Any]] = []
+        upstream_error = payload.get("error")
+        if isinstance(upstream_error, dict):
+            error_code = _clean(upstream_error.get("code") or upstream_error.get("type"))
+            error_message = _clean(upstream_error.get("message") or upstream_error.get("detail"))
+            error_detail = ": ".join(part for part in (error_code, error_message) if part)
+            raise RuntimeError(f"gemini upstream error: {error_detail or 'unknown error'}")
+
+        b64_items: list[dict[str, Any]] = []
+        url_items: list[dict[str, Any]] = []
         for part in self._gemini_candidate_parts(payload):
             inline_data = _inline_data_from_part(part)
-            if not inline_data:
+            if inline_data:
+                data = _clean(inline_data.get("data"))
+                if data:
+                    b64_items.append({"b64_json": data})
+            file_data = _file_data_from_part(part)
+            if file_data:
+                url_items.append({"url": file_data["fileUri"]})
+            mapped_b64_items, mapped_url_items = _image_items_from_mapping(part)
+            b64_items.extend(mapped_b64_items)
+            url_items.extend(mapped_url_items)
+            text_b64_items, text_url_items = _image_items_from_text(part.get("text"))
+            b64_items.extend(text_b64_items)
+            url_items.extend(text_url_items)
+
+        for key in ("data", "images", "predictions", "generatedImages", "generated_images"):
+            items = payload.get(key)
+            if not isinstance(items, list):
                 continue
-            data = _clean(inline_data.get("data"))
-            if data:
-                items.append({"b64_json": data})
-        if not items:
-            raise RuntimeError("gemini response missing image data")
-        return _format_image_result(
-            items,
-            _clean(original_payload.get("prompt")),
-            _clean(original_payload.get("response_format")) or "url",
-            _clean(original_payload.get("base_url")) or None,
-            transparent_background=_is_transparent_background_request(original_payload),
+            for item in items:
+                mapped_b64_items, mapped_url_items = _image_items_from_mapping(item)
+                b64_items.extend(mapped_b64_items)
+                url_items.extend(mapped_url_items)
+                if isinstance(item, str):
+                    text_b64_items, text_url_items = _image_items_from_text(item)
+                    b64_items.extend(text_b64_items)
+                    url_items.extend(text_url_items)
+        if not b64_items and not url_items:
+            diagnostic = self._gemini_image_response_diagnostic(payload)
+            raise RuntimeError(f"gemini response missing image data ({diagnostic})")
+
+        response_format = _clean(original_payload.get("response_format")) or "url"
+        base_url = _clean(original_payload.get("base_url")) or None
+        transparent_background = _is_transparent_background_request(original_payload)
+        localized_url_items = _localize_url_items(
+            url_items,
+            base_url,
+            transparent_background=transparent_background,
         )
+        if b64_items:
+            result = _format_image_result(
+                b64_items,
+                _clean(original_payload.get("prompt")),
+                response_format,
+                base_url,
+                transparent_background=transparent_background,
+            )
+            if localized_url_items:
+                result["data"].extend(localized_url_items)
+            return result
+        return {"created": int(time.time()), "data": localized_url_items}
+
+    def _gemini_image_response_modalities(
+            self,
+            channel: dict[str, object],
+            payload: dict[str, Any],
+    ) -> list[str]:
+        response_format = _clean(payload.get("response_format")).lower()
+        if response_format == "url" and self._gemini_supports_file_url_response(channel):
+            return ["TEXT"]
+        return ["IMAGE"]
 
     def _call_gemini_generation(self, channel: dict[str, object], payload: dict[str, Any]) -> dict[str, Any]:
-        prompt, size = _normalize_external_image_request(
-            payload.get("prompt"),
-            payload.get("size"),
-            payload.get("resolution"),
-        )
-        prompt = prompt or ""
-        if size and size != "auto":
-            prompt = f"{prompt}\n\nRequested image size or aspect ratio: {size}".strip()
+        prompt = _clean(payload.get("prompt"))
+        requested_size = _clean(payload.get("size"))
+        image_config = _gemini_image_config(payload)
+        if requested_size and requested_size.lower() != "auto" and "aspectRatio" not in image_config:
+            prompt = f"{prompt}\n\nRequested image size or aspect ratio: {requested_size}".strip()
         if _is_transparent_background_request(payload):
             prompt = build_transparent_prompt(prompt)
         body = self._gemini_request_body(
             payload,
             self._gemini_image_contents(payload, prompt),
             image=True,
+            response_modalities=self._gemini_image_response_modalities(channel, payload),
         )
         response = self._session(channel).post(
             self._gemini_generate_url(channel, payload.get("model")),
@@ -1590,6 +1918,7 @@ class ChannelService:
         session = Session(**proxy_settings.build_session_kwargs(verify=True))
         session.headers.update({"Accept": "application/json"})
         if self._is_gemini_channel(channel):
+            session.headers.update({"Content-Type": "application/json"})
             if self._gemini_uses_google_api_key_header(channel):
                 session.headers.update({"x-goog-api-key": _clean(channel.get("api_key"))})
             else:
@@ -1629,6 +1958,11 @@ class ChannelService:
         api_key = _clean(channel.get("api_key"))
         host = (urlparse(_clean(channel.get("base_url")) or DEFAULT_GEMINI_BASE_URL).hostname or "").lower()
         return host == "generativelanguage.googleapis.com" or api_key.startswith("AIza")
+
+    @staticmethod
+    def _gemini_supports_file_url_response(channel: dict[str, object]) -> bool:
+        host = (urlparse(_clean(channel.get("base_url"))).hostname or "").lower()
+        return host == "rolldek.com" or host.endswith(".rolldek.com")
 
     @staticmethod
     def _normalize_response(response, original_payload: dict[str, Any]) -> dict[str, Any]:

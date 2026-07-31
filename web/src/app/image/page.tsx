@@ -35,9 +35,11 @@ import {
   fetchBackgroundTask,
   fetchBackgroundTaskStats,
   fetchAvailableModels,
+  fetchManagedImages,
   fetchModelQuotaCosts,
   fetchMyImages,
   polishImagePrompt,
+  streamBackgroundTask,
   type BackgroundTaskStatus,
   type ImageRequestOptions,
   type ImageResponse,
@@ -77,7 +79,24 @@ const IMAGE_QUALITY_STORAGE_KEY = "chatgpt2api:image_last_quality";
 const IMAGE_MODERATION_STORAGE_KEY = "chatgpt2api:image_last_moderation";
 const IMAGE_TRANSPARENT_BACKGROUND_STORAGE_KEY = "chatgpt2api:image_last_transparent_background";
 const IMAGE_MODEL_STORAGE_KEY = "chatgpt2api:image_last_model";
-const SUPPORTED_IMAGE_SIZES = new Set(["", "1:1", "3:2", "2:3", "16:9", "9:16", "4:3", "3:4", "21:9", "9:21"]);
+const SUPPORTED_IMAGE_SIZES = new Set([
+  "",
+  "1:1",
+  "3:2",
+  "2:3",
+  "16:9",
+  "9:16",
+  "4:3",
+  "3:4",
+  "5:4",
+  "4:5",
+  "21:9",
+  "9:21",
+  "8:1",
+  "4:1",
+  "1:4",
+  "1:8",
+]);
 const BACKGROUND_TASK_POLL_INTERVAL_MS = 1500;
 const activeImageTurnQueueIds = new Set<string>();
 
@@ -255,6 +274,19 @@ function delay(ms: number) {
 
 async function waitForBackgroundTaskResult<T>(initialTask: BackgroundTaskStatus<T>) {
   let task = initialTask;
+  if (task.status === "queued" || task.status === "running") {
+    try {
+      await streamBackgroundTask<T>(
+        task.task_id || task.id,
+        (nextTask) => {
+          task = nextTask;
+        },
+        { version: task.version ?? -1 },
+      );
+    } catch {
+      // Older deployments or proxies may not support SSE; polling keeps those setups working.
+    }
+  }
   while (task.status === "queued" || task.status === "running") {
     await delay(BACKGROUND_TASK_POLL_INTERVAL_MS);
     task = await fetchBackgroundTask<T>(task.task_id || task.id);
@@ -268,12 +300,18 @@ async function waitForBackgroundTaskResult<T>(initialTask: BackgroundTaskStatus<
   return task.result;
 }
 
-async function fetchGeneratedImageByRequestId(requestId: string): Promise<ImageResponse | null> {
+async function fetchGeneratedImageByRequestId(
+  requestId: string,
+  role: StoredAuthSession["role"],
+): Promise<ImageResponse | null> {
   if (!requestId) {
     return null;
   }
   try {
-    const page = await fetchMyImages({ request_id: requestId, page_size: 1 });
+    const page =
+      role === "admin"
+        ? await fetchManagedImages({ request_id: requestId, page_size: 1 })
+        : await fetchMyImages({ request_id: requestId, page_size: 1 });
     const item = page.items[0];
     if (!item?.url) {
       return null;
@@ -445,6 +483,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
   const [imageTransparentBackground, setImageTransparentBackground] = useState(DEFAULT_IMAGE_TRANSPARENT_BACKGROUND);
   const [selectedImageModel, setSelectedImageModel] = useState("");
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [imageModelResolutions, setImageModelResolutions] = useState<Record<string, string[]>>({});
   const [modelQuotaCosts, setModelQuotaCosts] = useState<Record<string, number>>({});
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [referenceImageFiles, setReferenceImageFiles] = useState<File[]>([]);
@@ -537,6 +576,14 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
         const modelsPayload = await fetchAvailableModels();
         if (!cancelled) {
           setAvailableModels(modelsPayload.data.map((item) => item.id).filter(Boolean));
+          setImageModelResolutions(
+            Object.fromEntries(
+              modelsPayload.data.map((item) => [
+                item.id.toLowerCase(),
+                Array.isArray(item.image_resolutions) ? item.image_resolutions : ["1k", "2k", "4k"],
+              ]),
+            ),
+          );
           setModelQuotaCosts(buildModelQuotaCosts(modelsPayload.data));
         }
         try {
@@ -554,6 +601,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
         if (!cancelled) {
           setAvailableModels([]);
           setModelQuotaCosts({});
+          setImageModelResolutions({});
         }
       }
     };
@@ -562,6 +610,13 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const supported = imageModelResolutions[activeImageModel.toLowerCase()];
+    if (imageResolution !== "auto" && supported && !supported.includes(imageResolution)) {
+      setImageResolution("auto");
+    }
+  }, [activeImageModel, imageModelResolutions, imageResolution]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1017,7 +1072,6 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     setLightboxOpen(true);
   }, []);
 
-  /* eslint-disable react-hooks/preserve-manual-memoization */
   const runConversationQueue = useCallback(
     async (conversationId: string, requestedTurnId?: string) => {
       const ownerPrefix = `${imageConversationOwnerKey}:`;
@@ -1090,6 +1144,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
 
         let resumedSuccessCount = 0;
         let resumedFailedCount = 0;
+        const resumedFailureMessages: string[] = [];
 
         for (const pendingImage of pendingImages) {
           const requestId = pendingImage.requestId || createId();
@@ -1114,7 +1169,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
           }
 
           try {
-            const recoveredData = await fetchGeneratedImageByRequestId(requestId);
+            const recoveredData = await fetchGeneratedImageByRequestId(requestId, session.role);
             const data =
               recoveredData ??
               (await waitForBackgroundTaskResult<ImageResponse>(
@@ -1203,12 +1258,23 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
             );
 
             resumedFailedCount += 1;
+            resumedFailureMessages.push(message);
           }
         }
         const existingSuccessCount = queuedTurn.images.filter((image) => image.status === "success").length;
         const existingFailedCount = queuedTurn.images.filter((image) => image.status === "error").length;
         const successCount = existingSuccessCount + resumedSuccessCount;
         const failedCount = existingFailedCount + resumedFailedCount;
+        const existingFailureMessages = queuedTurn.images
+          .filter((image) => image.status === "error" && image.error)
+          .map((image) => image.error as string);
+        const failureMessages = [...existingFailureMessages, ...resumedFailureMessages];
+        const failureMessage =
+          failedCount === 1 && failureMessages[0]
+            ? failureMessages[0]
+            : failedCount > 0
+              ? `其中 ${failedCount} 张未成功生成`
+              : undefined;
 
         await updateConversation(conversationId, (current) => {
           const conversation = current ?? snapshot;
@@ -1220,12 +1286,16 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
                 ? {
                     ...turn,
                     status: failedCount > 0 ? "error" : "success",
-                    error: failedCount > 0 ? `其中 ${failedCount} 张未成功生成` : undefined,
+                    error: failureMessage,
                   }
                 : turn,
             ),
           };
         });
+
+        if (failureMessage) {
+          toast.error(failureMessage);
+        }
 
         window.dispatchEvent(new Event(QUOTA_REFRESH_EVENT));
       } catch (error) {
@@ -1255,9 +1325,8 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
         setQueueTick((current) => current + 1);
       }
     },
-    [imageConversationOwnerKey, taskConcurrency, updateConversation],
+    [imageConversationOwnerKey, session.role, taskConcurrency, updateConversation],
   );
-  /* eslint-enable react-hooks/preserve-manual-memoization */
 
   useEffect(() => {
     const ownerPrefix = `${imageConversationOwnerKey}:`;
@@ -1551,6 +1620,9 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
                   selectedImageModel={activeImageModel}
                   selectedImageQuotaCost={activeImageQuotaCost}
                   imageModelQuotaCosts={modelQuotaCosts}
+                  supportedImageResolutions={
+                    imageModelResolutions[activeImageModel.toLowerCase()] ?? ["1k", "2k", "4k"]
+                  }
                   imageModelOptions={selectableImageModels}
                   referenceImages={referenceImages}
                   textareaRef={textareaRef}

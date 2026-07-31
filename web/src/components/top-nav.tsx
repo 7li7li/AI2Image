@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   BadgeDollarSign,
+  Bell,
   CreditCard,
   ExternalLink,
   FileText,
@@ -30,6 +31,7 @@ import { getRouteHref, normalizeAppPath } from "@/lib/routes";
 import { useSiteSettingsStore } from "@/lib/site-settings";
 import { cn } from "@/lib/utils";
 import { clearStoredAuthSession, getStoredAuthSession, type StoredAuthSession } from "@/store/auth";
+import { isAnnouncementUnread, useAnnouncementStore } from "@/store/announcements";
 
 type NavItem = {
   href: string;
@@ -153,9 +155,10 @@ function getQuotaPurchaseTarget(
 const adminNavItems = [
   { href: "/chat", label: "对话", icon: MessagesSquare },
   { href: "/image", label: "画图", icon: Sparkles },
-  { href: "/users", label: "用户", icon: Users },
-  { href: "/prompt-manager", label: "提示词", icon: PenLine },
   { href: "/image-manager", label: "图库", icon: Images },
+  { href: "/prompt-manager", label: "提示词", icon: PenLine },
+  { href: "/announcements", label: "公告", icon: Bell },
+  { href: "/users", label: "用户", icon: Users },
   { href: "/channels", label: "渠道", icon: Waypoints },
   { href: "/models", label: "模型", icon: BadgeDollarSign },
   { href: "/subscriptions", label: "订阅", icon: CreditCard },
@@ -177,6 +180,9 @@ export function TopNav() {
   const normalizedPathname = normalizeAppPath(pathname);
   const [session, setSession] = useState<StoredAuthSession | null | undefined>(undefined);
   const [quotaSummary, setQuotaSummary] = useState<QuotaSummary>(UNKNOWN_QUOTA_SUMMARY);
+  const announcements = useAnnouncementStore((state) => state.items);
+  const announcementReadVersions = useAnnouncementStore((state) => state.readVersions);
+  const loadAnnouncements = useAnnouncementStore((state) => state.load);
   const siteTitle = useSiteSettingsStore((state) => state.settings.site_title);
   const siteIcon = useSiteSettingsStore((state) => state.settings.site_icon);
   const quotaPurchaseUrl = useSiteSettingsStore((state) => state.settings.quota_purchase_url);
@@ -251,6 +257,11 @@ export function TopNav() {
   }, [session]);
 
   useEffect(() => {
+    if (session?.role !== "user") return;
+    void loadAnnouncements().catch(() => undefined);
+  }, [loadAnnouncements, session]);
+
+  useEffect(() => {
     if (!session || session.role !== "user") {
       return;
     }
@@ -305,6 +316,7 @@ export function TopNav() {
 
   const navItems = session.role === "admin" ? adminNavItems : userNavItems;
   const roleLabel = session.role === "admin" ? "管理员" : "个人用户";
+  const announcementActive = normalizedPathname === "/announcements";
   const profileActive = normalizedPathname === "/profile";
   const quotaSpentLabel = quotaSummary.spentLabel || "已消耗 -- 点";
   const quotaExpiryLabel = quotaSummary.expiryLabel || "有效期 --";
@@ -312,6 +324,9 @@ export function TopNav() {
   const concurrencyLabel = quotaSummary.concurrencyLabel || "--";
   const subscriptionExpiryLabel = quotaSummary.subscriptionExpiryLabel || "--";
   const quotaButtonLabel = quotaSummary.subscriptionExpiryLabel ? subscriptionLabel : roleLabel;
+  const unreadAnnouncementCount = announcements.filter((item) =>
+    isAnnouncementUnread(item, announcementReadVersions),
+  ).length;
 
   return (
     <aside className="flex h-full w-[72px] shrink-0 flex-col items-center border-r border-stone-200/70 bg-white/92 px-2 py-4 backdrop-blur-xl sm:w-[76px]">
@@ -341,27 +356,34 @@ export function TopNav() {
         <span className="block truncate">studio</span>
       </div>
 
-      <nav className="hide-scrollbar mt-5 flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-1 overflow-y-auto">
-        {navItems.map((item) => {
-          const active = normalizedPathname === item.href;
-          const Icon = item.icon;
-          return (
-            <a
-              key={item.href}
-              href={getRouteHref(item.href)}
-              title={item.label}
-              className={cn(
-                "group flex min-h-[54px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 text-center text-[11px] font-medium leading-none transition",
-                active
-                  ? "bg-stone-950 text-white shadow-sm"
-                  : "text-stone-500 hover:bg-stone-100 hover:text-stone-950",
-              )}
-            >
-              <Icon className={cn("size-5", active ? "text-white" : "text-stone-700 group-hover:text-stone-950")} />
-              <span className="max-w-full truncate">{item.label}</span>
-            </a>
-          );
-        })}
+      <nav className="hide-scrollbar mt-5 min-h-0 w-full flex-1 overflow-y-auto">
+        <div className="flex min-h-full w-full flex-col items-center justify-center gap-1 py-1">
+          {navItems.map((item) => {
+            const active = normalizedPathname === item.href;
+            const Icon = item.icon;
+            return (
+              <a
+                key={item.href}
+                href={getRouteHref(item.href)}
+                title={item.label}
+                className={cn(
+                  "group relative flex min-h-[54px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 text-center text-[11px] font-medium leading-none transition",
+                  active
+                    ? "bg-stone-950 text-white shadow-sm"
+                    : "text-stone-500 hover:bg-stone-100 hover:text-stone-950",
+                )}
+              >
+                <Icon className={cn("size-5", active ? "text-white" : "text-stone-700 group-hover:text-stone-950")} />
+                {item.href === "/announcements" && session.role === "user" && unreadAnnouncementCount > 0 ? (
+                  <span className="absolute top-1.5 right-2.5 grid min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-4 text-white shadow-sm">
+                    {unreadAnnouncementCount > 99 ? "99+" : unreadAnnouncementCount}
+                  </span>
+                ) : null}
+                <span className="max-w-full truncate">{item.label}</span>
+              </a>
+            );
+          })}
+        </div>
       </nav>
 
       <div className="mt-4 flex w-full shrink-0 flex-col items-center gap-1.5">
@@ -437,6 +459,29 @@ export function TopNav() {
                 ) : null}
               </PopoverContent>
             </Popover>
+            <a
+              href={getRouteHref("/announcements")}
+              title="系统公告"
+              className={cn(
+                "group relative flex min-h-[54px] w-full flex-col items-center justify-center gap-1 rounded-lg px-1 text-center text-[11px] font-medium leading-none transition",
+                announcementActive
+                  ? "bg-stone-950 text-white shadow-sm"
+                  : "text-stone-500 hover:bg-stone-100 hover:text-stone-950",
+              )}
+            >
+              <Bell
+                className={cn(
+                  "size-5",
+                  announcementActive ? "text-white" : "text-stone-700 group-hover:text-stone-950",
+                )}
+              />
+              {unreadAnnouncementCount > 0 ? (
+                <span className="absolute top-1.5 right-2.5 grid min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-4 text-white shadow-sm">
+                  {unreadAnnouncementCount > 99 ? "99+" : unreadAnnouncementCount}
+                </span>
+              ) : null}
+              <span className="max-w-full truncate">系统公告</span>
+            </a>
             <a
               href={getRouteHref("/profile")}
               title={`个人中心 · v${webConfig.appVersion}`}

@@ -62,6 +62,17 @@ def resolve_image_base_url(request: Request) -> str:
     if configured:
         return configured
 
+    forwarded_host = _first_header_value(request.headers.get("x-forwarded-host"))
+    if forwarded_host:
+        forwarded_proto = _first_header_value(request.headers.get("x-forwarded-proto")) or str(request.url.scheme)
+        if forwarded_proto in {"http", "https"}:
+            return f"{forwarded_proto}://{forwarded_host}".rstrip("/")
+
+    request_scheme = str(request.url.scheme)
+    request_host = _first_header_value(request.headers.get("host")) or str(request.url.netloc)
+    if request_scheme in {"http", "https"} and request_host:
+        return f"{request_scheme}://{request_host}".rstrip("/")
+
     origin = _base_url_from_absolute_url(request.headers.get("origin"))
     if origin:
         return origin
@@ -70,13 +81,7 @@ def resolve_image_base_url(request: Request) -> str:
     if referer:
         return referer
 
-    forwarded_host = _first_header_value(request.headers.get("x-forwarded-host"))
-    if forwarded_host:
-        forwarded_proto = _first_header_value(request.headers.get("x-forwarded-proto")) or str(request.url.scheme)
-        if forwarded_proto in {"http", "https"}:
-            return f"{forwarded_proto}://{forwarded_host}".rstrip("/")
-
-    return f"{request.url.scheme}://{request.headers.get('host', request.url.netloc)}".rstrip("/")
+    return ""
 
 
 def raise_image_quota_error(exc: Exception) -> None:

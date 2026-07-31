@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { TopNav } from "@/components/top-nav";
+import { AnnouncementPopup } from "@/components/announcement-popup";
 import { normalizeAppPath } from "@/lib/routes";
 
 type AppShellProps = {
@@ -23,6 +24,7 @@ export function AppShell({ children }: AppShellProps) {
       <div className="flex h-full min-w-0">
         <TopNav />
         <div className="min-w-0 flex-1 overflow-hidden px-2 py-2 sm:px-3 sm:py-3">{children}</div>
+        <AnnouncementPopup />
       </div>
     </main>
   );

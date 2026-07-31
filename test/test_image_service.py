@@ -202,6 +202,29 @@ class ImageServiceTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["date"], "1970-01-01")
         self.assertEqual(result["items"][0]["created_at"], "1970-01-01 08:00:00")
 
+    def test_list_images_request_id_filter_excludes_orphan_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            images_dir = Path(tmp_dir) / "images"
+            orphan_path = images_dir / "2026" / "05" / "25" / "orphan.png"
+            orphan_path.parent.mkdir(parents=True)
+            orphan_path.write_bytes(b"orphan-image")
+            fake_storage = SimpleNamespace(load_image_records=lambda: [])
+            fake_config = SimpleNamespace(
+                images_dir=images_dir,
+                cleanup_old_images=lambda: 0,
+                get_storage_backend=lambda: fake_storage,
+            )
+
+            with mock.patch.object(image_service, "config", fake_config):
+                result = image_service.list_images(
+                    "http://127.0.0.1:8000",
+                    request_id="new-request-id",
+                    page_size=1,
+                )
+
+        self.assertEqual(result["items"], [])
+        self.assertEqual(result["pagination"]["total"], 0)
+
     def test_delete_images_removes_record_and_local_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             images_dir = Path(tmp_dir) / "images"

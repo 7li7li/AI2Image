@@ -160,6 +160,7 @@ class ModelPricingRequest(BaseModel):
     model_ratio: float | None = None
     completion_ratio: float | None = None
     model_price: float | None = None
+    image_resolutions: list[str] | None = None
     note: str | None = None
 
 

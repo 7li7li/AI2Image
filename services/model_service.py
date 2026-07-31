@@ -12,6 +12,7 @@ FIXED_BILLING_MODE = "fixed"
 DEFAULT_BILLING_MODE = FIXED_BILLING_MODE
 DEFAULT_MODEL_PRICE = 1.0
 DEFAULT_CURRENCY = "USD"
+IMAGE_RESOLUTION_OPTIONS = ("1k", "2k", "4k")
 
 
 def _clean(value: object) -> str:
@@ -41,6 +42,12 @@ def _models(value: object) -> list[str]:
     return []
 
 
+def _image_resolutions(value: object) -> list[str]:
+    values = value if isinstance(value, list) else [value] if isinstance(value, str) else []
+    selected = {str(item or "").strip().lower() for item in values}
+    return [resolution for resolution in IMAGE_RESOLUTION_OPTIONS if resolution in selected]
+
+
 def normalize_model_pricing(model: str, raw: object | None = None) -> dict[str, object]:
     data = dict(raw) if isinstance(raw, dict) else {}
     raw_billing_mode = _clean(data.get("billing_mode") or data.get("quota_type")).lower()
@@ -68,6 +75,11 @@ def normalize_model_pricing(model: str, raw: object | None = None) -> dict[str, 
     if input_price > 0 and output_price > 0:
         completion_ratio = output_price / input_price
 
+    image_resolutions = (
+        _image_resolutions(data.get("image_resolutions"))
+        if "image_resolutions" in data
+        else list(IMAGE_RESOLUTION_OPTIONS)
+    )
     return {
         "model": model,
         "enabled": _bool(data.get("enabled"), True),
@@ -78,6 +90,8 @@ def normalize_model_pricing(model: str, raw: object | None = None) -> dict[str, 
         "model_ratio": round(model_ratio, 8),
         "completion_ratio": round(completion_ratio, 8),
         "model_price": round(model_price, 8),
+        # Preserve the previous behavior for existing model configurations.
+        "image_resolutions": image_resolutions,
         "note": _clean(data.get("note"))[:500],
     }
 
@@ -212,6 +226,9 @@ class ModelService:
         if amount <= 0:
             return 0
         return round(amount, 8)
+
+    def supported_image_resolutions(self, model: str) -> list[str]:
+        return list(self.get_pricing(model).get("image_resolutions") or [])
 
     def list_quota_costs(self) -> dict[str, float]:
         models = {

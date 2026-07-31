@@ -20,6 +20,7 @@ import {
   type ModelPricingPayload,
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/use-auth-guard";
+import { isImageGenerationModel } from "@/lib/model-options";
 
 type BillingMode = "tokens" | "fixed";
 
@@ -32,8 +33,11 @@ type DraftPricing = {
   model_ratio: string;
   completion_ratio: string;
   model_price: string;
+  image_resolutions: Array<"1k" | "2k" | "4k">;
   note: string;
 };
+
+const IMAGE_RESOLUTION_OPTIONS = ["1k", "2k", "4k"] as const;
 
 const ALL_CHANNELS = "__all__";
 
@@ -52,6 +56,9 @@ function pricingToDraft(pricing: ModelPricing): DraftPricing {
     model_ratio: stringifyNumber(pricing.model_ratio),
     completion_ratio: stringifyNumber(pricing.completion_ratio),
     model_price: stringifyNumber(pricing.model_price),
+    image_resolutions: Array.isArray(pricing.image_resolutions)
+      ? pricing.image_resolutions
+      : [...IMAGE_RESOLUTION_OPTIONS],
     note: pricing.note || "",
   };
 }
@@ -72,6 +79,7 @@ function draftToPayload(model: string, draft: DraftPricing): ModelPricingPayload
     model_ratio: numberValue(draft.model_ratio),
     completion_ratio: numberValue(draft.completion_ratio),
     model_price: numberValue(draft.model_price),
+    image_resolutions: draft.image_resolutions,
     note: draft.note.trim(),
   };
 }
@@ -139,6 +147,16 @@ function ModelsContent() {
     setSavingModel(model.model);
     try {
       const data = await updateModelPricing(draftToPayload(model.model, draft));
+      const savedModel = data.items.find((item) => item.model === model.model);
+      const savedResolutions = savedModel?.pricing.image_resolutions;
+      if (
+        isImageGenerationModel(model.model) &&
+        (!Array.isArray(savedResolutions) ||
+          savedResolutions.length !== draft.image_resolutions.length ||
+          !draft.image_resolutions.every((resolution) => savedResolutions.includes(resolution)))
+      ) {
+        throw new Error("分辨率配置未生效，请重启后端服务后重试");
+      }
       applyCatalog(data.items, data.channels);
       toast.success("模型计费已保存");
     } catch (error) {
@@ -243,7 +261,7 @@ function ModelsContent() {
           </div>
 
           <div className="overflow-hidden rounded-lg border border-stone-50 bg-white/70">
-            <div className="hidden border-b border-stone-50 px-4 py-3 text-xs font-semibold text-stone-500 xl:grid xl:grid-cols-[minmax(190px,1.3fr)_minmax(150px,1fr)_116px_130px_130px_110px_120px_88px] xl:items-center xl:gap-3">
+            <div className="hidden border-b border-stone-50 px-4 py-3 text-xs font-semibold text-stone-500 xl:grid xl:grid-cols-[minmax(190px,1.3fr)_minmax(150px,1fr)_116px_130px_130px_110px_120px_150px_88px] xl:items-center xl:gap-3">
               <div>模型</div>
               <div>渠道</div>
               <div>模式</div>
@@ -251,6 +269,7 @@ function ModelsContent() {
               <div>输出价/1M</div>
               <div>补全倍率</div>
               <div>额度/次</div>
+              <div>支持分辨率</div>
               <div>操作</div>
             </div>
             {isLoading ? (
@@ -263,7 +282,7 @@ function ModelsContent() {
               filteredModels.map((model) => {
                 const draft = drafts[model.model] ?? pricingToDraft(model.pricing);
                 return (
-                  <div key={model.model} className="grid gap-3 border-b border-stone-50 px-4 py-4 text-sm last:border-0 xl:grid-cols-[minmax(190px,1.3fr)_minmax(150px,1fr)_116px_130px_130px_110px_120px_88px] xl:items-center">
+                  <div key={model.model} className="grid gap-3 border-b border-stone-50 px-4 py-4 text-sm last:border-0 xl:grid-cols-[minmax(190px,1.3fr)_minmax(150px,1fr)_116px_130px_130px_110px_120px_150px_88px] xl:items-center">
                     <div className="min-w-0">
                       <div className="truncate font-medium text-stone-950">{model.model}</div>
                       <div className="mt-1 flex items-center gap-2 text-xs text-stone-400">
@@ -328,6 +347,28 @@ function ModelsContent() {
                       onChange={(event) => updateDraft(model, { model_price: event.target.value })}
                       className="h-10 rounded-xl border-stone-100 bg-white"
                     />
+                    <div className="flex flex-wrap gap-2">
+                      {isImageGenerationModel(model.model) ? (
+                        IMAGE_RESOLUTION_OPTIONS.map((resolution) => (
+                          <label key={resolution} className="flex items-center gap-1 text-xs text-stone-600">
+                            <Checkbox
+                              checked={draft.image_resolutions.includes(resolution)}
+                              onCheckedChange={(checked) =>
+                                updateDraft(model, {
+                                  image_resolutions: checked
+                                    ? [...draft.image_resolutions, resolution]
+                                    : draft.image_resolutions.filter((value) => value !== resolution),
+                                })
+                              }
+                              className="size-4"
+                            />
+                            {resolution.toUpperCase()}
+                          </label>
+                        ))
+                      ) : (
+                        <span className="text-xs text-stone-400">仅画图模型</span>
+                      )}
+                    </div>
                     <Button
                       variant="outline"
                       size="sm"

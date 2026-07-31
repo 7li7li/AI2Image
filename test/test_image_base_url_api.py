@@ -20,23 +20,23 @@ class ImageBaseUrlApiTests(unittest.TestCase):
 
         self.assertEqual(api_support.resolve_image_base_url(request), "https://public.example.com")
 
-    def test_falls_back_to_browser_origin_before_request_host(self) -> None:
+    def test_prefers_request_host_over_browser_origin(self) -> None:
         self.fake_config.base_url = ""
         request = SimpleNamespace(
             url=SimpleNamespace(scheme="http", netloc="api.example:9001"),
             headers={"host": "api.example:9001", "origin": "https://site.example.com"},
         )
 
-        self.assertEqual(api_support.resolve_image_base_url(request), "https://site.example.com")
+        self.assertEqual(api_support.resolve_image_base_url(request), "http://api.example:9001")
 
-    def test_falls_back_to_browser_referer_when_origin_missing(self) -> None:
+    def test_prefers_request_host_over_browser_referer(self) -> None:
         self.fake_config.base_url = ""
         request = SimpleNamespace(
             url=SimpleNamespace(scheme="http", netloc="api.example:9001"),
             headers={"host": "api.example:9001", "referer": "https://site.example.com/image?tab=history"},
         )
 
-        self.assertEqual(api_support.resolve_image_base_url(request), "https://site.example.com")
+        self.assertEqual(api_support.resolve_image_base_url(request), "http://api.example:9001")
 
     def test_falls_back_to_forwarded_host_before_request_host(self) -> None:
         self.fake_config.base_url = ""
@@ -44,6 +44,7 @@ class ImageBaseUrlApiTests(unittest.TestCase):
             url=SimpleNamespace(scheme="http", netloc="127.0.0.1:9001"),
             headers={
                 "host": "127.0.0.1:9001",
+                "origin": "https://browser.example.com",
                 "x-forwarded-host": "site.example.com",
                 "x-forwarded-proto": "https",
             },
@@ -68,6 +69,24 @@ class ImageBaseUrlApiTests(unittest.TestCase):
         )
 
         self.assertEqual(api_support.resolve_image_base_url(request), "https://public.example.com")
+
+    def test_falls_back_to_browser_origin_when_request_host_is_unavailable(self) -> None:
+        self.fake_config.base_url = ""
+        request = SimpleNamespace(
+            url=SimpleNamespace(scheme="http", netloc=""),
+            headers={"origin": "https://site.example.com"},
+        )
+
+        self.assertEqual(api_support.resolve_image_base_url(request), "https://site.example.com")
+
+    def test_falls_back_to_browser_referer_when_request_host_is_unavailable(self) -> None:
+        self.fake_config.base_url = ""
+        request = SimpleNamespace(
+            url=SimpleNamespace(scheme="http", netloc=""),
+            headers={"referer": "https://site.example.com/image?tab=history"},
+        )
+
+        self.assertEqual(api_support.resolve_image_base_url(request), "https://site.example.com")
 
 
 if __name__ == "__main__":

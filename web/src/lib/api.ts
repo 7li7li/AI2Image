@@ -21,6 +21,19 @@ export type SettingsSubscriptionPlan = Omit<SubscriptionPlan, "quota" | "valid_m
   concurrency: number | string;
 };
 
+export type AnnouncementCategory = "system" | "update" | "maintenance" | "activity";
+
+export type Announcement = {
+  id: string;
+  title: string;
+  content: string;
+  category: AnnouncementCategory;
+  enabled: boolean;
+  popup: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type SettingsConfig = {
   proxy: string;
   site_title?: string;
@@ -65,6 +78,7 @@ export type SettingsConfig = {
   smtp_use_ssl?: boolean;
   smtp_use_starttls?: boolean;
   smtp_force_auth_login?: boolean;
+  announcements?: Announcement[];
   [key: string]: unknown;
 };
 
@@ -325,6 +339,7 @@ export type ModelListItem = {
   created?: number;
   owned_by?: string;
   quota_cost?: number;
+  image_resolutions?: ImageResolutionTier[];
 };
 
 export type ModelListResponse = {
@@ -345,6 +360,7 @@ export type ModelQuotaCostResponse = {
 export type PublicModelItem = {
   model: string;
   quota_cost: number;
+  image_resolutions?: ImageResolutionTier[];
 };
 
 export type PublicModelListResponse = {
@@ -451,6 +467,57 @@ const IMAGE_COMMON_SIZE_PRESETS: Record<ImageResolutionTier, Record<ImagePresetR
     "3:4": "2400x3200",
     "21:9": "3840x1648",
     "9:21": "1648x3840",
+  },
+};
+
+const GEMINI_IMAGE_SIZE_PRESETS: Record<ImageResolutionTier, Record<string, string>> = {
+  "1k": {
+    "1:1": "1024x1024",
+    "16:9": "1376x768",
+    "9:16": "768x1376",
+    "4:3": "1200x896",
+    "3:4": "896x1200",
+    "3:2": "1264x848",
+    "2:3": "848x1264",
+    "5:4": "1152x928",
+    "4:5": "928x1152",
+    "21:9": "1584x672",
+    "8:1": "2928x352",
+    "4:1": "2064x512",
+    "1:4": "512x2064",
+    "1:8": "352x2928",
+  },
+  "2k": {
+    "1:1": "2048x2048",
+    "16:9": "2752x1536",
+    "9:16": "1536x2752",
+    "4:3": "2400x1792",
+    "3:4": "1792x2400",
+    "3:2": "2528x1696",
+    "2:3": "1696x2528",
+    "5:4": "2304x1856",
+    "4:5": "1856x2304",
+    "21:9": "3168x1344",
+    "8:1": "5856x704",
+    "4:1": "4128x1024",
+    "1:4": "1024x4128",
+    "1:8": "704x5856",
+  },
+  "4k": {
+    "1:1": "4096x4096",
+    "16:9": "5504x3072",
+    "9:16": "3072x5504",
+    "4:3": "4800x3584",
+    "3:4": "3584x4800",
+    "3:2": "5056x3392",
+    "2:3": "3392x5056",
+    "5:4": "4608x3712",
+    "4:5": "3712x4608",
+    "21:9": "6336x2688",
+    "8:1": "11712x1408",
+    "4:1": "8256x2048",
+    "1:4": "2048x8256",
+    "1:8": "1408x11712",
   },
 };
 
@@ -627,6 +694,19 @@ export function resolveImageRequestSize(size?: string, resolution?: string) {
     return `${width}x${height}`;
   }
   return calculateImageSize("1k", normalizedSize) || normalizedSize;
+}
+
+export function resolveGeminiImageRequestSize(size?: string, resolution?: string) {
+  const normalizedSize = String(size || "").trim().toLowerCase();
+  const normalizedResolution = String(resolution || "").trim().toLowerCase();
+  const resolutionTier = IMAGE_RESOLUTION_TIERS[normalizedResolution];
+  if (!resolutionTier) {
+    return undefined;
+  }
+  if (!normalizedSize || normalizedSize === "auto") {
+    return resolutionTier.toUpperCase();
+  }
+  return GEMINI_IMAGE_SIZE_PRESETS[resolutionTier][normalizedSize] || resolutionTier.toUpperCase();
 }
 
 export type LoginResponse = {
@@ -817,11 +897,29 @@ export async function redeemMyCode(code: string) {
   });
 }
 
-function normalizeImageRequestOptions(options: ImageRequestOptions = {}) {
+function isGeminiImageModel(model?: ImageModel) {
+  return String(model || "")
+    .trim()
+    .toLowerCase()
+    .includes("gemini");
+}
+
+function normalizeImageRequestOptions(options: ImageRequestOptions = {}, model?: ImageModel) {
   const payload: Record<string, string | number> = {};
-  const resolvedSize = resolveImageRequestSize(options.size, options.resolution);
-  if (resolvedSize) {
-    payload.size = resolvedSize;
+  if (isGeminiImageModel(model)) {
+    const size = String(options.size || "").trim();
+    const resolution = String(options.resolution || "").trim().toLowerCase();
+    if (size && size.toLowerCase() !== "auto") {
+      payload.size = size;
+    }
+    if (resolution in IMAGE_RESOLUTION_TIERS) {
+      payload.resolution = resolution;
+    }
+  } else {
+    const resolvedSize = resolveImageRequestSize(options.size, options.resolution);
+    if (resolvedSize) {
+      payload.size = resolvedSize;
+    }
   }
   if (options.quality) {
     payload.quality = options.quality;
@@ -849,7 +947,7 @@ export async function generateImage(prompt: string, model?: ImageModel, options:
       body: {
         prompt,
         ...(model ? { model } : {}),
-        ...normalizeImageRequestOptions(options),
+        ...normalizeImageRequestOptions(options, model),
         n: 1,
         response_format: "url",
       },
@@ -871,7 +969,7 @@ export async function createImageGenerationTask(
       body: {
         prompt,
         ...(model ? { model } : {}),
-        ...normalizeImageRequestOptions(options),
+        ...normalizeImageRequestOptions(options, model),
         n: 1,
         response_format: "url",
       },
@@ -890,7 +988,7 @@ export async function editImage(files: File | File[], prompt: string, model?: Im
   if (model) {
     formData.append("model", model);
   }
-  const requestOptions = normalizeImageRequestOptions(options);
+  const requestOptions = normalizeImageRequestOptions(options, model);
   for (const [key, value] of Object.entries(requestOptions)) {
     formData.append(key, String(value));
   }
@@ -923,7 +1021,7 @@ export async function createImageEditTask(
   if (model) {
     formData.append("model", model);
   }
-  const requestOptions = normalizeImageRequestOptions(options);
+  const requestOptions = normalizeImageRequestOptions(options, model);
   for (const [key, value] of Object.entries(requestOptions)) {
     formData.append(key, String(value));
   }
@@ -1273,6 +1371,11 @@ export async function fetchPublicAuthSettings() {
   return httpRequest<{ settings: PublicAuthSettings }>("/api/public/auth-settings", {
     redirectOnUnauthorized: false,
   });
+}
+
+export async function fetchAnnouncements() {
+  const cacheBust = typeof Date !== "undefined" ? `?_=${Date.now()}` : "";
+  return httpRequest<{ items: Announcement[] }>(`/api/announcements${cacheBust}`);
 }
 
 export async function createSubscriptionOrder(planId: string) {
@@ -1780,6 +1883,7 @@ export type ModelPricing = {
   model_ratio: number;
   completion_ratio: number;
   model_price: number;
+  image_resolutions: ImageResolutionTier[];
   note: string;
 };
 

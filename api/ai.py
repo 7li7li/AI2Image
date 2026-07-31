@@ -223,6 +223,9 @@ def create_router() -> APIRouter:
             "channel call failed",
             endpoint=endpoint,
             model=model,
+            size=str(payload.get("size") or "auto"),
+            resolution=str(payload.get("resolution") or "auto"),
+            attempts=payload.get("_channel_attempts") or [],
             status="error",
             error=channel_error,
             request_id=request_id,
@@ -241,6 +244,14 @@ def create_router() -> APIRouter:
 
     def image_quota_cost(identity: dict[str, object], model: str) -> float:
         return model_quota_cost(identity, model)
+
+    def validate_image_resolution(model: str, resolution: object) -> None:
+        selected = str(resolution or "").strip().lower()
+        if not selected or selected == "auto":
+            return
+        supported = getattr(model_service, "supported_image_resolutions", lambda _: ["1k", "2k", "4k"])(model)
+        if selected not in supported:
+            raise HTTPException(status_code=400, detail={"error": f"model does not support {selected.upper()} resolution"})
 
     def chat_quota_cost(identity: dict[str, object], model: str) -> float:
         return model_quota_cost(identity, model)
@@ -279,6 +290,9 @@ def create_router() -> APIRouter:
                     endpoint="/v1/images/generations",
                     model=model,
                     channel=channel_name,
+                    size=str(payload.get("size") or "auto"),
+                    resolution=str(payload.get("resolution") or "auto"),
+                    attempts=payload.get("_channel_attempts") or [],
                     status="success",
                     request_id=request_id,
                 )
@@ -330,6 +344,9 @@ def create_router() -> APIRouter:
                     endpoint="/v1/images/edits",
                     model=model,
                     channel=channel_name,
+                    size=str(payload.get("size") or "auto"),
+                    resolution=str(payload.get("resolution") or "auto"),
+                    attempts=payload.get("_channel_attempts") or [],
                     status="success",
                     request_id=request_id,
                 )
@@ -530,6 +547,7 @@ def create_router() -> APIRouter:
                         "model": model_id,
                         "owned_by": str(channel.get("name") or "channel"),
                         "quota_cost": quota_costs.get(model_id, model_service.quota_cost(model_id)),
+                        "image_resolutions": getattr(model_service, "supported_image_resolutions", lambda _: ["1k", "2k", "4k"])(model_id),
                     }
                 )
         return items
@@ -538,7 +556,11 @@ def create_router() -> APIRouter:
     async def list_public_models():
         return {
             "items": [
-                {"model": item["model"], "quota_cost": item["quota_cost"]}
+                {
+                    "model": item["model"],
+                    "quota_cost": item["quota_cost"],
+                    "image_resolutions": item["image_resolutions"],
+                }
                 for item in available_model_items()
             ]
         }
@@ -553,6 +575,7 @@ def create_router() -> APIRouter:
                 "created": 0,
                 "owned_by": item["owned_by"],
                 "quota_cost": item["quota_cost"],
+                "image_resolutions": item["image_resolutions"],
             }
             for item in available_model_items()
         ]
@@ -579,6 +602,7 @@ def create_router() -> APIRouter:
         request_id = request_id_from_request(request)
         payload = body.model_dump(mode="python")
         payload["model"] = body.model or config.default_image_model
+        validate_image_resolution(str(payload["model"]), body.resolution)
         payload["base_url"] = resolve_image_base_url(request)
         payload["request_id"] = request_id
         quota_cost = image_quota_cost(identity, str(payload.get("model") or ""))
@@ -646,6 +670,7 @@ def create_router() -> APIRouter:
             "base_url": resolve_image_base_url(request),
             "request_id": request_id,
         }
+        validate_image_resolution(str(payload["model"]), resolution)
         quota_cost = image_quota_cost(identity, str(payload.get("model") or ""))
         quota_request_id = reserve_image_quota(identity, int(n or 1) * quota_cost, request_id)
         return await run_in_threadpool(
@@ -749,6 +774,7 @@ def create_router() -> APIRouter:
 
         payload = body.model_dump(mode="python")
         payload["model"] = body.model or config.default_image_model
+        validate_image_resolution(str(payload["model"]), body.resolution)
         payload["base_url"] = resolve_image_base_url(request)
         payload["request_id"] = request_id
         quota_cost = image_quota_cost(identity, str(payload.get("model") or ""))
@@ -831,6 +857,7 @@ def create_router() -> APIRouter:
             "base_url": resolve_image_base_url(request),
             "request_id": request_id,
         }
+        validate_image_resolution(str(payload["model"]), resolution)
         quota_cost = image_quota_cost(identity, str(payload.get("model") or ""))
         quota_request_id = reserve_image_quota(identity, int(n or 1) * quota_cost, request_id)
         return submit_background_task(
