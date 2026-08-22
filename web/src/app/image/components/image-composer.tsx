@@ -644,6 +644,7 @@ type ImageComposerProps = {
   selectedImageModel: string;
   selectedImageQuotaCost: number;
   imageModelQuotaCosts: Record<string, number>;
+  promptPolishQuotaCost: number;
   supportedImageResolutions: string[];
   imageModelOptions: string[];
   referenceImages: Array<{ name: string; dataUrl: string }>;
@@ -679,6 +680,7 @@ export function ImageComposer({
   selectedImageModel,
   selectedImageQuotaCost,
   imageModelQuotaCosts,
+  promptPolishQuotaCost,
   supportedImageResolutions,
   imageModelOptions,
   referenceImages,
@@ -885,6 +887,9 @@ export function ImageComposer({
   const imageQualityLabel = imageQualityOptions.find((option) => option.value === imageQuality)?.label || "自动";
   const activeImageModel = selectedImageModel;
   const activeImageQuotaCost = Math.max(0, Math.ceil(Number(selectedImageQuotaCost) || 0));
+  const promptPolishQuotaCostLabel = Number.isFinite(promptPolishQuotaCost)
+    ? promptPolishQuotaCost.toFixed(8).replace(/\.?0+$/, "")
+    : "1";
   const imageQuotaCostForModel = (model: string) => {
     const modelId = model.trim().toLowerCase();
     const parsed = Number((modelId ? imageModelQuotaCosts[modelId] : undefined) ?? 1);
@@ -1403,8 +1408,8 @@ export function ImageComposer({
                   onClick={() => void onPolishPrompt()}
                   disabled={!prompt.trim() || isPolishingPrompt}
                   className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-stone-700 transition hover:bg-stone-100 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-stone-300"
-                  aria-label="AI 润色当前提示词"
-                  title="AI 润色会扣除 1 点额度"
+                  aria-label={`AI 润色当前提示词，扣除 ${promptPolishQuotaCostLabel} 点额度`}
+                  title={`AI 润色会扣除 ${promptPolishQuotaCostLabel} 点额度`}
                 >
                   {isPolishingPrompt ? <LoaderCircle className="size-4 animate-spin" /> : <WandSparkles className="size-4" />}
                   <span>润色</span>

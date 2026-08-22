@@ -140,6 +140,10 @@ function quotaCostForModel(costs: Record<string, number>, model: string) {
   return modelId ? costs[modelId] ?? 1 : 1;
 }
 
+function formatQuotaCost(value: number) {
+  return value.toFixed(8).replace(/\.?0+$/, "");
+}
+
 function getScopedStorageKey(baseKey: string, ownerKey: string) {
   return ownerKey ? `${baseKey}:${ownerKey}` : baseKey;
 }
@@ -547,6 +551,11 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
     () => quotaCostForModel(modelQuotaCosts, activeImageModel),
     [activeImageModel, modelQuotaCosts],
   );
+  const promptPolishQuotaCost = useMemo(
+    () => quotaCostForModel(modelQuotaCosts, defaultImagePromptPolishModel),
+    [defaultImagePromptPolishModel, modelQuotaCosts],
+  );
+  const promptPolishQuotaCostLabel = formatQuotaCost(promptPolishQuotaCost);
   const parsedCount = useMemo(() => Math.max(1, Math.min(10, Number(imageCount) || 1)), [imageCount]);
   const selectedConversation = useMemo(
     () => conversations.find((item) => item.id === selectedConversationId) ?? null,
@@ -1435,7 +1444,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
       setImagePrompt(polished);
       window.dispatchEvent(new Event(QUOTA_REFRESH_EVENT));
       window.requestAnimationFrame(() => textareaRef.current?.focus());
-      toast.success("提示词已润色，已扣除 1 点额度");
+      toast.success(`提示词已润色，已扣除 ${promptPolishQuotaCostLabel} 点额度`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "AI 润色失败");
     } finally {
@@ -1620,6 +1629,7 @@ function ImagePageContent({ session }: { session: StoredAuthSession }) {
                   selectedImageModel={activeImageModel}
                   selectedImageQuotaCost={activeImageQuotaCost}
                   imageModelQuotaCosts={modelQuotaCosts}
+                  promptPolishQuotaCost={promptPolishQuotaCost}
                   supportedImageResolutions={
                     imageModelResolutions[activeImageModel.toLowerCase()] ?? ["1k", "2k", "4k"]
                   }

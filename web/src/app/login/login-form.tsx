@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, LoaderCircle, LogIn, Send, Sparkles, UserPlus } from "lucide-react";
+import { CheckCircle2, KeyRound, LoaderCircle, LogIn, Send, Sparkles, UserPlus } from "lucide-react";
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -24,6 +24,8 @@ import { cn } from "@/lib/utils";
 import { getDefaultRouteForRole, setStoredAuthSession } from "@/store/auth";
 
 type AuthView = "login" | "register" | "verify" | "forgot" | "admin";
+
+const REGISTRATION_CODE_COOLDOWN_SECONDS = 60;
 
 const DEFAULT_AUTH_SETTINGS: PublicAuthSettings = {
   allow_user_registration: false,
@@ -58,20 +60,25 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
   const [verificationCode, setVerificationCode] = useState("");
   const [authKey, setAuthKey] = useState("");
   const [resetCodeSent, setResetCodeSent] = useState(false);
+  const [registrationCodeSent, setRegistrationCodeSent] = useState(false);
+  const [registrationCodeCooldown, setRegistrationCodeCooldown] = useState(0);
+  const [isSendingRegistrationCode, setIsSendingRegistrationCode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authSettings, setAuthSettings] = useState<PublicAuthSettings>(DEFAULT_AUTH_SETTINGS);
   const siteTitle = useSiteSettingsStore((state) => state.settings.site_title);
   const siteIcon = useSiteSettingsStore((state) => state.settings.site_icon);
   const siteBackground = useSiteSettingsStore((state) => state.settings.site_background);
-  const [iconFailed, setIconFailed] = useState(false);
+  const [failedIconUrl, setFailedIconUrl] = useState("");
   const normalizedSiteIcon = siteIcon.trim();
   const normalizedSiteBackground = siteBackground.trim();
-  const showSiteIcon = Boolean(normalizedSiteIcon && !iconFailed);
+  const showSiteIcon = Boolean(normalizedSiteIcon && failedIconUrl !== normalizedSiteIcon);
   const emailDomainOptions = useMemo(
     () => normalizeEmailDomainOptions(authSettings.email_domain_whitelist),
     [authSettings.email_domain_whitelist],
   );
   const useRegisterDomainSelect = authSettings.email_domain_whitelist_enabled && emailDomainOptions.length > 0;
+  const selectedRegisterEmailDomain =
+    registerEmailDomain && emailDomainOptions.includes(registerEmailDomain) ? registerEmailDomain : emailDomainOptions[0] || "";
   const loginBackgroundStyle: CSSProperties | undefined = normalizedSiteBackground
     ? {
         backgroundImage: `linear-gradient(rgba(255, 255, 255, 0.64), rgba(248, 248, 249, 0.72)), url(${JSON.stringify(normalizedSiteBackground)})`,
@@ -81,12 +88,14 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
     : undefined;
 
   useEffect(() => {
-    setIconFailed(false);
-  }, [normalizedSiteIcon]);
-
-  useEffect(() => {
-    setRegisterEmailDomain((current) => (current && emailDomainOptions.includes(current) ? current : emailDomainOptions[0] || ""));
-  }, [emailDomainOptions]);
+    if (registrationCodeCooldown <= 0) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setRegistrationCodeCooldown((current) => Math.max(0, current - 1));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [registrationCodeCooldown]);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,10 +122,10 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
       return email.trim();
     }
     const local = emailLocalPart(registerEmailLocal);
-    if (!local || !registerEmailDomain) {
+    if (!local || !selectedRegisterEmailDomain) {
       return "";
     }
-    return `${local}@${registerEmailDomain}`;
+    return `${local}@${selectedRegisterEmailDomain}`;
   };
 
   const switchView = (nextView: AuthView) => {
@@ -132,6 +141,10 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
     }
     if (nextView !== "verify") {
       setVerificationCode("");
+    }
+    if (nextView !== "register") {
+      setRegistrationCodeSent(false);
+      setRegistrationCodeCooldown(0);
     }
     setView(nextView);
   };
@@ -184,30 +197,96 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
     }
   };
 
-  const handleRegister = async () => {
+  const validateRegistrationFields = () => {
     const registrationEmail = resolveRegistrationEmail();
     if (!registrationEmail) {
       toast.error("请输入邮箱");
-      return;
+      return "";
     }
     if (!password || password.length < 6) {
       toast.error("密码至少 6 位");
-      return;
+      return "";
     }
     if (password !== confirmPassword) {
       toast.error("两次输入的密码不一致");
+      return "";
+    }
+    return registrationEmail;
+  };
+
+  const handleSendRegistrationCode = async () => {
+    if (isSubmitting || registrationCodeCooldown > 0) {
+      return;
+    }
+    const registrationEmail = validateRegistrationFields();
+    if (!registrationEmail) {
+      return;
+    }
+    setIsSubmitting(true);
+    setIsSendingRegistrationCode(true);
+    const isResend = registrationCodeSent;
+    let sentAsResend = isResend;
+    try {
+      let data: LoginResponse;
+      if (isResend) {
+        data = await resendEmailVerification({ email: registrationEmail, password });
+      } else {
+        try {
+          data = await registerUser({ email: registrationEmail, password, name: name.trim() });
+        } catch (error) {
+          // A pending registration may already exist after a page reload; issue a fresh code for it.
+          if (!(error instanceof Error) || !error.message.toLowerCase().includes("email already exists")) {
+            throw error;
+          }
+          data = await resendEmailVerification({ email: registrationEmail, password });
+          sentAsResend = true;
+        }
+      }
+      if (!data.verification_required) {
+        await completeLogin(data);
+        return;
+      }
+      setEmail(registrationEmail);
+      setRegistrationCodeSent(true);
+      setVerificationCode("");
+      setRegistrationCodeCooldown(REGISTRATION_CODE_COOLDOWN_SECONDS);
+      toast.success(sentAsResend ? "验证码已重新发送" : "验证码已发送");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "发送验证码失败");
+    } finally {
+      setIsSubmitting(false);
+      setIsSendingRegistrationCode(false);
+    }
+  };
+
+  const handleRegister = async () => {
+    const registrationEmail = validateRegistrationFields();
+    if (!registrationEmail) {
+      return;
+    }
+    if (authSettings.email_verification_enabled) {
+      if (!registrationCodeSent) {
+        toast.error("请先获取邮箱验证码");
+        return;
+      }
+      if (!verificationCode.trim()) {
+        toast.error("请输入邮箱验证码");
+        return;
+      }
+      setIsSubmitting(true);
+      try {
+        const data = await verifyEmail({ email: registrationEmail, code: verificationCode.trim() });
+        await completeLogin(data);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "邮箱验证失败");
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
     setIsSubmitting(true);
     try {
       const data = await registerUser({ email: registrationEmail, password, name: name.trim() });
-      setEmail(registrationEmail);
-      if (data.verification_required) {
-        setView("verify");
-        setVerificationCode("");
-        toast.success("验证码已发送");
-        return;
-      }
       await completeLogin(data);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "注册失败");
@@ -321,11 +400,16 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
     await handleLogin();
   };
 
+  const registrationVerificationEnabled = view === "register" && authSettings.email_verification_enabled;
+  const registrationFieldsLocked = registrationVerificationEnabled && (registrationCodeSent || isSendingRegistrationCode);
+
   const primaryLabel =
     view === "admin"
       ? "管理员登录"
       : view === "register"
-        ? "注册"
+        ? registrationVerificationEnabled && registrationCodeSent
+          ? "完成注册"
+          : "注册"
         : view === "verify"
           ? "验证并登录"
           : view === "forgot"
@@ -334,7 +418,15 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
               : "发送验证码"
             : "登录";
   const PrimaryIcon =
-    view === "register" ? UserPlus : view === "verify" || (view === "forgot" && !resetCodeSent) ? Send : view === "admin" ? KeyRound : LogIn;
+    view === "register"
+      ? registrationVerificationEnabled && registrationCodeSent
+        ? CheckCircle2
+        : UserPlus
+      : view === "verify" || (view === "forgot" && !resetCodeSent)
+        ? Send
+        : view === "admin"
+          ? KeyRound
+          : LogIn;
   const navButtonClass = "text-sm text-stone-600 underline-offset-4 hover:text-black hover:underline disabled:pointer-events-none disabled:opacity-50";
 
   return (
@@ -357,7 +449,8 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
                   src={normalizedSiteIcon}
                   alt=""
                   className="size-full object-contain"
-                  onError={() => setIconFailed(true)}
+                  onLoad={() => setFailedIconUrl((current) => (current === normalizedSiteIcon ? "" : current))}
+                  onError={() => setFailedIconUrl(normalizedSiteIcon)}
                 />
               ) : (
                 <Sparkles className="size-5" />
@@ -390,10 +483,14 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
                       value={registerEmailLocal}
                       onChange={(event) => setRegisterEmailLocal(emailLocalPart(event.target.value))}
                       placeholder="邮箱"
+                      disabled={registrationFieldsLocked}
                       className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-3 shadow-none focus-visible:border-transparent focus-visible:ring-0"
                     />
-                    <Select value={registerEmailDomain} onValueChange={setRegisterEmailDomain}>
-                      <SelectTrigger className="h-full w-[142px] shrink-0 rounded-none border-y-0 border-r-0 border-l border-stone-300 bg-white px-3 shadow-none focus:ring-0 focus-visible:ring-0">
+                    <Select value={selectedRegisterEmailDomain} onValueChange={setRegisterEmailDomain} disabled={registrationFieldsLocked}>
+                      <SelectTrigger
+                        disabled={registrationFieldsLocked}
+                        className="h-full w-[142px] shrink-0 rounded-none border-y-0 border-r-0 border-l border-stone-300 bg-white px-3 shadow-none focus:ring-0 focus-visible:ring-0"
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="max-h-72">
@@ -411,6 +508,7 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     placeholder="邮箱"
+                    disabled={registrationFieldsLocked}
                     className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-stone-300/70"
                   />
                 )}
@@ -420,13 +518,46 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
                     value={name}
                     onChange={(event) => setName(event.target.value)}
                     placeholder="昵称"
+                    disabled={registrationFieldsLocked}
                     className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-stone-300/70"
                   />
                 ) : null}
 
-                {view === "verify" || (view === "forgot" && resetCodeSent) ? (
+                {registrationVerificationEnabled ? (
+                  <div className="space-y-2">
+                    <div className="flex min-w-0 gap-2">
+                      <Input
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={6}
+                        value={verificationCode}
+                        onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                        placeholder="邮箱验证码"
+                        className="h-11 min-w-0 flex-1 rounded-[3px] border-stone-300 bg-white px-3 tracking-[0.24em] focus-visible:ring-stone-300/70"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-11 w-[126px] rounded-[3px] border-stone-300 px-2 text-sm text-stone-800 shadow-none hover:bg-stone-50"
+                        onClick={() => void handleSendRegistrationCode()}
+                        disabled={isSubmitting || registrationCodeCooldown > 0}
+                      >
+                        {isSendingRegistrationCode ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
+                        {registrationCodeCooldown > 0
+                          ? `${registrationCodeCooldown}s`
+                          : registrationCodeSent
+                            ? "重新发送"
+                            : "获取验证码"}
+                      </Button>
+                    </div>
+                    <p className="px-1 text-xs leading-5 text-stone-500">
+                      {registrationCodeSent ? "验证码已发送，请查收邮箱" : "请先获取验证码，再完成注册"}
+                    </p>
+                  </div>
+                ) : view === "verify" || (view === "forgot" && resetCodeSent) ? (
                   <Input
                     inputMode="numeric"
+                    autoComplete="one-time-code"
                     value={verificationCode}
                     onChange={(event) => setVerificationCode(event.target.value)}
                     placeholder="邮箱验证码"
@@ -440,6 +571,7 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     placeholder={view === "forgot" ? "新密码" : "密码"}
+                    disabled={registrationFieldsLocked}
                     className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-stone-300/70"
                   />
                 ) : null}
@@ -450,6 +582,7 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
                     value={confirmPassword}
                     onChange={(event) => setConfirmPassword(event.target.value)}
                     placeholder="确认密码"
+                    disabled={registrationFieldsLocked}
                     className="h-11 rounded-[3px] border-stone-300 bg-white px-3 focus-visible:ring-stone-300/70"
                   />
                 ) : null}
