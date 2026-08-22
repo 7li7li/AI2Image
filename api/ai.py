@@ -207,6 +207,21 @@ def create_router() -> APIRouter:
             raise HTTPException(status_code=502, detail={"error": public_image_channel_error(channel_error)})
         raise HTTPException(status_code=503, detail={"error": "no enabled image channel supports this request"})
 
+    def identity_log_fields(identity: dict[str, object]) -> dict[str, str]:
+        """Keep user/session and API-key identity visible in every call log."""
+        subject_id = str(identity.get("id") or "").strip()
+        name = str(identity.get("name") or "").strip()
+        email = str(identity.get("email") or "").strip()
+        key_id = str(identity.get("key_id") or (subject_id if not email else "")).strip()
+        key_name = str(identity.get("key_name") or (name if not email else "")).strip()
+        return {
+            "user_id": subject_id,
+            "user_name": name,
+            "user_email": email,
+            "key_id": key_id,
+            "key_name": key_name,
+        }
+
     def log_channel_failure(
             *,
             identity: dict[str, object],
@@ -229,9 +244,7 @@ def create_router() -> APIRouter:
             status="error",
             error=channel_error,
             request_id=request_id,
-            user_id=str(identity.get("id") or ""),
-            user_name=str(identity.get("name") or ""),
-            user_email=str(identity.get("email") or ""),
+            **identity_log_fields(identity),
         )
 
     def model_quota_cost(identity: dict[str, object], model: str) -> float:
@@ -295,6 +308,7 @@ def create_router() -> APIRouter:
                     attempts=payload.get("_channel_attempts") or [],
                     status="success",
                     request_id=request_id,
+                    **identity_log_fields(identity),
                 )
                 count = finalize_image_result(
                     identity,
@@ -349,6 +363,7 @@ def create_router() -> APIRouter:
                     attempts=payload.get("_channel_attempts") or [],
                     status="success",
                     request_id=request_id,
+                    **identity_log_fields(identity),
                 )
                 count = finalize_image_result(
                     identity,
@@ -387,6 +402,7 @@ def create_router() -> APIRouter:
             request_id: str,
     ) -> dict[str, object]:
         quota_finalized = False
+        channel_error = ""
 
         def release_quota_once() -> None:
             nonlocal quota_finalized
@@ -398,13 +414,6 @@ def create_router() -> APIRouter:
             routed = channel_service.call_chat_completion_stream(payload)
             if routed is None:
                 channel_error = str(payload.get("_channel_error") or "").strip()
-                log_channel_failure(
-                    identity=identity,
-                    endpoint="/api/chat/completions",
-                    model=str(payload.get("model") or ""),
-                    payload=payload,
-                    request_id=request_id,
-                )
                 release_quota_once()
                 raise RuntimeError(PUBLIC_CHANNEL_ERROR if channel_error else "no enabled text channel supports this request")
 
@@ -446,6 +455,7 @@ def create_router() -> APIRouter:
                 channel=channel_name,
                 status="success",
                 request_id=request_id,
+                **identity_log_fields(identity),
             )
             if quota_request_id:
                 auth_service.confirm_quota(quota_request_id, quota_cost)
@@ -458,7 +468,7 @@ def create_router() -> APIRouter:
             }
         except Exception as exc:
             release_quota_once()
-            message = str(exc).strip() or exc.__class__.__name__
+            message = channel_error or str(exc).strip() or exc.__class__.__name__
             log_service.add(
                 LOG_TYPE_CALL,
                 "text chat background task failed",
@@ -467,9 +477,7 @@ def create_router() -> APIRouter:
                 status="error",
                 error=message,
                 request_id=request_id,
-                user_id=str(identity.get("id") or ""),
-                user_name=str(identity.get("name") or ""),
-                user_email=str(identity.get("email") or ""),
+                **identity_log_fields(identity),
             )
             raise
 
@@ -1060,6 +1068,7 @@ def create_router() -> APIRouter:
                             channel=channel_name,
                             status="success",
                             request_id=request_id,
+                            **identity_log_fields(identity),
                         )
                         if quota_request_id:
                             auth_service.confirm_quota(quota_request_id, quota_cost)
@@ -1085,9 +1094,7 @@ def create_router() -> APIRouter:
                         status="error",
                         error=message,
                         request_id=request_id,
-                        user_id=str(identity.get("id") or ""),
-                        user_name=str(identity.get("name") or ""),
-                        user_email=str(identity.get("email") or ""),
+                        **identity_log_fields(identity),
                     )
                     yield sse_event("error", {"error": PUBLIC_CHANNEL_ERROR, "request_id": request_id})
 
@@ -1122,6 +1129,7 @@ def create_router() -> APIRouter:
                 channel=channel_name,
                 status="success",
                 request_id=request_id,
+                **identity_log_fields(identity),
             )
             if quota_request_id:
                 finalize_quota(quota_request_id, count, quota_cost)

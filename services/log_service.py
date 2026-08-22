@@ -89,11 +89,22 @@ class LogService:
         if repo is not None:
             try:
                 repo.add(item)
-                return
             except Exception:
+                with self.path.open("a", encoding="utf-8") as file:
+                    file.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n")
+        else:
+            with self.path.open("a", encoding="utf-8") as file:
+                file.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+        detail_status = log_detail.get("status")
+        if str(detail_status or item.get("status") or "").strip().lower() in {"error", "failed", "failure", "critical"}:
+            try:
+                from services.telegram_service import notify_error_log
+
+                notify_error_log(item)
+            except Exception:
+                # Notification delivery is best-effort and must not break log persistence.
                 pass
-        with self.path.open("a", encoding="utf-8") as file:
-            file.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n")
 
     def query(
         self,

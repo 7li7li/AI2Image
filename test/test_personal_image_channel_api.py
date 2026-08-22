@@ -184,6 +184,42 @@ class PersonalImageChannelApiTests(unittest.TestCase):
         self.assertEqual(record_calls[0]["channel"], "Global")
         self.assertEqual(record_calls[0]["quota_cost"], 1)
 
+    def test_successful_generation_log_contains_request_identity(self) -> None:
+        app = FastAPI()
+        app.include_router(api_ai.create_router())
+        auth = FakeAuthService()
+        channels = FakeChannelService()
+        log_calls: list[dict[str, object]] = []
+
+        def fake_log_add(type_name: str, summary: str = "", detail: dict[str, object] | None = None, **data: object):
+            log_calls.append({"type": type_name, "summary": summary, **(detail or data)})
+
+        with (
+            mock.patch.object(api_support, "auth_service", auth),
+            mock.patch.object(api_ai, "auth_service", auth),
+            mock.patch.object(api_ai, "channel_service", channels),
+            mock.patch.object(api_ai, "record_image_result", return_value=[]),
+            mock.patch.object(api_ai.log_service, "add", fake_log_add),
+        ):
+            response = TestClient(app).post(
+                "/v1/images/generations",
+                headers={"Authorization": "Bearer user-token"},
+                json={
+                    "model": "gpt-image-2",
+                    "prompt": "draw",
+                    "response_format": "url",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(len(log_calls), 1)
+        self.assertEqual(log_calls[0]["status"], "success")
+        self.assertEqual(log_calls[0]["user_id"], "user-a")
+        self.assertEqual(log_calls[0]["user_name"], "Alice")
+        self.assertEqual(log_calls[0]["user_email"], "alice@example.com")
+        self.assertEqual(log_calls[0]["key_id"], "")
+        self.assertEqual(log_calls[0]["key_name"], "")
+
     def test_generation_charges_configured_model_quota_per_successful_image(self) -> None:
         self.model_service.costs["gpt-image-2"] = 3
         app = FastAPI()

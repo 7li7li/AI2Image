@@ -15,9 +15,17 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / "data"
 CONFIG_FILE = BASE_DIR / "config.json"
 VERSION_FILE = BASE_DIR / "VERSION"
-SYSTEM_SETTING_SECRET_KEYS = {"auth-key", "smtp_password", "linuxdo_client_secret", "image_webdav_config", "epay_key"}
+SYSTEM_SETTING_SECRET_KEYS = {
+    "auth-key",
+    "smtp_password",
+    "telegram_bot_token",
+    "linuxdo_client_secret",
+    "image_webdav_config",
+    "epay_key",
+}
 SYSTEM_SETTING_TRANSIENT_KEYS = {
     "smtp_password_set",
+    "telegram_bot_token_set",
     "linuxdo_client_secret_set",
     "image_webdav_password_set",
     "epay_key_set",
@@ -30,6 +38,9 @@ DEFAULT_QUOTA_PURCHASE_MODE = "url"
 DEFAULT_QQ_GROUP_NUMBER = ""
 DEFAULT_QQ_GROUP_LINK = ""
 DEFAULT_TELEGRAM_GROUP_LINK = ""
+DEFAULT_TELEGRAM_ERROR_NOTIFICATIONS_ENABLED = False
+DEFAULT_TELEGRAM_BOT_TOKEN = ""
+DEFAULT_TELEGRAM_CHAT_ID = ""
 DEFAULT_EPAY_URL = ""
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_TEXT_MODEL = "gpt-5.5"
@@ -277,7 +288,7 @@ def _normalize_update_data(data: dict[str, object]) -> dict[str, object]:
     for transient_key in SYSTEM_SETTING_TRANSIENT_KEYS:
         updates.pop(transient_key, None)
 
-    for secret_key in ("smtp_password", "linuxdo_client_secret", "epay_key"):
+    for secret_key in ("smtp_password", "telegram_bot_token", "linuxdo_client_secret", "epay_key"):
         if secret_key not in updates:
             continue
         secret_value = str(updates.get(secret_key) or "").strip()
@@ -292,6 +303,7 @@ def _normalize_update_data(data: dict[str, object]) -> dict[str, object]:
         "email_domain_whitelist_enabled",
         "qq_group_subscription_required",
         "telegram_group_subscription_required",
+        "telegram_error_notifications_enabled",
     ):
         if key in updates:
             updates[key] = _bool(updates.get(key), False)
@@ -323,9 +335,9 @@ def _normalize_update_data(data: dict[str, object]) -> dict[str, object]:
             maximum=65535,
         )
 
-    for key in ("proxy", "smtp_host", "smtp_username"):
+    for key in ("proxy", "smtp_host", "smtp_username", "telegram_chat_id"):
         if key in updates:
-            updates[key] = str(updates.get(key) or "").strip()
+            updates[key] = str(updates.get(key) or "").strip()[:200]
     if "base_url" in updates:
         updates["base_url"] = str(updates.get("base_url") or "").strip().rstrip("/")
     if "smtp_from_email" in updates:
@@ -637,6 +649,37 @@ class ConfigStore:
     def telegram_group_subscription_required(self) -> bool:
         return _bool(self._get_config_value("telegram_group_subscription_required"), False)
 
+    @property
+    def telegram_error_notifications_enabled(self) -> bool:
+        return _bool(
+            self._get_config_value("telegram_error_notifications_enabled"),
+            DEFAULT_TELEGRAM_ERROR_NOTIFICATIONS_ENABLED,
+        )
+
+    @property
+    def telegram_bot_token(self) -> str:
+        return str(
+            os.getenv("YANAI_TELEGRAM_BOT_TOKEN")
+            or self.data.get("telegram_bot_token")
+            or DEFAULT_TELEGRAM_BOT_TOKEN
+        ).strip()
+
+    @property
+    def telegram_chat_id(self) -> str:
+        return str(
+            os.getenv("YANAI_TELEGRAM_CHAT_ID")
+            or self._get_config_value("telegram_chat_id")
+            or DEFAULT_TELEGRAM_CHAT_ID
+        ).strip()
+
+    @property
+    def telegram_error_notifications_configured(self) -> bool:
+        return bool(
+            self.telegram_error_notifications_enabled
+            and self.telegram_bot_token
+            and self.telegram_chat_id
+        )
+
     def community_groups_for_user(self, *, has_subscription: bool) -> dict[str, dict[str, str]]:
         groups: dict[str, dict[str, str]] = {}
         if (self.qq_group_number or self.qq_group_link) and (
@@ -909,6 +952,10 @@ class ConfigStore:
         data["telegram_group_link"] = self.telegram_group_link
         data["qq_group_subscription_required"] = self.qq_group_subscription_required
         data["telegram_group_subscription_required"] = self.telegram_group_subscription_required
+        data["telegram_error_notifications_enabled"] = self.telegram_error_notifications_enabled
+        data["telegram_chat_id"] = self.telegram_chat_id
+        data["telegram_bot_token_set"] = bool(self.telegram_bot_token)
+        data["telegram_error_notifications_configured"] = self.telegram_error_notifications_configured
         data["quota_purchase_url"] = self.quota_purchase_url
         data["quota_purchase_mode"] = self.quota_purchase_mode
         data["subscription_plans"] = self.subscription_plans
@@ -944,6 +991,7 @@ class ConfigStore:
         data["smtp_password_set"] = bool(self.smtp_password)
         data.pop("auth-key", None)
         data.pop("smtp_password", None)
+        data.pop("telegram_bot_token", None)
         data.pop("linuxdo_client_secret", None)
         data.pop("image_webdav_config", None)
         data.pop("epay_key", None)

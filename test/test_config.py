@@ -170,6 +170,36 @@ class ConfigLoadingTests(unittest.TestCase):
                 {"qq": {"number": "123456789", "link": ""}},
             )
 
+    def test_telegram_error_notification_settings_mask_token_and_preserve_blank_token(self) -> None:
+        module = self.config_module
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+            store = module.ConfigStore(config_path)
+
+            self.assertFalse(store.telegram_error_notifications_enabled)
+            self.assertEqual(store.telegram_bot_token, "")
+            self.assertEqual(store.telegram_chat_id, "")
+            self.assertFalse(store.get()["telegram_bot_token_set"])
+
+            updated = store.update(
+                {
+                    "telegram_error_notifications_enabled": True,
+                    "telegram_bot_token": "  123456:bot-secret  ",
+                    "telegram_chat_id": " -1001234567890 ",
+                }
+            )
+
+            self.assertTrue(updated["telegram_error_notifications_enabled"])
+            self.assertTrue(updated["telegram_bot_token_set"])
+            self.assertTrue(updated["telegram_error_notifications_configured"])
+            self.assertEqual(updated["telegram_chat_id"], "-1001234567890")
+            self.assertNotIn("telegram_bot_token", updated)
+            self.assertEqual(store.telegram_bot_token, "123456:bot-secret")
+
+            store.update({"telegram_bot_token": ""})
+            self.assertEqual(store.telegram_bot_token, "123456:bot-secret")
+
     def test_subscription_plans_are_admin_configured_and_public(self) -> None:
         module = self.config_module
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -33,8 +33,10 @@ const typeLabels: Record<string, string> = {
 };
 
 function getDetailText(item: SystemLog, key: string) {
-  const value = item.detail?.[key];
-  return typeof value === "string" || typeof value === "number" ? String(value) : "-";
+  const value = item.detail?.[key] ?? item[key];
+  if (typeof value === "number") return String(value);
+  if (typeof value === "string" && value.trim()) return value;
+  return "-";
 }
 
 function getUserText(item: SystemLog) {

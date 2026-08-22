@@ -550,9 +550,9 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
                             : "获取验证码"}
                       </Button>
                     </div>
-                    <p className="px-1 text-xs leading-5 text-stone-500">
-                      {registrationCodeSent ? "验证码已发送，请查收邮箱" : "请先获取验证码，再完成注册"}
-                    </p>
+                    {registrationCodeSent ? (
+                      <p className="px-1 text-xs leading-5 text-stone-500">验证码已发送，请查收邮箱</p>
+                    ) : null}
                   </div>
                 ) : view === "verify" || (view === "forgot" && resetCodeSent) ? (
                   <Input
@@ -592,7 +592,7 @@ export function LoginForm({ initialView = "login" }: { initialView?: "login" | "
             <Button
               type="submit"
               className="h-11 w-full rounded-md bg-neutral-900 text-base font-semibold text-white hover:bg-black"
-              disabled={isSubmitting}
+              disabled={isSubmitting || (registrationVerificationEnabled && !registrationCodeSent)}
             >
               {isSubmitting ? <LoaderCircle className="size-4 animate-spin" /> : <PrimaryIcon className="size-4" />}
               {primaryLabel}

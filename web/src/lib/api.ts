@@ -44,6 +44,11 @@ export type SettingsConfig = {
   qq_group_subscription_required?: boolean;
   telegram_group_link?: string;
   telegram_group_subscription_required?: boolean;
+  telegram_error_notifications_enabled?: boolean;
+  telegram_bot_token?: string;
+  telegram_bot_token_set?: boolean;
+  telegram_chat_id?: string;
+  telegram_error_notifications_configured?: boolean;
   quota_purchase_url?: string;
   quota_purchase_mode?: QuotaPurchaseMode | string;
   subscription_plans?: SettingsSubscriptionPlan[];
@@ -1473,6 +1478,12 @@ export async function testSmtpSettings(toEmail?: string) {
   return httpRequest<{ ok: boolean }>("/api/settings/smtp/test", {
     method: "POST",
     body: { to_email: toEmail || "" },
+  });
+}
+
+export async function testTelegramSettings() {
+  return httpRequest<{ ok: boolean }>("/api/settings/telegram/test", {
+    method: "POST",
   });
 }
 

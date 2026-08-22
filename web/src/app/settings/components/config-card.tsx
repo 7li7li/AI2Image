@@ -1,6 +1,6 @@
 "use client";
 
-import { LoaderCircle, MailCheck, PlugZap, Save } from "lucide-react";
+import { BellRing, LoaderCircle, MailCheck, PlugZap, Save, Send } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -9,13 +9,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { testProxy, testSmtpSettings, type ProxyTestResult } from "@/lib/api";
+import { testProxy, testSmtpSettings, testTelegramSettings, type ProxyTestResult } from "@/lib/api";
 
 import { useSettingsStore } from "../store";
 
 export function ConfigCard() {
   const [isTestingProxy, setIsTestingProxy] = useState(false);
   const [isTestingSmtp, setIsTestingSmtp] = useState(false);
+  const [isTestingTelegram, setIsTestingTelegram] = useState(false);
   const [proxyTestResult, setProxyTestResult] = useState<ProxyTestResult | null>(null);
   const [smtpTestEmail, setSmtpTestEmail] = useState("");
   const logLevelOptions = ["debug", "info", "warning", "error"];
@@ -74,6 +75,18 @@ export function ConfigCard() {
     }
   };
 
+  const handleTestTelegram = async () => {
+    setIsTestingTelegram(true);
+    try {
+      await testTelegramSettings();
+      toast.success("Telegram 测试通知已发送");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "发送 Telegram 测试通知失败");
+    } finally {
+      setIsTestingTelegram(false);
+    }
+  };
+
   if (isLoadingConfig) {
     return (
       <Card className="rounded-lg border-white/80 bg-white/80 shadow-sm">
@@ -125,6 +138,62 @@ export function ConfigCard() {
               <p className="text-xs text-stone-500">
                 留空使用默认浅灰白背景；填写图片 URL 后只会在登录页显示。
               </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-semibold text-stone-900">
+              <BellRing className="size-4 text-stone-500" />
+              Telegram 错误通知
+            </h2>
+            <p className="mt-1 text-sm text-stone-500">当系统记录 API 或后台任务错误时，通过 Telegram Bot 发送通知。</p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(config?.telegram_error_notifications_enabled)}
+                  onCheckedChange={(checked) =>
+                    patchConfig({ telegram_error_notifications_enabled: checked === true })
+                  }
+                />
+                启用错误通知
+              </label>
+              <p className="text-xs leading-5 text-stone-500">仅发送错误摘要，不发送 Bot Token、请求体或图片内容。</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">Telegram Bot Token</label>
+              <Input
+                type="password"
+                value={String(config?.telegram_bot_token || "")}
+                onChange={(event) => patchConfig({ telegram_bot_token: event.target.value })}
+                placeholder={config?.telegram_bot_token_set ? "已设置，留空保持不变" : "123456:bot-token"}
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">Telegram Chat ID</label>
+              <Input
+                value={String(config?.telegram_chat_id || "")}
+                onChange={(event) => patchConfig({ telegram_chat_id: event.target.value })}
+                placeholder="例如 -1001234567890"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+              <p className="text-xs text-stone-500">填写接收通知的用户、群组或频道 Chat ID。</p>
+            </div>
+            <div className="flex items-end justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 rounded-xl border-stone-200 bg-white px-4 text-stone-700"
+                onClick={() => void handleTestTelegram()}
+                disabled={isTestingTelegram}
+              >
+                {isTestingTelegram ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
+                发送测试通知
+              </Button>
             </div>
           </div>
         </div>

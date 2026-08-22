@@ -12,6 +12,7 @@ from services.email_service import send_email, send_password_reset_email, send_v
 from services.image_service import delete_images, list_images
 from services.log_service import LOG_TYPE_AUDIT, audit_service, log_service
 from services.proxy_service import test_proxy
+from services.telegram_service import send_telegram_test_message
 from services.webdav_service import get_webdav_config, save_webdav_config, sync_images_to_webdav
 
 
@@ -297,6 +298,17 @@ def create_router(app_version: str) -> APIRouter:
                 subject=f"{config.site_title} SMTP 测试邮件",
                 text=f"这是一封来自 {config.site_title} 的 SMTP 配置测试邮件。",
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
+        return {"ok": True}
+
+    @router.post("/api/settings/telegram/test")
+    async def test_telegram(authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        try:
+            await run_in_threadpool(send_telegram_test_message)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
         except Exception as exc:
