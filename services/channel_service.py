@@ -26,8 +26,12 @@ PERSONAL_CHANNEL_ID_PREFIX = "personal_image_channel"
 OPENAI_CHANNEL_TYPE = "openai_image"
 GEMINI_CHANNEL_TYPE = "gemini"
 SUPPORTED_CHANNEL_TYPES = {OPENAI_CHANNEL_TYPE, GEMINI_CHANNEL_TYPE}
+SUB2API_OPENAI_API_TYPE = "sub2api"
+NEWAPI_OPENAI_API_TYPE = "newapi"
+SUPPORTED_OPENAI_API_TYPES = {SUB2API_OPENAI_API_TYPE, NEWAPI_OPENAI_API_TYPE}
 DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_OPENAI_IMAGE_MODELS = ["gpt-5.5", "gpt-image-2"]
+DEFAULT_NEWAPI_IMAGE_MODELS = ["gpt-image-1"]
 DEFAULT_GEMINI_MODELS = [
     "gemini-3-pro-image-preview",
     "gemini-3.5-flash",
@@ -171,17 +175,30 @@ def _normalize_models(value: object) -> list[str]:
     return list(DEFAULT_OPENAI_IMAGE_MODELS)
 
 
-def _default_models_for_channel(channel_type: str) -> list[str]:
+def _normalize_openai_api_type(value: object) -> str:
+    api_type = _clean(value).lower()
+    if api_type in SUPPORTED_OPENAI_API_TYPES:
+        return api_type
+    return SUB2API_OPENAI_API_TYPE
+
+
+def _default_models_for_channel(channel_type: str, api_type: str = SUB2API_OPENAI_API_TYPE) -> list[str]:
     if channel_type == GEMINI_CHANNEL_TYPE:
         return list(DEFAULT_GEMINI_MODELS)
+    if api_type == NEWAPI_OPENAI_API_TYPE:
+        return list(DEFAULT_NEWAPI_IMAGE_MODELS)
     return list(DEFAULT_OPENAI_IMAGE_MODELS)
 
 
-def _normalize_channel_models(value: object, channel_type: str) -> list[str]:
+def _normalize_channel_models(
+        value: object,
+        channel_type: str,
+        api_type: str = SUB2API_OPENAI_API_TYPE,
+) -> list[str]:
     models = _normalize_models(value)
     if value is None:
-        return _default_models_for_channel(channel_type)
-    return models or _default_models_for_channel(channel_type)
+        return _default_models_for_channel(channel_type, api_type)
+    return models or _default_models_for_channel(channel_type, api_type)
 
 
 def _requested_models(value: object) -> list[str]:
@@ -507,6 +524,27 @@ def _normalize_external_image_options(payload: dict[str, Any]) -> dict[str, obje
     return options
 
 
+def _normalize_newapi_image_options(payload: dict[str, Any]) -> dict[str, str]:
+    """Return the image-generation fields documented by NewAPI.
+
+    NewAPI's OpenAI image-generation endpoint does not accept the generic
+    ``response_format``, ``output_format``, or ``output_compression`` fields.
+    Its ``background`` field does support ``transparent``, unlike the legacy
+    sub2api-compatible request path.
+    """
+    options: dict[str, str] = {}
+    quality = _clean(payload.get("quality")).lower()
+    if quality in {"auto", "low", "medium", "high"}:
+        options["quality"] = quality
+    moderation = _clean(payload.get("moderation")).lower()
+    if moderation in {"auto", "low"}:
+        options["moderation"] = moderation
+    background = _clean(payload.get("background")).lower()
+    if background in {"auto", "opaque", "transparent"}:
+        options["background"] = background
+    return options
+
+
 def _response_preview(response, limit: int = 300) -> str:
     text = _clean(getattr(response, "text", ""))
     if text:
@@ -551,6 +589,7 @@ class ChannelService:
         channel_type = _clean(raw.get("type")) or OPENAI_CHANNEL_TYPE
         if channel_type not in SUPPORTED_CHANNEL_TYPES:
             channel_type = OPENAI_CHANNEL_TYPE
+        api_type = _normalize_openai_api_type(raw.get("api_type"))
         base_url = _clean(raw.get("base_url")).rstrip("/")
         if channel_type == GEMINI_CHANNEL_TYPE and not _clean(raw.get("name")):
             name = "Gemini native channel"
@@ -571,9 +610,10 @@ class ChannelService:
             "id": channel_id,
             "name": name,
             "type": channel_type,
+            "api_type": api_type,
             "base_url": base_url,
             "api_key": api_key,
-            "models": _normalize_channel_models(raw.get("models"), channel_type),
+            "models": _normalize_channel_models(raw.get("models"), channel_type, api_type),
             "weight": weight,
             "priority": priority,
             "timeout": timeout,
@@ -617,6 +657,7 @@ class ChannelService:
             "id": channel.get("id"),
             "name": channel.get("name"),
             "type": channel.get("type"),
+            "api_type": channel.get("api_type"),
             "base_url": channel.get("base_url"),
             "models": channel.get("models"),
             "weight": channel.get("weight"),
@@ -646,6 +687,13 @@ class ChannelService:
     @staticmethod
     def _is_gemini_channel(channel: dict[str, object]) -> bool:
         return _clean(channel.get("type")) == GEMINI_CHANNEL_TYPE
+
+    @staticmethod
+    def _is_newapi_channel(channel: dict[str, object]) -> bool:
+        return (
+            _clean(channel.get("type")) == OPENAI_CHANNEL_TYPE
+            and _normalize_openai_api_type(channel.get("api_type")) == NEWAPI_OPENAI_API_TYPE
+        )
 
     def _external_model_candidates(self, model: str | None) -> list[str]:
         requested = _clean(model)
@@ -1756,14 +1804,29 @@ class ChannelService:
             payload.get("size"),
             payload.get("resolution"),
         )
-        if _is_transparent_background_request(payload) and prompt is not None:
+        if (
+                _is_transparent_background_request(payload)
+                and prompt is not None
+                and not self._is_newapi_channel(channel)
+        ):
             prompt = build_transparent_prompt(prompt)
-        body = {
-            key: value
-            for key, value in payload.items()
-            if key in {"model", "n", "response_format"} and value is not None
-        }
-        body.update(_normalize_external_image_options(payload))
+        if self._is_newapi_channel(channel):
+            # NewAPI documents no response_format for /v1/images/generations.
+            # GPT Image responses are returned as base64, which the normalizer
+            # below saves locally before returning the caller's requested shape.
+            body = {
+                key: value
+                for key, value in payload.items()
+                if key in {"model", "n"} and value is not None
+            }
+            body.update(_normalize_newapi_image_options(payload))
+        else:
+            body = {
+                key: value
+                for key, value in payload.items()
+                if key in {"model", "n", "response_format"} and value is not None
+            }
+            body.update(_normalize_external_image_options(payload))
         if prompt is not None:
             body["prompt"] = prompt
         if size is not None:
@@ -1791,9 +1854,15 @@ class ChannelService:
             "prompt": prompt or "",
             "model": _clean(payload.get("model")) or (channel.get("models") or ["gpt-image-1"])[0],
             "n": str(int(payload.get("n") or 1)),
-            "response_format": _clean(payload.get("response_format")) or "b64_json",
         }
-        form_data.update(_normalize_external_image_options(payload))
+        if self._is_newapi_channel(channel):
+            # NewAPI documents b64_json for its multipart image-edit endpoint.
+            # Always request it upstream so deployments without URL responses
+            # can still be normalized into a local image URL for the UI.
+            form_data["response_format"] = "b64_json"
+        else:
+            form_data["response_format"] = _clean(payload.get("response_format")) or "b64_json"
+            form_data.update(_normalize_external_image_options(payload))
         if size is not None:
             form_data["size"] = size
         multipart = CurlMime()

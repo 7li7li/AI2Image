@@ -1881,6 +1881,7 @@ export type Channel = {
   id: string;
   name: string;
   type: "openai_image" | "gemini";
+  api_type: "sub2api" | "newapi";
   base_url: string;
   models: string[];
   weight: number;
@@ -1954,6 +1955,7 @@ export async function fetchChannels() {
 
 export async function createChannel(payload: {
   type?: Channel["type"];
+  api_type?: Channel["api_type"];
   name: string;
   base_url: string;
   api_key: string;
@@ -1973,6 +1975,7 @@ export async function updateChannel(
   channelId: string,
   payload: Partial<{
     type: Channel["type"];
+    api_type: Channel["api_type"];
     name: string;
     base_url: string;
     api_key: string;

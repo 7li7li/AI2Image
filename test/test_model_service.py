@@ -666,6 +666,191 @@ class ModelServiceTest(unittest.TestCase):
             self.assertEqual(calls, ["personal_image_channel:user-a"])
             self.assertIn("Mine", payload["_personal_channel_error"])
 
+    def test_newapi_channel_defaults_to_documented_image_model(self) -> None:
+        service = object.__new__(ChannelService)
+
+        newapi_channel = service._normalize(
+            {
+                "id": "newapi-channel",
+                "type": "openai_image",
+                "api_type": "newapi",
+                "base_url": "https://newapi.example",
+                "api_key": "sk-test",
+            }
+        )
+        legacy_channel = service._normalize(
+            {
+                "id": "legacy-channel",
+                "type": "openai_image",
+                "base_url": "https://legacy.example",
+                "api_key": "sk-test",
+            }
+        )
+
+        self.assertIsNotNone(newapi_channel)
+        self.assertIsNotNone(legacy_channel)
+        assert newapi_channel is not None
+        assert legacy_channel is not None
+        self.assertEqual(newapi_channel["api_type"], "newapi")
+        self.assertEqual(newapi_channel["models"], ["gpt-image-1"])
+        self.assertEqual(legacy_channel["api_type"], "sub2api")
+        self.assertEqual(legacy_channel["models"], ["gpt-5.5", "gpt-image-2"])
+
+    def test_newapi_generation_uses_documented_base64_request_shape(self) -> None:
+        class FakeResponse:
+            ok = True
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {"created": 1, "data": [{"b64_json": "aW1hZ2U="}]}
+
+        calls: dict[str, object] = {}
+
+        class FakeSession:
+            def post(self, url, **kwargs):
+                calls["url"] = url
+                calls["kwargs"] = kwargs
+                return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            storage.save_channels(
+                [
+                    {
+                        "id": "channel-a",
+                        "name": "NewAPI",
+                        "type": "openai_image",
+                        "api_type": "newapi",
+                        "base_url": "https://newapi.example",
+                        "api_key": "sk-test",
+                        "models": ["gpt-image-1"],
+                    }
+                ]
+            )
+            service = ChannelService(storage, FakeConfigStore())
+            service._session = lambda channel: FakeSession()  # type: ignore[method-assign]
+
+            with mock.patch(
+                "services.channel_service._format_image_result",
+                return_value={"created": 1, "data": [{"url": "https://app.example/image.png"}]},
+            ):
+                routed = service.call_generation(
+                    {
+                        "prompt": "draw",
+                        "model": "gpt-image-1",
+                        "n": 1,
+                        "size": "1024x1024",
+                        "quality": "high",
+                        "output_format": "webp",
+                        "output_compression": 82,
+                        "moderation": "low",
+                        "background": "transparent",
+                        "response_format": "url",
+                    }
+                )
+
+        self.assertIsNotNone(routed)
+        self.assertEqual(calls["url"], "https://newapi.example/v1/images/generations")
+        body = calls["kwargs"]["json"]
+        self.assertEqual(body["model"], "gpt-image-1")
+        self.assertEqual(body["n"], 1)
+        self.assertEqual(body["size"], "1024x1024")
+        self.assertEqual(body["quality"], "high")
+        self.assertEqual(body["moderation"], "low")
+        self.assertEqual(body["background"], "transparent")
+        self.assertNotIn("response_format", body)
+        self.assertNotIn("output_format", body)
+        self.assertNotIn("output_compression", body)
+
+    def test_newapi_edit_forces_base64_and_uses_documented_form_fields(self) -> None:
+        class FakeResponse:
+            ok = True
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {"created": 1, "data": [{"b64_json": "aW1hZ2U="}]}
+
+        calls: dict[str, object] = {}
+
+        class FakeSession:
+            def post(self, url, **kwargs):
+                calls["url"] = url
+                calls["kwargs"] = kwargs
+                return FakeResponse()
+
+        mime_instances = []
+
+        class FakeCurlMime:
+            def __init__(self):
+                self.parts = []
+                self.closed = False
+                mime_instances.append(self)
+
+            def addpart(self, name, **kwargs):
+                self.parts.append({"name": name, **kwargs})
+
+            def close(self):
+                self.closed = True
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            storage.save_channels(
+                [
+                    {
+                        "id": "channel-a",
+                        "name": "NewAPI",
+                        "type": "openai_image",
+                        "api_type": "newapi",
+                        "base_url": "https://newapi.example",
+                        "api_key": "sk-test",
+                        "models": ["dall-e-2"],
+                    }
+                ]
+            )
+            service = ChannelService(storage, FakeConfigStore())
+            service._session = lambda channel: FakeSession()  # type: ignore[method-assign]
+
+            with (
+                mock.patch("services.channel_service.CurlMime", FakeCurlMime),
+                mock.patch(
+                    "services.channel_service._format_image_result",
+                    return_value={"created": 1, "data": [{"url": "https://app.example/image.png"}]},
+                ),
+            ):
+                routed = service.call_edit(
+                    {
+                        "prompt": "edit",
+                        "model": "dall-e-2",
+                        "n": 2,
+                        "size": "1024x1024",
+                        "quality": "high",
+                        "output_format": "webp",
+                        "output_compression": 82,
+                        "moderation": "low",
+                        "background": "opaque",
+                        "response_format": "url",
+                        "images": [(b"image-bytes", "input.png", "image/png")],
+                    }
+                )
+
+        self.assertIsNotNone(routed)
+        self.assertEqual(calls["url"], "https://newapi.example/v1/images/edits")
+        self.assertTrue(mime_instances[0].closed)
+        parts = mime_instances[0].parts
+        self.assertIn({"name": "prompt", "data": b"edit"}, parts)
+        self.assertIn({"name": "model", "data": b"dall-e-2"}, parts)
+        self.assertIn({"name": "n", "data": b"2"}, parts)
+        self.assertIn({"name": "size", "data": b"1024x1024"}, parts)
+        self.assertIn({"name": "response_format", "data": b"b64_json"}, parts)
+        self.assertIn(
+            {"name": "image", "filename": "input.png", "content_type": "image/png", "data": b"image-bytes"},
+            parts,
+        )
+        part_names = {part["name"] for part in parts}
+        self.assertFalse({"quality", "output_format", "output_compression", "moderation", "background"} & part_names)
+
     def test_external_generation_channel_normalizes_aspect_ratio_for_upstream(self) -> None:
         class FakeResponse:
             ok = True

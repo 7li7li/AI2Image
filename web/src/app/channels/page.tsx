@@ -46,12 +46,15 @@ import {
 import { useAuthGuard } from "@/lib/use-auth-guard";
 
 const DEFAULT_CHANNEL_MODELS = "gpt-5.5,gpt-image-2";
+const DEFAULT_NEWAPI_MODELS = "gpt-image-1";
 const DEFAULT_GEMINI_MODELS = "gemini-3-pro-image-preview,gemini-3.5-flash";
 
 type ChannelType = Channel["type"];
+type OpenAIApiType = Channel["api_type"];
 
 type ChannelForm = {
   type: ChannelType;
+  api_type: OpenAIApiType;
   name: string;
   base_url: string;
   api_key: string;
@@ -62,10 +65,11 @@ type ChannelForm = {
   enabled: boolean;
 };
 
-type TextFieldKey = Exclude<keyof ChannelForm, "type" | "enabled">;
+type TextFieldKey = Exclude<keyof ChannelForm, "type" | "api_type" | "enabled">;
 
 const EMPTY_FORM: ChannelForm = {
   type: "openai_image",
+  api_type: "sub2api",
   name: "",
   base_url: "",
   api_key: "",
@@ -140,6 +144,7 @@ const resetForm = (): ChannelForm => ({ ...EMPTY_FORM });
 
 const channelToForm = (channel: Channel): ChannelForm => ({
   type: channel.type || "openai_image",
+  api_type: channel.api_type === "newapi" ? "newapi" : "sub2api",
   name: channel.name || "",
   base_url: channel.base_url || "",
   api_key: "",
@@ -155,12 +160,13 @@ const toNumber = (value: string, fallback: number) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const channelTypeLabel = (channel: Channel) =>
-  channel.type === "gemini"
-    ? "Google Gemini"
-    : channel.type === "openai_image"
-      ? "OpenAI"
-      : channel.type;
+const channelTypeLabel = (channel: Channel) => {
+  if (channel.type === "gemini") return "Google Gemini";
+  if (channel.type === "openai_image") {
+    return `OpenAI · ${channel.api_type === "newapi" ? "NewAPI" : "sub2api"}`;
+  }
+  return channel.type;
+};
 
 const uniqueModels = (models: string[] | undefined) => {
   const seen = new Set<string>();
@@ -193,6 +199,13 @@ function FieldHelpStrip() {
           <span>{field.description}</span>
         </div>
       ))}
+      <div className="min-w-0">
+        <span className="font-semibold text-stone-700">OpenAI 接口类型</span>
+        <span className="mx-1 text-stone-300">/</span>
+        <span>
+          sub2api 保持原有兼容行为；NewAPI 按官方图片接口使用 Base64 返回。
+        </span>
+      </div>
     </div>
   );
 }
@@ -268,17 +281,41 @@ function ChannelsContent() {
         ...current,
         type,
         models:
-          current.models === DEFAULT_CHANNEL_MODELS || !current.models.trim()
+          current.models === DEFAULT_CHANNEL_MODELS ||
+          current.models === DEFAULT_NEWAPI_MODELS ||
+          !current.models.trim()
             ? DEFAULT_GEMINI_MODELS
             : current.models,
       };
     }
+    const openAiDefaultModels =
+      current.api_type === "newapi"
+        ? DEFAULT_NEWAPI_MODELS
+        : DEFAULT_CHANNEL_MODELS;
     return {
       ...current,
       type,
       models:
         current.models === DEFAULT_GEMINI_MODELS || !current.models.trim()
-          ? DEFAULT_CHANNEL_MODELS
+          ? openAiDefaultModels
+          : current.models,
+    };
+  };
+
+  const applyOpenAIApiTypeDefaults = (
+    current: ChannelForm,
+    apiType: OpenAIApiType,
+  ): ChannelForm => {
+    const nextDefaultModels =
+      apiType === "newapi" ? DEFAULT_NEWAPI_MODELS : DEFAULT_CHANNEL_MODELS;
+    const previousDefaultModels =
+      apiType === "newapi" ? DEFAULT_CHANNEL_MODELS : DEFAULT_NEWAPI_MODELS;
+    return {
+      ...current,
+      api_type: apiType,
+      models:
+        current.models === previousDefaultModels || !current.models.trim()
+          ? nextDefaultModels
           : current.models,
     };
   };
@@ -291,11 +328,20 @@ function ChannelsContent() {
     setEditForm((current) => applyChannelTypeDefaults(current, type));
   };
 
+  const handleCreateApiTypeChange = (apiType: OpenAIApiType) => {
+    setForm((current) => applyOpenAIApiTypeDefaults(current, apiType));
+  };
+
+  const handleEditApiTypeChange = (apiType: OpenAIApiType) => {
+    setEditForm((current) => applyOpenAIApiTypeDefaults(current, apiType));
+  };
+
   const handleCreate = async () => {
     setIsCreating(true);
     try {
       const data = await createChannel({
         type: form.type,
+        api_type: form.api_type,
         name: form.name.trim(),
         base_url: form.base_url.trim(),
         api_key: form.api_key.trim(),
@@ -395,6 +441,7 @@ function ChannelsContent() {
     try {
       const payload = {
         type: editForm.type,
+        api_type: editForm.api_type,
         name: editForm.name.trim(),
         base_url: editForm.base_url.trim(),
         ...(editForm.api_key.trim()
@@ -450,7 +497,7 @@ function ChannelsContent() {
               填写 OpenAI 服务地址后，可在列表中测试模型接口。
             </div>
           </div>
-          <div className="grid gap-3 lg:grid-cols-[180px_1fr_1.4fr_1.15fr]">
+          <div className="grid gap-3 lg:grid-cols-[180px_180px_1fr_1.4fr_1.15fr]">
             <div className="space-y-1.5">
               <label className="block text-xs">
                 <span className="block font-semibold text-stone-700">
@@ -472,6 +519,31 @@ function ChannelsContent() {
                 </SelectContent>
               </Select>
             </div>
+            {form.type === "openai_image" ? (
+              <div className="space-y-1.5">
+                <label className="block text-xs">
+                  <span className="block font-semibold text-stone-700">
+                    OpenAI 接口类型
+                  </span>
+                </label>
+                <Select
+                  value={form.api_type}
+                  onValueChange={(value) =>
+                    handleCreateApiTypeChange(value as OpenAIApiType)
+                  }
+                >
+                  <SelectTrigger className="h-10 rounded-xl border-stone-100 bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sub2api">
+                      sub2api（原兼容方式）
+                    </SelectItem>
+                    <SelectItem value="newapi">NewAPI（Base64）</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             {PRIMARY_FIELDS.map((field) => (
               <div key={field.key} className="space-y-1.5">
                 <FieldCaption field={field} />
@@ -821,6 +893,31 @@ function ChannelsContent() {
                   </SelectContent>
                 </Select>
               </div>
+              {editForm.type === "openai_image" ? (
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label className="block text-xs">
+                    <span className="block font-semibold text-stone-700">
+                      OpenAI 接口类型
+                    </span>
+                  </label>
+                  <Select
+                    value={editForm.api_type}
+                    onValueChange={(value) =>
+                      handleEditApiTypeChange(value as OpenAIApiType)
+                    }
+                  >
+                    <SelectTrigger className="h-10 rounded-xl border-stone-100 bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sub2api">
+                        sub2api（原兼容方式）
+                      </SelectItem>
+                      <SelectItem value="newapi">NewAPI（Base64）</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
               {CHANNEL_FIELDS.map((field) => (
                 <div
                   key={field.key}

@@ -124,6 +124,7 @@ class RedeemCodeUpdateRequest(BaseModel):
 
 class ChannelRequest(BaseModel):
     type: str = "openai_image"
+    api_type: str = "sub2api"
     name: str = ""
     base_url: str = ""
     api_key: str = ""
@@ -136,6 +137,7 @@ class ChannelRequest(BaseModel):
 
 class ChannelUpdateRequest(BaseModel):
     type: str | None = None
+    api_type: str | None = None
     name: str | None = None
     base_url: str | None = None
     api_key: str | None = None
