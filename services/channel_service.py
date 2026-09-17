@@ -567,6 +567,37 @@ def _friendly_channel_error(error: object) -> str:
     return message
 
 
+def _channel_error_fingerprint(error: object) -> str:
+    """Return a stable identity for aggregating failures from fallback channels."""
+
+    message = _clean(error)
+    json_start = message.find("{")
+    if json_start >= 0:
+        try:
+            payload = json.loads(message[json_start:])
+        except json.JSONDecodeError:
+            pass
+        else:
+            return f"json:{json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))}"
+    return f"text:{' '.join(message.split()).casefold()}"
+
+
+def _append_distinct_channel_error(
+        errors: list[str],
+        seen_error_fingerprints: set[str],
+        channel_name: object,
+        error: object,
+) -> None:
+    """Keep the first channel context for each distinct upstream failure."""
+
+    message = _clean(error)
+    fingerprint = _channel_error_fingerprint(message)
+    if fingerprint in seen_error_fingerprints:
+        return
+    seen_error_fingerprints.add(fingerprint)
+    errors.append(f"{_clean(channel_name) or 'external_channel'}: {message}")
+
+
 def _is_timeout_error(error: object) -> bool:
     normalized = _clean(error).lower()
     return "curl: (28)" in normalized or "timed out" in normalized or "timeout" in normalized
@@ -1238,6 +1269,7 @@ class ChannelService:
     def call_generation(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
         model = _clean(payload.get("model")) or "gpt-image-2"
         errors: list[str] = []
+        seen_error_fingerprints: set[str] = set()
         personal_error = self._personal_channel_error(
             model,
             payload.get("_personal_image_channel"),
@@ -1283,7 +1315,12 @@ class ChannelService:
                     exc,
                     elapsed_ms=elapsed_ms,
                 )
-                errors.append(f"{self._channel_result_name(channel)}: {error}")
+                _append_distinct_channel_error(
+                    errors,
+                    seen_error_fingerprints,
+                    self._channel_result_name(channel),
+                    error,
+                )
                 print(f"[channel] generation failed channel={channel.get('name')} error={error}")
         if errors:
             message = "; ".join(errors)
@@ -1296,6 +1333,7 @@ class ChannelService:
     def call_edit(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
         model = _clean(payload.get("model")) or "gpt-image-2"
         errors: list[str] = []
+        seen_error_fingerprints: set[str] = set()
         personal_error = self._personal_channel_error(
             model,
             payload.get("_personal_image_channel"),
@@ -1341,7 +1379,12 @@ class ChannelService:
                     exc,
                     elapsed_ms=elapsed_ms,
                 )
-                errors.append(f"{self._channel_result_name(channel)}: {error}")
+                _append_distinct_channel_error(
+                    errors,
+                    seen_error_fingerprints,
+                    self._channel_result_name(channel),
+                    error,
+                )
                 print(f"[channel] edit failed channel={channel.get('name')} error={error}")
         if errors:
             message = "; ".join(errors)
@@ -1354,6 +1397,7 @@ class ChannelService:
     def call_chat_completion(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
         model = _clean(payload.get("model")) or "gpt-5.5"
         errors: list[str] = []
+        seen_error_fingerprints: set[str] = set()
         for channel in self._enabled_external_chat_channels(model):
             resolved_model = self._resolve_chat_model_for_channel(channel, model)
             routed_payload = {**payload, "model": resolved_model or model}
@@ -1361,7 +1405,12 @@ class ChannelService:
                 return self._call_chat_completion(channel, routed_payload), self._channel_result_name(channel)
             except Exception as exc:
                 error = _friendly_channel_error(exc)
-                errors.append(f"{self._channel_result_name(channel)}: {error}")
+                _append_distinct_channel_error(
+                    errors,
+                    seen_error_fingerprints,
+                    self._channel_result_name(channel),
+                    error,
+                )
                 print(f"[channel] chat failed channel={channel.get('name')} error={error}")
         if errors:
             message = "; ".join(errors)
@@ -1372,6 +1421,7 @@ class ChannelService:
     def call_chat_completion_stream(self, payload: dict[str, Any]):
         model = _clean(payload.get("model")) or "gpt-5.5"
         errors: list[str] = []
+        seen_error_fingerprints: set[str] = set()
         for channel in self._enabled_external_chat_channels(model):
             resolved_model = self._resolve_chat_model_for_channel(channel, model)
             routed_payload = {**payload, "model": resolved_model or model, "stream": True}
@@ -1379,7 +1429,12 @@ class ChannelService:
                 return self._call_chat_completion_stream(channel, routed_payload), self._channel_result_name(channel)
             except Exception as exc:
                 error = _friendly_channel_error(exc)
-                errors.append(f"{self._channel_result_name(channel)}: {error}")
+                _append_distinct_channel_error(
+                    errors,
+                    seen_error_fingerprints,
+                    self._channel_result_name(channel),
+                    error,
+                )
                 print(f"[channel] chat stream failed channel={channel.get('name')} error={error}")
         if errors:
             message = "; ".join(errors)

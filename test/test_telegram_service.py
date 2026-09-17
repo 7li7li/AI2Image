@@ -35,6 +35,23 @@ class TelegramServiceTests(unittest.TestCase):
         self.assertIn("upstream timeout", message)
         self.assertNotIn("messages", message)
 
+    def test_error_log_message_deduplicates_repeated_channel_error(self) -> None:
+        error = 'HTTP 502: {"error":{"code":"upstream_error","message":"request rejected"}}'
+        message = format_error_log_message(
+            {
+                "summary": "channel call failed",
+                "detail": {
+                    "status": "error",
+                    "attempts": [{"channel": "65533"}, {"channel": "65535"}],
+                    "error": f"65533: {error}; 65535: {error}",
+                },
+            }
+        )
+
+        self.assertEqual(message.count(error), 1)
+        self.assertIn(f"65533: {error}", message)
+        self.assertNotIn("65535:", message)
+
     def test_send_message_uses_configured_credentials(self) -> None:
         settings = SimpleNamespace(telegram_bot_token="123:secret", telegram_chat_id="-1001")
         with (

@@ -93,8 +93,52 @@ def send_telegram_test_message() -> dict[str, Any]:
     return send_telegram_message(f"[{title}] Telegram 错误通知测试成功。")
 
 
+def _deduplicate_error_entries(value: object, *, channel_names: set[str] | None = None) -> str:
+    """Collapse repeated channel errors while preserving different failure details."""
+
+    message = _clean(value)
+    if ";" not in message:
+        return message
+
+    normalized_channel_names = sorted(
+        (_clean(channel_name) for channel_name in (channel_names or set()) if _clean(channel_name)),
+        key=len,
+        reverse=True,
+    )
+    entries: list[str] = []
+    seen: set[str] = set()
+    for entry in message.split(";"):
+        normalized = _clean(entry)
+        comparison = normalized
+        for channel_name in normalized_channel_names:
+            prefix = f"{channel_name}:"
+            if comparison.casefold().startswith(prefix.casefold()):
+                comparison = comparison[len(prefix):].lstrip()
+                break
+        key = " ".join(comparison.split()).casefold()
+        if normalized and key not in seen:
+            seen.add(key)
+            entries.append(normalized)
+    return "; ".join(entries)
+
+
+def _attempt_channel_names(detail: dict[str, Any]) -> set[str]:
+    attempts = detail.get("attempts")
+    if not isinstance(attempts, list):
+        return set()
+    return {
+        _clean(attempt.get("channel"))
+        for attempt in attempts
+        if isinstance(attempt, dict) and _clean(attempt.get("channel"))
+    }
+
+
 def format_error_log_message(item: dict[str, Any]) -> str:
     detail = item.get("detail") if isinstance(item.get("detail"), dict) else {}
+    error = _deduplicate_error_entries(
+        detail.get("error") or item.get("error"),
+        channel_names=_attempt_channel_names(detail),
+    )
     fields = [
         ("时间", item.get("time")),
         ("类型", item.get("type")),
@@ -105,7 +149,7 @@ def format_error_log_message(item: dict[str, Any]) -> str:
         ("渠道", detail.get("channel") or item.get("channel")),
         ("请求 ID", item.get("request_id") or detail.get("request_id")),
         ("用户", detail.get("user_email") or detail.get("user_name") or item.get("user_email")),
-        ("错误", detail.get("error") or item.get("error")),
+        ("错误", error),
     ]
     lines = ["[系统错误通知]"]
     for label, value in fields:

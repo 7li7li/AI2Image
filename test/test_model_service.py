@@ -319,6 +319,48 @@ class ModelServiceTest(unittest.TestCase):
             self.assertEqual(routed[1], "B")
             self.assertNotIn("_channel_error", payload)
 
+    def test_generation_collapses_matching_upstream_errors_from_fallback_channels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+            storage.save_channels(
+                [
+                    {
+                        "id": "channel-a",
+                        "name": "65533",
+                        "base_url": "https://a.example",
+                        "api_key": "sk-a",
+                        "models": ["gpt-image-2"],
+                    },
+                    {
+                        "id": "channel-b",
+                        "name": "65535",
+                        "base_url": "https://b.example",
+                        "api_key": "sk-b",
+                        "models": ["gpt-image-2"],
+                    },
+                ]
+            )
+            service = ChannelService(storage, FakeConfigStore())
+            payload = {"prompt": "draw", "model": "gpt-image-2", "n": 1}
+            upstream_error = (
+                'HTTP 502: {"error":{"code":"upstream_error",'
+                '"message":"request rejected","type":"upstream_error"}}'
+            )
+
+            def fake_generation(_channel, _routed_payload):
+                raise RuntimeError(upstream_error)
+
+            service._call_generation = fake_generation  # type: ignore[method-assign]
+            routed = service.call_generation(payload)
+
+            self.assertIsNone(routed)
+            self.assertEqual(payload["_channel_error"], f"65533: {upstream_error}")
+            self.assertEqual(len(payload["_channel_attempts"]), 2)
+            self.assertEqual(
+                [attempt["channel"] for attempt in payload["_channel_attempts"]],
+                ["65533", "65535"],
+            )
+
     def test_chat_uses_text_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")

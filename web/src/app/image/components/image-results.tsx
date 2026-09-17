@@ -212,6 +212,8 @@ export function ImageResults({
           id: `${turn.id}-reference-${index}`,
           src: image.dataUrl,
         }));
+        const shouldShowTurnError =
+          turn.status === "error" && Boolean(turn.error) && !isTurnErrorDuplicatedByFailedImages(turn);
         const successfulTurnImages = turn.images.flatMap((image) => {
           const imageSrc = getStoredImageSrc(image);
           return image.status === "success" && imageSrc
@@ -435,7 +437,7 @@ export function ImageResults({
               </div>
             ) : null}
 
-            {turn.status === "error" && turn.error ? (
+            {shouldShowTurnError ? (
               <div className="mx-4 mb-4 border-l-2 border-amber-300 bg-amber-50/70 px-4 py-3 text-sm leading-6 text-amber-700">
                 {turn.error}
               </div>
@@ -454,6 +456,16 @@ function getImageAspectClass(size: string) {
   if (size === "4:3") return "aspect-[4/3]";
   if (size === "3:4") return "aspect-[3/4]";
   return "aspect-[4/3]";
+}
+
+function isTurnErrorDuplicatedByFailedImages(turn: ImageConversation["turns"][number]) {
+  const turnError = turn.error?.trim();
+  if (!turnError) {
+    return false;
+  }
+
+  const failedImages = turn.images.filter((image) => image.status === "error");
+  return failedImages.length > 0 && failedImages.every((image) => image.error?.trim() === turnError);
 }
 
 function getStoredImageSrc(image: StoredImage) {
