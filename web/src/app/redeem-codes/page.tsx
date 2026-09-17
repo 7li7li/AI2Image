@@ -31,13 +31,27 @@ function downloadRedeemCodes(codes: RedeemCode[]) {
   URL.revokeObjectURL(url);
 }
 
+function formatGeneratedAt(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 function RedeemCodesContent() {
   const [items, setItems] = useState<RedeemCode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<RedeemCode[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [form, setForm] = useState({ quota: "10", count: "10", max_uses: "1", valid_months: "1", expires_at: "", note: "" });
+  const [form, setForm] = useState({ quota: "30", count: "10", max_uses: "1", valid_months: "1", expires_at: "", note: "" });
   const selectedCodes = items.filter((item) => selectedIds.includes(item.id));
   const allSelected = items.length > 0 && items.every((item) => selectedIds.includes(item.id));
   const deleteCount = deleteTarget?.length ?? 0;
@@ -75,8 +89,9 @@ function RedeemCodesContent() {
       });
       setItems(data.items);
       setSelectedIds((current) => current.filter((id) => data.items.some((item) => item.id === id)));
+      downloadRedeemCodes(data.created);
       await navigator.clipboard.writeText(data.created.map((item) => item.code).join("\n"));
-      toast.success(`已生成 ${data.created.length} 个兑换码，并复制到剪贴板`);
+      toast.success(`已生成 ${data.created.length} 个兑换码，已导出并复制到剪贴板`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "生成兑换码失败");
     }
@@ -178,7 +193,7 @@ function RedeemCodesContent() {
               <Input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder="备注" className="h-10 rounded-xl border-stone-100 bg-white" />
             </label>
             <Button className="h-10 rounded-xl bg-neutral-900 text-white hover:bg-black md:self-end" onClick={() => void handleCreate()}>
-              生成
+              生成并导出
             </Button>
           </div>
         </CardContent>
@@ -246,6 +261,7 @@ function RedeemCodesContent() {
                   <div className="min-w-0">
                     <div className="truncate font-mono font-semibold text-stone-900">{item.code}</div>
                     <div className="truncate text-xs text-stone-400">{item.note || "无备注"}</div>
+                    <div className="mt-1 text-xs text-stone-400">生成日期：{formatGeneratedAt(item.created_at)}</div>
                   </div>
                 </div>
                 <div className="font-semibold text-stone-600">{item.quota} 点</div>

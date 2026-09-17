@@ -1358,7 +1358,7 @@ class AuthService:
             existing_codes = {str(item.get("code") or "") for item in self._redeem_codes}
             created: list[dict[str, object]] = []
             while len(created) < total:
-                code = f"YAI-{secrets.token_urlsafe(9).replace('-', '').replace('_', '').upper()[:12]}"
+                code = f"IKUN-{secrets.token_urlsafe(9).replace('-', '').replace('_', '').upper()[:12]}"
                 if code in existing_codes:
                     continue
                 item = self._normalize_redeem_code({

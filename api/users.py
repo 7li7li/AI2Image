@@ -105,7 +105,7 @@ class IdsDeleteRequest(BaseModel):
 
 
 class RedeemCodeCreateRequest(BaseModel):
-    quota: int = Field(default=1, ge=1)
+    quota: int = Field(default=30, ge=1)
     count: int = Field(default=1, ge=1, le=500)
     max_uses: int = Field(default=1, ge=1)
     valid_months: int = Field(default=0, ge=0)
