@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
 import hashlib
 import json
 import re
@@ -91,77 +90,6 @@ def _download_image_url(image_url: str) -> bytes:
     return image_data
 
 
-def _decode_data_image_url(image_url: str) -> bytes | None:
-    """Decode an image data URL returned in a provider's ``url`` field.
-
-    A few OpenAI-compatible gateways return ``data:image/...;base64,...``
-    even when the request asks for a URL.  Treating that value as a remote
-    URL makes the normalizer fail before the image can be persisted locally.
-    Return ``None`` for ordinary URLs so callers can keep the normal download
-    path unchanged.
-    """
-    value = _clean(image_url)
-    if not value.lower().startswith("data:"):
-        return None
-    header, separator, encoded = value.partition(",")
-    if (
-        not separator
-        or not header.lower().startswith("data:image/")
-        or ";base64" not in header.lower()
-    ):
-        raise RuntimeError("channel image data url is invalid")
-    encoded = re.sub(r"\s+", "", encoded)
-    if not encoded:
-        raise RuntimeError("channel image data url is empty")
-    if len(encoded) % 4 == 1:
-        raise RuntimeError("channel image data url is invalid")
-    if len(encoded) % 4:
-        encoded += "=" * (4 - len(encoded) % 4)
-    try:
-        image_data = base64.b64decode(encoded, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise RuntimeError("channel image data url is invalid") from exc
-    if not image_data:
-        raise RuntimeError("channel image data url is empty")
-    return image_data
-
-
-_BASE64_IMAGE_PATTERN = re.compile(r"[A-Za-z0-9+/]*={0,2}")
-
-
-def _decode_base64_image(value: object) -> bytes | None:
-    """Decode an image value that may be a data URL or bare Base64.
-
-    OpenAI-compatible gateways are not consistent about the field they use
-    for image data.  In particular, some put a bare Base64 payload in
-    ``url`` and others include the full ``data:image/...;base64,`` prefix in
-    ``b64_json``.  Return ``None`` for ordinary non-Base64 values so callers
-    can continue with their normal URL handling.
-
-    """
-    text = _clean(value)
-    if not text:
-        return None
-    if text.lower().startswith("data:"):
-        return _decode_data_image_url(text)
-    # A URL can occasionally contain only characters from the Base64 alphabet
-    # (for example a short path), so use a strict alphabet before attempting
-    # to decode it. Whitespace is legal in many Base64 encodings and is
-    # harmless to remove here.
-    encoded = re.sub(r"\s+", "", text)
-    if not encoded or not _BASE64_IMAGE_PATTERN.fullmatch(encoded):
-        return None
-    if len(encoded) % 4 == 1:
-        return None
-    if len(encoded) % 4:
-        encoded += "=" * (4 - len(encoded) % 4)
-    try:
-        image_data = base64.b64decode(encoded, validate=True)
-    except (binascii.Error, ValueError):
-        return None
-    return image_data or None
-
-
 def _local_image_path_from_path(parsed_path: str) -> Path | None:
     if not parsed_path.startswith("/images/"):
         return None
@@ -183,19 +111,13 @@ def _localize_url_items(
         transparent_background: bool = False,
 ) -> list[dict[str, Any]]:
     target_base_url = _clean(base_url) or config.base_url
+    if not target_base_url:
+        return items
+
     localized: list[dict[str, Any]] = []
     for item in items:
         image_url = _clean(item.get("url"))
         if not image_url:
-            continue
-        inline_image_bytes = _decode_base64_image(image_url)
-        if inline_image_bytes is not None:
-            if transparent_background:
-                inline_image_bytes = _remove_keyed_background_with_fallback(inline_image_bytes)
-            localized.append({**item, "url": _save_image_bytes(inline_image_bytes, target_base_url)})
-            continue
-        if not target_base_url:
-            localized.append(item)
             continue
         parsed = urlparse(image_url)
         parsed_path = parsed.path or image_url
@@ -225,10 +147,7 @@ def _format_image_result(
         if not b64_json:
             continue
         revised_prompt = _clean(item.get("revised_prompt") or prompt) or prompt
-        image_data = _decode_base64_image(b64_json)
-        if image_data is None:
-            raise RuntimeError("channel image base64 is invalid")
-        b64_json = base64.b64encode(image_data).decode("ascii")
+        image_data = base64.b64decode(b64_json)
         if transparent_background:
             image_data = _remove_keyed_background_with_fallback(image_data)
             b64_json = base64.b64encode(image_data).decode("ascii")
@@ -1893,8 +1812,8 @@ class ChannelService:
             prompt = build_transparent_prompt(prompt)
         if self._is_newapi_channel(channel):
             # NewAPI documents no response_format for /v1/images/generations.
-            # GPT Image responses are returned as base64, which the normalizer
-            # below saves locally before returning the caller's requested shape.
+            # Response normalization keeps the documented url and b64_json
+            # response fields separate.
             body = {
                 key: value
                 for key, value in payload.items()
@@ -1937,9 +1856,8 @@ class ChannelService:
             "n": str(int(payload.get("n") or 1)),
         }
         if self._is_newapi_channel(channel):
-            # NewAPI documents b64_json for its multipart image-edit endpoint.
-            # Always request it upstream so deployments without URL responses
-            # can still be normalized into a local image URL for the UI.
+            # NewAPI's multipart image-edit endpoint returns image bytes via
+            # the standard b64_json field rather than a URL response.
             form_data["response_format"] = "b64_json"
         else:
             form_data["response_format"] = _clean(payload.get("response_format")) or "b64_json"
@@ -2124,32 +2042,8 @@ class ChannelService:
         data = payload.get("data")
         if not isinstance(data, list):
             raise RuntimeError("channel response missing data")
-        b64_items: list[dict[str, Any]] = []
-        url_items: list[dict[str, Any]] = []
-        for item in data:
-            if not isinstance(item, dict):
-                continue
-            b64_value = _clean(item.get("b64_json"))
-            if b64_value:
-                # Keep the original item so revised_prompt and any provider
-                # metadata survive normalization.  _format_image_result
-                # canonicalizes a possible data URL before saving it.
-                b64_items.append(item)
-                continue
-            image_url = _clean(item.get("url"))
-            if not image_url:
-                continue
-            # A few gateways put bare Base64 (or a data URL) in ``url``.
-            # Promote that value to the same path used for b64_json responses;
-            # ordinary HTTP(S) URLs continue through the downloader below.
-            inline_image_bytes = _decode_base64_image(image_url)
-            if inline_image_bytes is not None:
-                b64_items.append({
-                    **item,
-                    "b64_json": base64.b64encode(inline_image_bytes).decode("ascii"),
-                })
-            else:
-                url_items.append(item)
+        b64_items = [item for item in data if isinstance(item, dict) and item.get("b64_json")]
+        url_items = [item for item in data if isinstance(item, dict) and item.get("url") and not item.get("b64_json")]
         base_url = _clean(original_payload.get("base_url")) or None
         transparent_background = _is_transparent_background_request(original_payload)
         localized_url_items = _localize_url_items(
@@ -2181,7 +2075,7 @@ class ChannelService:
                         transparent_background=transparent_background,
                     )["data"][0]
                     normalized["data"].append({
-                        "b64_json": saved["b64_json"],
+                        "b64_json": item,
                         "url": saved["url"],
                     })
         return normalized

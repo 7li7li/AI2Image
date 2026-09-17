@@ -163,7 +163,7 @@ const toNumber = (value: string, fallback: number) => {
 const channelTypeLabel = (channel: Channel) => {
   if (channel.type === "gemini") return "Google Gemini";
   if (channel.type === "openai_image") {
-    return `OpenAI · ${channel.api_type === "newapi" ? "NewAPI" : "sub2api"}`;
+    return `OpenAI · ${channel.api_type === "newapi" ? "newapi" : "sub2api"}`;
   }
   return channel.type;
 };
@@ -202,9 +202,7 @@ function FieldHelpStrip() {
       <div className="min-w-0">
         <span className="font-semibold text-stone-700">OpenAI 接口类型</span>
         <span className="mx-1 text-stone-300">/</span>
-        <span>
-          sub2api 保持原有兼容行为；NewAPI 按官方图片接口使用 Base64 返回。
-        </span>
+        <span>sub2api 保持原有兼容行为；newapi 按官方图片接口发送请求。</span>
       </div>
     </div>
   );
@@ -536,10 +534,8 @@ function ChannelsContent() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="sub2api">
-                      sub2api（原兼容方式）
-                    </SelectItem>
-                    <SelectItem value="newapi">NewAPI（Base64）</SelectItem>
+                    <SelectItem value="sub2api">sub2api</SelectItem>
+                    <SelectItem value="newapi">newapi</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -910,10 +906,8 @@ function ChannelsContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="sub2api">
-                        sub2api（原兼容方式）
-                      </SelectItem>
-                      <SelectItem value="newapi">NewAPI（Base64）</SelectItem>
+                      <SelectItem value="sub2api">sub2api</SelectItem>
+                      <SelectItem value="newapi">newapi</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

@@ -696,7 +696,7 @@ class ModelServiceTest(unittest.TestCase):
         self.assertEqual(legacy_channel["api_type"], "sub2api")
         self.assertEqual(legacy_channel["models"], ["gpt-5.5", "gpt-image-2"])
 
-    def test_newapi_generation_uses_documented_base64_request_shape(self) -> None:
+    def test_newapi_generation_uses_documented_request_shape(self) -> None:
         class FakeResponse:
             ok = True
             status_code = 200
@@ -763,7 +763,7 @@ class ModelServiceTest(unittest.TestCase):
         self.assertNotIn("output_format", body)
         self.assertNotIn("output_compression", body)
 
-    def test_newapi_edit_forces_base64_and_uses_documented_form_fields(self) -> None:
+    def test_newapi_edit_uses_b64_json_and_documented_form_fields(self) -> None:
         class FakeResponse:
             ok = True
             status_code = 200
@@ -1079,140 +1079,6 @@ class ModelServiceTest(unittest.TestCase):
             self.assertTrue(data[0]["url"].startswith("https://site.example/images/2026/05/29/"))
             self.assertTrue(list((images_dir / "2026" / "05" / "29").glob("*.png")))
             download.assert_called_once_with("https://gptimage.futureppo.top/image.png")
-
-    def test_external_generation_data_url_response_is_saved_locally(self) -> None:
-        class FakeResponse:
-            ok = True
-            status_code = 200
-            text = ""
-
-            def json(self):
-                return {
-                    "created": 1,
-                    "data": [{"url": "data:image/png;base64,aW1hZ2UtYnl0ZXM="}],
-                }
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            images_dir = Path(tmp_dir) / "images"
-            fake_config = SimpleNamespace(
-                images_dir=images_dir,
-                base_url="",
-                cleanup_old_images=lambda: 0,
-            )
-            with (
-                mock.patch.object(channel_service_module, "config", fake_config),
-                mock.patch.object(channel_service_module, "china_now_text", return_value="2026-05-29 08:00:00"),
-                mock.patch.object(channel_service_module, "_download_image_url") as download,
-            ):
-                result = ChannelService._normalize_response(
-                    FakeResponse(),
-                    {"prompt": "draw", "response_format": "url", "base_url": "https://site.example"},
-                )
-                self.assertEqual(result["data"][0]["url"].split("/images/", 1)[0], "https://site.example")
-                saved_path = images_dir / "2026" / "05" / "29"
-                self.assertEqual(next(saved_path.glob("*.png")).read_bytes(), b"image-bytes")
-                download.assert_not_called()
-
-    def test_external_generation_b64_json_data_url_is_normalized(self) -> None:
-        class FakeResponse:
-            ok = True
-            status_code = 200
-            text = ""
-
-            def json(self):
-                return {
-                    "created": 1,
-                    "data": [{"b64_json": "data:image/png;base64,aW1hZ2UtYnl0ZXM="}],
-                }
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            images_dir = Path(tmp_dir) / "images"
-            fake_config = SimpleNamespace(
-                images_dir=images_dir,
-                base_url="",
-                cleanup_old_images=lambda: 0,
-            )
-            with (
-                mock.patch.object(channel_service_module, "config", fake_config),
-                mock.patch.object(channel_service_module, "china_now_text", return_value="2026-05-29 08:00:00"),
-            ):
-                result = ChannelService._normalize_response(
-                    FakeResponse(),
-                    {"prompt": "draw", "response_format": "b64_json", "base_url": "https://site.example"},
-                )
-
-        self.assertEqual(result["data"][0]["b64_json"], "aW1hZ2UtYnl0ZXM=")
-        self.assertTrue(result["data"][0]["url"].startswith("https://site.example/images/"))
-
-    def test_external_generation_bare_base64_url_is_saved_locally(self) -> None:
-        class FakeResponse:
-            ok = True
-            status_code = 200
-            text = ""
-
-            def json(self):
-                return {"created": 1, "data": [{"url": "aW1hZ2UtYnl0ZXM="}]}
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            images_dir = Path(tmp_dir) / "images"
-            fake_config = SimpleNamespace(
-                images_dir=images_dir,
-                base_url="",
-                cleanup_old_images=lambda: 0,
-            )
-            with (
-                mock.patch.object(channel_service_module, "config", fake_config),
-                mock.patch.object(channel_service_module, "china_now_text", return_value="2026-05-29 08:00:00"),
-                mock.patch.object(channel_service_module, "_download_image_url") as download,
-            ):
-                result = ChannelService._normalize_response(
-                    FakeResponse(),
-                    {"prompt": "draw", "response_format": "url", "base_url": "https://site.example"},
-                )
-
-            saved_path = images_dir / "2026" / "05" / "29"
-            self.assertEqual(next(saved_path.glob("*.png")).read_bytes(), b"image-bytes")
-            self.assertTrue(result["data"][0]["url"].startswith("https://site.example/images/"))
-            download.assert_not_called()
-
-    def test_external_generation_mixed_b64_and_url_items_are_all_normalized(self) -> None:
-        class FakeResponse:
-            ok = True
-            status_code = 200
-            text = ""
-
-            def json(self):
-                return {
-                    "created": 1,
-                    "data": [
-                        {"url": "aW1hZ2UtYnl0ZXM="},
-                        {"b64_json": "aW1hZ2UtYnl0ZXM="},
-                        {"url": "https://upstream.example/image.png"},
-                    ],
-                }
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            images_dir = Path(tmp_dir) / "images"
-            fake_config = SimpleNamespace(
-                images_dir=images_dir,
-                base_url="",
-                cleanup_old_images=lambda: 0,
-            )
-            with (
-                mock.patch.object(channel_service_module, "config", fake_config),
-                mock.patch.object(channel_service_module, "china_now_text", return_value="2026-05-29 08:00:00"),
-                mock.patch.object(channel_service_module, "_download_image_url", return_value=b"remote-bytes") as download,
-            ):
-                result = ChannelService._normalize_response(
-                    FakeResponse(),
-                    {"prompt": "draw", "response_format": "url", "base_url": "https://site.example"},
-                )
-                saved_count = len(list((images_dir / "2026" / "05" / "29").glob("*.png")))
-
-        self.assertEqual(len(result["data"]), 3)
-        self.assertTrue(all(item["url"].startswith("https://site.example/images/") for item in result["data"]))
-        self.assertEqual(saved_count, 3)
-        download.assert_called_once_with("https://upstream.example/image.png")
 
     def test_external_generation_existing_local_url_is_rebased_without_download(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
