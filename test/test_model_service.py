@@ -738,7 +738,7 @@ class ModelServiceTest(unittest.TestCase):
         self.assertEqual(legacy_channel["api_type"], "sub2api")
         self.assertEqual(legacy_channel["models"], ["gpt-5.5", "gpt-image-2"])
 
-    def test_newapi_generation_uses_documented_request_shape(self) -> None:
+    def test_newapi_generation_uses_chroma_key_for_transparent_background(self) -> None:
         class FakeResponse:
             ok = True
             status_code = 200
@@ -800,7 +800,9 @@ class ModelServiceTest(unittest.TestCase):
         self.assertEqual(body["size"], "1024x1024")
         self.assertEqual(body["quality"], "high")
         self.assertEqual(body["moderation"], "low")
-        self.assertEqual(body["background"], "transparent")
+        self.assertNotIn("background", body)
+        self.assertIn("#00FF00", body["prompt"])
+        self.assertIn("#FF00FF", body["prompt"])
         self.assertNotIn("response_format", body)
         self.assertNotIn("output_format", body)
         self.assertNotIn("output_compression", body)
@@ -892,6 +894,78 @@ class ModelServiceTest(unittest.TestCase):
         )
         part_names = {part["name"] for part in parts}
         self.assertFalse({"quality", "output_format", "output_compression", "moderation", "background"} & part_names)
+
+    def test_transparent_edit_uses_chroma_key_for_all_openai_channels(self) -> None:
+        class FakeResponse:
+            ok = True
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {"created": 1, "data": [{"b64_json": "aW1hZ2U="}]}
+
+        class FakeSession:
+            def post(self, _url, **_kwargs):
+                return FakeResponse()
+
+        mime_instances = []
+
+        class FakeCurlMime:
+            def __init__(self):
+                self.parts = []
+                self.closed = False
+                mime_instances.append(self)
+
+            def addpart(self, name, **kwargs):
+                self.parts.append({"name": name, **kwargs})
+
+            def close(self):
+                self.closed = True
+
+        for api_type in ("newapi", "sub2api"):
+            with self.subTest(api_type=api_type), tempfile.TemporaryDirectory() as tmp_dir:
+                storage = JSONStorageBackend(Path(tmp_dir) / "storage.json")
+                storage.save_channels(
+                    [
+                        {
+                            "id": "channel-a",
+                            "name": api_type,
+                            "type": "openai_image",
+                            "api_type": api_type,
+                            "base_url": f"https://{api_type}.example",
+                            "api_key": "sk-test",
+                            "models": ["gpt-image-2"],
+                        }
+                    ]
+                )
+                service = ChannelService(storage, FakeConfigStore())
+                service._session = lambda channel: FakeSession()  # type: ignore[method-assign]
+
+                with (
+                    mock.patch("services.channel_service.CurlMime", FakeCurlMime),
+                    mock.patch(
+                        "services.channel_service._format_image_result",
+                        return_value={"created": 1, "data": [{"url": "https://app.example/image.png"}]},
+                    ) as format_image_result,
+                ):
+                    routed = service.call_edit(
+                        {
+                            "prompt": "edit",
+                            "model": "gpt-image-2",
+                            "n": 1,
+                            "background": "transparent",
+                            "response_format": "url",
+                            "images": [(b"image-bytes", "input.png", "image/png")],
+                        }
+                    )
+
+                self.assertIsNotNone(routed)
+                parts = mime_instances[-1].parts
+                prompt = next(part["data"].decode("utf-8") for part in parts if part["name"] == "prompt")
+                self.assertIn("#00FF00", prompt)
+                self.assertIn("#FF00FF", prompt)
+                self.assertNotIn("background", {part["name"] for part in parts})
+                self.assertTrue(format_image_result.call_args.kwargs["transparent_background"])
 
     def test_external_generation_channel_normalizes_aspect_ratio_for_upstream(self) -> None:
         class FakeResponse:

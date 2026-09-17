@@ -529,8 +529,9 @@ def _normalize_newapi_image_options(payload: dict[str, Any]) -> dict[str, str]:
 
     NewAPI's OpenAI image-generation endpoint does not accept the generic
     ``response_format``, ``output_format``, or ``output_compression`` fields.
-    Its ``background`` field does support ``transparent``, unlike the legacy
-    sub2api-compatible request path.
+    Although it documents ``background=transparent``, compatible upstreams
+    may return an opaque image, so transparent requests use chroma-key
+    post-processing instead.
     """
     options: dict[str, str] = {}
     quality = _clean(payload.get("quality")).lower()
@@ -1859,11 +1860,7 @@ class ChannelService:
             payload.get("size"),
             payload.get("resolution"),
         )
-        if (
-                _is_transparent_background_request(payload)
-                and prompt is not None
-                and not self._is_newapi_channel(channel)
-        ):
+        if _is_transparent_background_request(payload) and prompt is not None:
             prompt = build_transparent_prompt(prompt)
         if self._is_newapi_channel(channel):
             # NewAPI documents no response_format for /v1/images/generations.
@@ -1882,6 +1879,8 @@ class ChannelService:
                 if key in {"model", "n", "response_format"} and value is not None
             }
             body.update(_normalize_external_image_options(payload))
+        if _is_transparent_background_request(payload):
+            body.pop("background", None)
         if prompt is not None:
             body["prompt"] = prompt
         if size is not None:
@@ -1917,6 +1916,8 @@ class ChannelService:
         else:
             form_data["response_format"] = _clean(payload.get("response_format")) or "b64_json"
             form_data.update(_normalize_external_image_options(payload))
+        if _is_transparent_background_request(payload):
+            form_data.pop("background", None)
         if size is not None:
             form_data["size"] = size
         multipart = CurlMime()
